@@ -16,6 +16,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Lists all valid baud rates
+    ListBauds,
     /// Lists all available serial ports
     ListPorts {
         /// [DEFAULT] - Streams the serial output to stdout
@@ -25,15 +27,40 @@ enum Commands {
         #[arg(short, long)]
         file: Option<String>,
     },
+    /// Gets the settings for a serial port
+    ListSettings {
+        /// Specify the baud rate for the serial connection
+        #[arg(short, long, value_parser = valid_baud_rate)]
+        baud: u32,
+        /// Path to the port to open
+        #[arg(short, long)]
+        port: String,
+    },
+    /// Opens a port and reads the recieved data
+    ReadPort {
+        /// Specify the baud rate for the serial connection
+        #[arg(short, long, value_parser = valid_baud_rate)]
+        baud: u32,
+        /// Path to the port to open
+        #[arg(short, long)]
+        port: String,
+    },
 }
 
-fn main() -> io::Result<()> {
+#[tokio::main]
+async fn main() -> io::Result<()> {
     let cli = Cli::parse();
 
     let stdout = io::stdout();
-    let handle = stdout.lock();
+    let mut handle = stdout.lock();
 
-    match &cli.command {
+    match cli.command {
+        Commands::ListBauds => {
+            write!(handle, "Valid baud rates:\r\n")?;
+            for baud in serial2_tokio::COMMON_BAUD_RATES {
+                write!(handle, "{}\r\n", baud)?;
+            }
+        }
         Commands::ListPorts { stream, file } => {
             if let Some(file) = file {
                 let path = std::path::Path::new(&file);
@@ -44,25 +71,106 @@ fn main() -> io::Result<()> {
                     write!(file_handle, "\r\nUTC: {}\r\n", chrono::Utc::now())?;
                 }
                 list_serial_ports(Box::new(file_handle))?
-            } else if *stream {
+            } else if stream {
                 list_serial_ports(Box::new(handle))?
             }
         }
+        Commands::ListSettings { baud, port } => {
+            get_settings(Box::new(handle), baud, &port)?;
+        }
+        Commands::ReadPort {
+            baud: _baud,
+            port: _port,
+        } => {
+            let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+            tokio::spawn(async move {
+                for i in 0..10 {
+                    if tx.send(i).await.is_err() {
+                        println!("receiver dropped");
+                        return;
+                    }
+                }
+            });
+
+            while let Some(i) = rx.recv().await {
+                println!("got = {}", i);
+            }
+
+            // let con = serial2_tokio::SerialPort::open(port, baud)?;
+            // let mut buffer = [0; 256];
+            // let x = con.write(b"hello world").await?;
+            // write!(handle, "The bytes: {:?}", x)?;
+            // // println!("{x}");
+            // loop {
+            //     let read = con.read(&mut buffer).await?;
+            //     con.write(&buffer[..read]).await?;
+            // }
+        }
     }
+    Ok(())
+}
+
+fn get_settings(mut handle: Box<dyn io::Write>, baud: u32, con: &str) -> Result<(), io::Error> {
+    // https://www.contec.com/support/basic-knowledge/daq-control/serial-communicatin/
+    // let settings = |mut s: serial2_tokio::Settings| -> std::io::Result<serial2_tokio::Settings> {
+    //     s.set_raw();
+    //     s.set_baud_rate(*baud)?;
+    //     s.set_char_size(serial2_tokio::CharSize::Bits8);
+    //     s.set_stop_bits(serial2_tokio::StopBits::Two);
+    //     Ok(s)
+    // };
+    // let con = serial2_tokio::SerialPort::open(con, settings)?;
+    let con = serial2_tokio::SerialPort::open(con, baud)?;
+    let settings = con.get_configuration()?;
+
+    let b = settings.get_baud_rate()?;
+    let c = settings.get_char_size()?;
+    let s = settings.get_stop_bits()?;
+    let p = settings.get_parity()?;
+    let f = settings.get_flow_control()?;
+
+    let cts = con.read_cts()?;
+    let dsr = con.read_dsr()?;
+    let ri = con.read_ri()?;
+    let cd = con.read_cd()?;
+
+    write!(handle, "Baud rate: {}\r\n", b)?;
+    write!(handle, "Char size: {}\r\n", c)?;
+    write!(handle, "Stop bits: {}\r\n", s)?;
+    write!(handle, "Parity mechanism: {}\r\n", p)?;
+    write!(handle, "Flow control: {}\r\n", f)?;
+    write!(handle, "Clear To Send line: {}\r\n", cts)?;
+    write!(handle, "Data Set Ready line: {}\r\n", dsr)?;
+    write!(handle, "Ring Indicator line: {}\r\n", ri)?;
+    write!(handle, "Carrier Detect line: {}\r\n", cd)?;
 
     Ok(())
 }
 
 fn list_serial_ports(mut handle: Box<dyn io::Write>) -> Result<(), io::Error> {
-    if let Ok(ports) = serial2_tokio::SerialPort::available_ports() {
-        for path in ports {
-            if let Some(path) = path.to_str() {
-                let line = [path, "\r\n"].concat();
-                handle.write(line.as_bytes())?
-            } else {
-                continue;
-            };
-        }
-    };
+    let ports = serial2_tokio::SerialPort::available_ports()?;
+    for path in ports {
+        if let Some(path) = path.to_str() {
+            let line = [path, "\r\n"].concat();
+            handle.write(line.as_bytes())?
+        } else {
+            continue;
+        };
+    }
     Ok(())
+}
+
+fn valid_baud_rate(s: &str) -> Result<u32, String> {
+    let baud: u32 = s
+        .parse()
+        .map_err(|_| format!("`{s}` isn't a valid baud rate"))?;
+    if serial2_tokio::COMMON_BAUD_RATES.contains(&baud) {
+        Ok(baud)
+    } else {
+        Err(format!(
+            "'{}' is not a valid baud rate; valid baud rates include {:?}",
+            baud,
+            serial2_tokio::COMMON_BAUD_RATES
+        ))
+    }
 }
