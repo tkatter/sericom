@@ -39,7 +39,13 @@ enum Commands {
         port: String,
         /// Keeps the existing serial port configuration
         #[arg(short, long)]
-        keep_settings: bool
+        keep_settings: bool,
+        /// [DEFAULT] - Streams the serial output to stdout
+        #[arg(short, long, default_value_t = true)]
+        stream: bool,
+        /// Writes the serial output to the specified file
+        #[arg(short, long)]
+        file: Option<String>,
     },
     /// Opens a port and reads the recieved data
     ReadPort {
@@ -84,8 +90,19 @@ async fn main() -> io::Result<()> {
                 list_serial_ports(Box::new(handle))?
             }
         }
-        Commands::ListSettings { baud, port, keep_settings} => {
-            get_settings(Box::new(handle), baud, &port, keep_settings)?;
+        Commands::ListSettings { baud, port, keep_settings, stream, file } => {
+            if let Some(file) = file {
+                let path = std::path::Path::new(&file);
+                let mut file_handle = File::options().append(true).create(true).open(path)?;
+                if path.metadata()?.len() == 0 {
+                    write!(file_handle, "TIMESTAMP: {}\r\nPORT: {port}\r\n", chrono::Utc::now())?;
+                } else {
+                    write!(file_handle, "\r\nTIMESTAMP: {}\r\nPORT: {port}\r\n", chrono::Utc::now())?;
+                }
+                get_settings(Box::new(file_handle), baud, &port, keep_settings)?;
+            } else if stream {
+                get_settings(Box::new(handle), baud, &port, keep_settings)?;
+            }
         }
         Commands::ReadPort { baud, port, keep_settings}
         => {
