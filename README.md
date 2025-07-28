@@ -17,12 +17,15 @@ Add user to the `dialout` group with `sudo usermod -a -G dialout $USER`.
 ## Error Messages
 
 **Error: Custom { kind: Other, error: "failed to apply some or all settings" }**
+
 From what I've tested, started getting this error when opening ports with `list-settings`  
 and using a baud rate >115200 on Linux Mint.
 
 **Error: Os { code: 5, kind: Uncategorized, message: "Input/output error" }**
+
 Not sure what this one is about.
 
 **Error: Os { code: 13, kind: PermissionDenied, message: "Permission denied" }**
+
 Permission denied, if on Linux - see [Linux Setup](#linux-setup).  
 If have already added Linux user to the correct group, unsure what the problem is yet.
