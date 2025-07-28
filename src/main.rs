@@ -4,6 +4,8 @@ use std::{
 };
 
 use clap::{Parser, Subcommand};
+use serial2_tokio::SerialPort;
+// use tokio::io::AsyncReadExt;
 
 #[derive(Parser)]
 #[command(name = "SerialTool", version, about, long_about = None)]
@@ -29,21 +31,29 @@ enum Commands {
     },
     /// Gets the settings for a serial port
     ListSettings {
-        /// Specify the baud rate for the serial connection
-        #[arg(short, long, value_parser = valid_baud_rate)]
-        baud: u32,
+        /// Specify the baud rate for the serial connection - REQUIRED IF '--keep-settings' NOT
+        /// PRESENT
+        #[arg(short, long, value_parser = valid_baud_rate, required_unless_present = "keep_settings")]
+        baud: Option<u32>,
         /// Path to the port to open
         #[arg(short, long)]
         port: String,
+        /// Keeps the existing serial port configuration
+        #[arg(short, long)]
+        keep_settings: bool
     },
     /// Opens a port and reads the recieved data
     ReadPort {
-        /// Specify the baud rate for the serial connection
-        #[arg(short, long, value_parser = valid_baud_rate)]
-        baud: u32,
+        /// Specify the baud rate for the serial connection - REQUIRED IF '--keep-settings' NOT
+        /// PRESENT
+        #[arg(short, long, value_parser = valid_baud_rate, required_unless_present = "keep_settings")]
+        baud: Option<u32>,
         /// Path to the port to open
         #[arg(short, long)]
         port: String,
+        /// Keeps the existing serial port configuration
+        #[arg(short, long)]
+        keep_settings: bool
     },
 }
 
@@ -75,27 +85,14 @@ async fn main() -> io::Result<()> {
                 list_serial_ports(Box::new(handle))?
             }
         }
-        Commands::ListSettings { baud, port } => {
-            get_settings(Box::new(handle), baud, &port)?;
+        Commands::ListSettings { baud, port, keep_settings} => {
+            get_settings(Box::new(handle), baud, &port, keep_settings)?;
         }
-        Commands::ReadPort {
-            baud: _baud,
-            port: _port,
-        } => {
-            let (tx, mut rx) = tokio::sync::mpsc::channel(1);
-            tokio::spawn(async move {
-                for i in 0..10 {
-                    if tx.send(i).await.is_err() {
-                        println!("receiver dropped");
-                        return;
-                    }
-                }
-            });
-
-            while let Some(i) = rx.recv().await {
-                println!("got = {}", i);
-            }
-
+        Commands::ReadPort { baud, port, keep_settings}
+        => {
+            let mut buff: Vec<u8> = Vec::new();
+            let con = open_port(baud, &port, keep_settings)?;
+            stream_to_stdout(&mut buff, con).await?;
             // let con = serial2_tokio::SerialPort::open(port, baud)?;
             // let mut buffer = [0; 256];
             // let x = con.write(b"hello world").await?;
@@ -110,8 +107,34 @@ async fn main() -> io::Result<()> {
     Ok(())
 }
 
-fn get_settings(mut handle: Box<dyn io::Write>, baud: u32, con: &str) -> Result<(), io::Error> {
+fn open_port(baud: Option<u32>, port: &str, keep_settings: bool) -> io::Result<SerialPort> {
+    let con = if keep_settings {
+        SerialPort::open(port, serial2_tokio::KeepSettings)?
+    } else if let Some(baud) = baud {
+        SerialPort::open(port, baud)?
+    } else {
+        unreachable!()
+    };
+    Ok(con)
+}
+
+#[allow(clippy::needless_lifetimes)]
+async fn stream_to_stdout<'a>(buff: &'a mut Vec<u8>, con: SerialPort) -> io::Result<()> {
+    let read_to_buff = async |buff: &'a mut Vec<u8>, con: SerialPort| -> io::Result<&'a [u8]> {
+        con.read(buff).await?;
+        Ok(buff.as_slice())
+    };
+    let mut reader = read_to_buff(buff, con).await?;
+    let mut writer = tokio::io::stdout();
+
+    tokio::io::copy(&mut reader, &mut writer).await?;
+    Ok(())
+}
+
+fn get_settings(mut handle: Box<dyn io::Write>, baud: Option<u32>, port: &str, keep_settings: bool) -> Result<(), io::Error> {
     // https://www.contec.com/support/basic-knowledge/daq-control/serial-communicatin/
+
+    // NOTE: CUSTOM SETTINGS CLOSURE
     // let settings = |mut s: serial2_tokio::Settings| -> std::io::Result<serial2_tokio::Settings> {
     //     s.set_raw();
     //     s.set_baud_rate(*baud)?;
@@ -120,7 +143,8 @@ fn get_settings(mut handle: Box<dyn io::Write>, baud: u32, con: &str) -> Result<
     //     Ok(s)
     // };
     // let con = serial2_tokio::SerialPort::open(con, settings)?;
-    let con = serial2_tokio::SerialPort::open(con, baud)?;
+
+    let con = open_port(baud, port, keep_settings)?;
     let settings = con.get_configuration()?;
 
     let b = settings.get_baud_rate()?;
@@ -148,7 +172,7 @@ fn get_settings(mut handle: Box<dyn io::Write>, baud: u32, con: &str) -> Result<
 }
 
 fn list_serial_ports(mut handle: Box<dyn io::Write>) -> Result<(), io::Error> {
-    let ports = serial2_tokio::SerialPort::available_ports()?;
+    let ports = SerialPort::available_ports()?;
     for path in ports {
         if let Some(path) = path.to_str() {
             let line = [path, "\r\n"].concat();

@@ -17,12 +17,21 @@ Add user to the `dialout` group with `sudo usermod -a -G dialout $USER`.
 ## Error Messages
 
 **Error: Custom { kind: Other, error: "failed to apply some or all settings" }**  
- From what I've tested, started getting this error when opening ports with `list-settings`  
- and using a baud rate >115200 on Linux Mint.
+From what I've tested, started getting this error when opening ports with `list-settings`  
+and using a baud rate >115200 on Linux Mint.
 
 **Error: Os { code: 5, kind: Uncategorized, message: "Input/output error" }**  
- Not sure what this one is about.
+Pretty sure this is because Linux hardcodes `x` amount of serial ports in the kernel.  
+The `/dev/tty*` devices are created regardless of the actual number of physical serial  
+ports your system has.
+
+I only get this error if I try to use any port other than `/dev/ttyS0` on my machine.  
+Therefore, I'm assuming that I only have 1 physical serial port which is why only
+`/dev/ttyS0` responds to this program and the others simply do not exist.
 
 **Error: Os { code: 13, kind: PermissionDenied, message: "Permission denied" }**  
- Permission denied, if on Linux - see [Linux Setup](#linux-setup).  
- If have already added Linux user to the correct group, unsure what the problem is yet.
+Permission denied, if on Linux - see [Linux Setup](#linux-setup).  
+If have already added Linux user to the correct group, unsure what the problem is yet.
+
+**Error: Os { code: 2, kind: NotFound, message: "No such file or directory" }**  
+Supplied path to serial port is invalid/doesn't exist.

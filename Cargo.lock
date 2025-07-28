@@ -441,7 +441,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "serial_script"
+name = "serial_scripts"
 version = "0.0.1"
 dependencies = [
  "chrono",

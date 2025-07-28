@@ -1,5 +1,5 @@
 [package]
-name = "serial_script"
+name = "serial_scripts"
 version = "0.0.1"
 edition = "2024"
 description = "CLI tool for issuing commands to network switches and routers over their serial connections."
@@ -8,4 +8,4 @@ description = "CLI tool for issuing commands to network switches and routers ove
 chrono = "0.4.41"
 clap = { version = "4.5.41", features = ["derive"] }
 serial2-tokio = { version = "0.1.15", features = ["windows"] }
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1.47.0", features = ["full"] }
