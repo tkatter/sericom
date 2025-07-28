@@ -1,0 +1,28 @@
+# Serial CLI Tool
+
+This tool is purpose built for my work. We receive old networking equipment  
+from enterprise manufacturers (i.e. Dell, Cisgo, Juniper) and must clear any  
+existing configs and reset the device to it's factory defaults.
+
+This is done via a serial connection to the device's CONSOLE port. I've decided  
+to try to build a CLI tool in Rust that can run a set of scripts to help automate  
+this process.
+
+## Linux Setup
+
+Need to add user to the correct group to avoid getting `Permission Denied` errors.  
+Use `ls -l /dev/tty*` to check the group of the serial ports - in my case it was `dialout`.  
+Add user to the `dialout` group with `sudo usermod -a -G dialout $USER`.
+
+## Error Messages
+
+**Error: Custom { kind: Other, error: "failed to apply some or all settings" }**
+From what I've tested, started getting this error when opening ports with `list-settings`  
+and using a baud rate >115200 on Linux Mint.
+
+**Error: Os { code: 5, kind: Uncategorized, message: "Input/output error" }**
+Not sure what this one is about.
+
+**Error: Os { code: 13, kind: PermissionDenied, message: "Permission denied" }**
+Permission denied, if on Linux - see [Linux Setup](#linux-setup).  
+If have already added Linux user to the correct group, unsure what the problem is yet.
