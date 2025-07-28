@@ -5,7 +5,6 @@ use std::{
 
 use clap::{Parser, Subcommand};
 use serial2_tokio::SerialPort;
-// use tokio::io::AsyncReadExt;
 
 #[derive(Parser)]
 #[command(name = "SerialTool", version, about, long_about = None)]
@@ -68,7 +67,7 @@ async fn main() -> io::Result<()> {
         Commands::ListBauds => {
             write!(handle, "Valid baud rates:\r\n")?;
             for baud in serial2_tokio::COMMON_BAUD_RATES {
-                write!(handle, "{}\r\n", baud)?;
+                write!(handle, "{baud}\r\n")?;
             }
         }
         Commands::ListPorts { stream, file } => {
@@ -91,17 +90,9 @@ async fn main() -> io::Result<()> {
         Commands::ReadPort { baud, port, keep_settings}
         => {
             let mut buff: Vec<u8> = Vec::new();
+            // let mut buff: [u8; 255] = [0; 255];
             let con = open_port(baud, &port, keep_settings)?;
             stream_to_stdout(&mut buff, con).await?;
-            // let con = serial2_tokio::SerialPort::open(port, baud)?;
-            // let mut buffer = [0; 256];
-            // let x = con.write(b"hello world").await?;
-            // write!(handle, "The bytes: {:?}", x)?;
-            // // println!("{x}");
-            // loop {
-            //     let read = con.read(&mut buffer).await?;
-            //     con.write(&buffer[..read]).await?;
-            // }
         }
     }
     Ok(())
@@ -158,15 +149,15 @@ fn get_settings(mut handle: Box<dyn io::Write>, baud: Option<u32>, port: &str, k
     let ri = con.read_ri()?;
     let cd = con.read_cd()?;
 
-    write!(handle, "Baud rate: {}\r\n", b)?;
-    write!(handle, "Char size: {}\r\n", c)?;
-    write!(handle, "Stop bits: {}\r\n", s)?;
-    write!(handle, "Parity mechanism: {}\r\n", p)?;
-    write!(handle, "Flow control: {}\r\n", f)?;
-    write!(handle, "Clear To Send line: {}\r\n", cts)?;
-    write!(handle, "Data Set Ready line: {}\r\n", dsr)?;
-    write!(handle, "Ring Indicator line: {}\r\n", ri)?;
-    write!(handle, "Carrier Detect line: {}\r\n", cd)?;
+    write!(handle, "Baud rate: {b}\r\n")?;
+    write!(handle, "Char size: {c}\r\n")?;
+    write!(handle, "Stop bits: {s}\r\n")?;
+    write!(handle, "Parity mechanism: {p}\r\n")?;
+    write!(handle, "Flow control: {f}\r\n")?;
+    write!(handle, "Clear To Send line: {cts}\r\n")?;
+    write!(handle, "Data Set Ready line: {dsr}\r\n")?;
+    write!(handle, "Ring Indicator line: {ri}\r\n")?;
+    write!(handle, "Carrier Detect line: {cd}\r\n")?;
 
     Ok(())
 }

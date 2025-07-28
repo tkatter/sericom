@@ -9,3 +9,7 @@ chrono = "0.4.41"
 clap = { version = "4.5.41", features = ["derive"] }
 serial2-tokio = { version = "0.1.15", features = ["windows"] }
 tokio = { version = "1.47.0", features = ["full"] }
+
+[profile.release-win]
+inherits = "release"
+debug = "full"
