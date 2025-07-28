@@ -26,7 +26,7 @@ The `/dev/tty*` devices are created regardless of the actual number of physical 
 ports your system has.
 
 I only get this error if I try to use any port other than `/dev/ttyS0` on my machine.  
-Therefore, I'm assuming that I only have 1 physical serial port which is why only
+Therefore, I'm assuming that I only have 1 physical serial port which is why only  
 `/dev/ttyS0` responds to this program and the others simply do not exist.
 
 **Error: Os { code: 13, kind: PermissionDenied, message: "Permission denied" }**  
