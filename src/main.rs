@@ -49,7 +49,7 @@ enum Commands {
         file: Option<String>,
     },
     /// Opens a port and reads the recieved data
-    ReadPort {
+    PortSesh {
         /// Specify the baud rate for the serial connection - REQUIRED IF '--keep-settings' NOT
         /// PRESENT
         #[arg(short, long, value_parser = valid_baud_rate, required_unless_present = "keep_settings")]
@@ -104,11 +104,108 @@ async fn main() -> io::Result<()> {
                 get_settings(Box::new(handle), baud, &port, keep_settings)?;
             }
         }
-        Commands::ReadPort { baud, port, keep_settings}
+        Commands::PortSesh { baud, port, keep_settings}
         => {
-            stream_to_stdout(baud, &port, keep_settings).await?;
+            interactive_session(baud, &port, keep_settings).await?;
         }
     }
+    Ok(())
+}
+
+async fn interactive_session(baud: Option<u32>, port: &str, keep_settings: bool) -> io::Result<()> {
+    use tokio::{sync::Mutex, time::{timeout, Duration}};
+    use std::sync::Arc;
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<Vec<u8>>(100);
+    let con = Arc::new(Mutex::new(open_port(baud, port, keep_settings)?));
+
+    // Reads the incoming serial data from the connection and sends it
+    // to the `write_handle` via `mpsc::channel` to be written to stdout
+    let read_con = Arc::clone(&con);
+    let read_handle = tokio::spawn(async move {
+        let mut buffer = vec![0u8; 1024];
+        loop {
+            let read_result = {
+                let connection = read_con.lock().await;
+                timeout(Duration::from_millis(100), connection.read(&mut buffer)).await 
+            };
+            match read_result {
+                Ok(Ok(0)) => {
+                    eprintln!("Serial connection closed");
+                    break;
+                }
+                Ok(Ok(n)) => {
+                    let data = buffer[..n].to_vec();
+                    if tx.send(data).await.is_err() {
+                        break;
+                    }
+                }
+                // Ok(Err(_)) | Err(_) => {
+                //     tokio::time::sleep(Duration::from_millis(10)).await;
+                //     continue;
+                // }
+                Ok(Err(e)) => {
+                    eprintln!("Read error: {e}");
+                    break;
+                }
+                Err(_) => continue,
+            }
+        }
+    });
+
+    // Writes incoming serial data from the connection to stdout via `mpsc::channel`
+    let print_stdout_handle = tokio::spawn(async move {
+        let mut stdout = tokio::io::stdout();
+        while let Some(data) = rx.recv().await {
+            let text = String::from_utf8_lossy(&data);
+            if let Err(e) = stdout.write_all(text.as_bytes()).await {
+                eprintln!("Write error: {e}");
+                break;
+            };
+            stdout.flush().await.ok();
+        }
+    });
+
+    // Reads data from stdin and sends it to the serial connection
+    let write_con = Arc::clone(&con);
+    let write_handle = tokio::spawn(async move {
+        let (stdin_tx, mut stdin_rx) = tokio::sync::mpsc::channel::<String>(10);
+
+        // Spawn blocking thread for stdin - use std::thread::spawn, not spawn_blocking
+        std::thread::spawn(move || {
+            use std::io::{self, BufRead};
+            let stdin = io::stdin();
+            let handle = stdin.lock();
+            let mut reader = io::BufReader::new(handle);
+            let mut input = String::new();
+            
+            loop {
+                input.clear();
+                match reader.read_line(&mut input) {
+                    Ok(0) => break, // EOF
+                    Ok(_) => {
+                        // eprintln!("DEBUG: Read from stdin: {input:?}"); // Debug line
+                        if stdin_tx.blocking_send(input.clone()).is_err() {
+                            break; // Receiver dropped
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Input error: {e}");
+                        break;
+                    }
+                }
+            }
+        });
+
+        // Async task receives from channel and writes to serial
+        while let Some(input) = stdin_rx.recv().await {
+            let connection = write_con.lock().await;
+            if let Err(e) = connection.write(input.as_bytes()).await {
+                eprintln!("Serial write error: {e}");
+                break;
+            }
+        }
+    });
+    tokio::try_join!(read_handle, print_stdout_handle, write_handle)?;
     Ok(())
 }
 
@@ -121,6 +218,8 @@ fn open_port(baud: Option<u32>, port: &str, keep_settings: bool) -> io::Result<S
             s.set_baud_rate(baud)?;
             s.set_char_size(serial2_tokio::CharSize::Bits8);
             s.set_stop_bits(serial2_tokio::StopBits::One);
+            s.set_parity(serial2_tokio::Parity::None);
+            s.set_flow_control(serial2_tokio::FlowControl::None);
             Ok(s)
         };
         SerialPort::open(port, settings)?
@@ -128,47 +227,6 @@ fn open_port(baud: Option<u32>, port: &str, keep_settings: bool) -> io::Result<S
         unreachable!()
     };
     Ok(con)
-}
-
-async fn stream_to_stdout(baud: Option<u32>, port: &str, keep_settings: bool) -> io::Result<()> {
-    use tokio::time::{timeout, Duration};
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<Vec<u8>>(100);
-    let con = open_port(baud, port, keep_settings)?;
-    let read_handle = tokio::spawn(async move {
-        let mut buffer = vec![0u8; 1024];
-        loop {
-            match timeout(Duration::from_secs(30), con.read(&mut buffer)).await {
-                Ok(Ok(0)) => {
-                    eprintln!("Serial connection closed");
-                    break;
-                }
-                Ok(Ok(n)) => {
-                    let data = buffer[..n].to_vec();
-                    if tx.send(data).await.is_err() {
-                        break;
-                    }
-                }
-                Ok(Err(e)) => {
-                    eprintln!("Read error: {e}");
-                    break;
-                }
-                Err(_) => continue,
-            }
-        }
-    });
-    let write_handle = tokio::spawn(async move {
-        let mut stdout = tokio::io::stdout();
-        while let Some(data) = rx.recv().await {
-            let text = String::from_utf8_lossy(&data);
-            if let Err(e) = stdout.write_all(text.as_bytes()).await {
-                eprintln!("Write error: {e}");
-                break;
-            };
-            stdout.flush().await.ok();
-        }
-    });
-    tokio::try_join!(read_handle, write_handle)?;
-    Ok(())
 }
 
 fn get_settings(mut handle: Box<dyn io::Write>, baud: Option<u32>, port: &str, keep_settings: bool) -> Result<(), io::Error> {
