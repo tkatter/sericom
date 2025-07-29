@@ -5,6 +5,7 @@ use std::{
 
 use clap::{Parser, Subcommand};
 use serial2_tokio::SerialPort;
+use tokio::io::AsyncWriteExt;
 
 #[derive(Parser)]
 #[command(name = "SerialTool", version, about, long_about = None)]
@@ -65,18 +66,16 @@ enum Commands {
 #[tokio::main]
 async fn main() -> io::Result<()> {
     let cli = Cli::parse();
-
-    let stdout = io::stdout();
-    let mut handle = stdout.lock();
-
     match cli.command {
         Commands::ListBauds => {
+            let mut handle = io::stdout().lock();
             write!(handle, "Valid baud rates:\r\n")?;
             for baud in serial2_tokio::COMMON_BAUD_RATES {
                 write!(handle, "{baud}\r\n")?;
             }
         }
         Commands::ListPorts { stream, file } => {
+            let handle = io::stdout().lock();
             if let Some(file) = file {
                 let path = std::path::Path::new(&file);
                 let mut file_handle = File::options().append(true).create(true).open(path)?;
@@ -91,6 +90,7 @@ async fn main() -> io::Result<()> {
             }
         }
         Commands::ListSettings { baud, port, keep_settings, stream, file } => {
+            let handle = io::stdout().lock();
             if let Some(file) = file {
                 let path = std::path::Path::new(&file);
                 let mut file_handle = File::options().append(true).create(true).open(path)?;
@@ -106,10 +106,7 @@ async fn main() -> io::Result<()> {
         }
         Commands::ReadPort { baud, port, keep_settings}
         => {
-            let mut buff: Vec<u8> = Vec::new();
-            // let mut buff: [u8; 255] = [0; 255];
-            let con = open_port(baud, &port, keep_settings)?;
-            stream_to_stdout(&mut buff, con).await?;
+            stream_to_stdout(baud, &port, keep_settings).await?;
         }
     }
     Ok(())
@@ -119,39 +116,63 @@ fn open_port(baud: Option<u32>, port: &str, keep_settings: bool) -> io::Result<S
     let con = if keep_settings {
         SerialPort::open(port, serial2_tokio::KeepSettings)?
     } else if let Some(baud) = baud {
-        SerialPort::open(port, baud)?
+        let settings = |mut s: serial2_tokio::Settings| -> std::io::Result<serial2_tokio::Settings> {
+            s.set_raw();
+            s.set_baud_rate(baud)?;
+            s.set_char_size(serial2_tokio::CharSize::Bits8);
+            s.set_stop_bits(serial2_tokio::StopBits::One);
+            Ok(s)
+        };
+        SerialPort::open(port, settings)?
     } else {
         unreachable!()
     };
     Ok(con)
 }
 
-#[allow(clippy::needless_lifetimes)]
-async fn stream_to_stdout<'a>(buff: &'a mut Vec<u8>, con: SerialPort) -> io::Result<()> {
-    let read_to_buff = async |buff: &'a mut Vec<u8>, con: SerialPort| -> io::Result<&'a [u8]> {
-        con.read(buff).await?;
-        Ok(buff.as_slice())
-    };
-    let mut reader = read_to_buff(buff, con).await?;
-    let mut writer = tokio::io::stdout();
-
-    tokio::io::copy(&mut reader, &mut writer).await?;
+async fn stream_to_stdout(baud: Option<u32>, port: &str, keep_settings: bool) -> io::Result<()> {
+    use tokio::time::{timeout, Duration};
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<Vec<u8>>(100);
+    let con = open_port(baud, port, keep_settings)?;
+    let read_handle = tokio::spawn(async move {
+        let mut buffer = vec![0u8; 1024];
+        loop {
+            match timeout(Duration::from_secs(30), con.read(&mut buffer)).await {
+                Ok(Ok(0)) => {
+                    eprintln!("Serial connection closed");
+                    break;
+                }
+                Ok(Ok(n)) => {
+                    let data = buffer[..n].to_vec();
+                    if tx.send(data).await.is_err() {
+                        break;
+                    }
+                }
+                Ok(Err(e)) => {
+                    eprintln!("Read error: {e}");
+                    break;
+                }
+                Err(_) => continue,
+            }
+        }
+    });
+    let write_handle = tokio::spawn(async move {
+        let mut stdout = tokio::io::stdout();
+        while let Some(data) = rx.recv().await {
+            let text = String::from_utf8_lossy(&data);
+            if let Err(e) = stdout.write_all(text.as_bytes()).await {
+                eprintln!("Write error: {e}");
+                break;
+            };
+            stdout.flush().await.ok();
+        }
+    });
+    tokio::try_join!(read_handle, write_handle)?;
     Ok(())
 }
 
 fn get_settings(mut handle: Box<dyn io::Write>, baud: Option<u32>, port: &str, keep_settings: bool) -> Result<(), io::Error> {
     // https://www.contec.com/support/basic-knowledge/daq-control/serial-communicatin/
-
-    // NOTE: CUSTOM SETTINGS CLOSURE
-    // let settings = |mut s: serial2_tokio::Settings| -> std::io::Result<serial2_tokio::Settings> {
-    //     s.set_raw();
-    //     s.set_baud_rate(*baud)?;
-    //     s.set_char_size(serial2_tokio::CharSize::Bits8);
-    //     s.set_stop_bits(serial2_tokio::StopBits::Two);
-    //     Ok(s)
-    // };
-    // let con = serial2_tokio::SerialPort::open(con, settings)?;
-
     let con = open_port(baud, port, keep_settings)?;
     let settings = con.get_configuration()?;
 
