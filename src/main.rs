@@ -4,6 +4,7 @@ use std::{
 };
 
 use clap::{Parser, Subcommand};
+use crossterm::{cursor, event::{self, Event, KeyCode, KeyEvent, KeyModifiers}, execute, queue, style::Print, terminal::{self, ClearType} };
 use serial2_tokio::SerialPort;
 use tokio::io::AsyncWriteExt;
 
@@ -115,6 +116,7 @@ async fn main() -> io::Result<()> {
 async fn interactive_session(baud: Option<u32>, port: &str, keep_settings: bool) -> io::Result<()> {
     use tokio::{sync::Mutex, time::{timeout, Duration}};
     use std::sync::Arc;
+    terminal::enable_raw_mode()?;
     let (tx, mut rx) = tokio::sync::mpsc::channel::<Vec<u8>>(100);
     let con = Arc::new(Mutex::new(open_port(baud, port, keep_settings)?));
 
@@ -150,14 +152,19 @@ async fn interactive_session(baud: Option<u32>, port: &str, keep_settings: bool)
 
     // Writes incoming serial data from the connection to stdout via `mpsc::channel`
     let print_stdout_handle = tokio::spawn(async move {
-        let mut stdout = tokio::io::stdout();
+        // let mut stdout = tokio::io::stdout();
         while let Some(data) = rx.recv().await {
-            let text = String::from_utf8_lossy(&data);
-            if let Err(e) = stdout.write_all(text.as_bytes()).await {
-                eprintln!("Write error: {e}");
-                break;
-            };
-            stdout.flush().await.ok();
+            let text = String::from_utf8_lossy(&data).to_string();
+            tokio::task::spawn_blocking(move || {
+                let mut stdout = io::stdout();
+                execute!(stdout, Print(&text)).ok();
+                stdout.flush().ok()
+            }).await.ok();
+            // if let Err(e) = stdout.write_all(text.as_bytes()).await {
+            //     eprintln!("Write error: {e}");
+            //     break;
+            // };
+            // stdout.flush().await.ok();
         }
     });
 
@@ -168,41 +175,92 @@ async fn interactive_session(baud: Option<u32>, port: &str, keep_settings: bool)
 
         // Spawn blocking thread for stdin - use std::thread::spawn, not spawn_blocking
         std::thread::spawn(move || {
-            use std::io::{self, BufRead};
-            let stdin = io::stdin();
-            let handle = stdin.lock();
-            let mut reader = io::BufReader::new(handle);
-            let mut input = String::new();
-            
+            // use std::io::{self, BufRead};
+            // let stdin = io::stdin();
+            // let handle = stdin.lock();
+            // let mut reader = io::BufReader::new(handle);
+            // let mut input = String::new();
+            let mut current_line = String::new();
+            let mut stdout = io::stdout();
             loop {
-                input.clear();
-                match reader.read_line(&mut input) {
-                    Ok(0) => break, // EOF
-                    Ok(_) => {
-                        // eprintln!("DEBUG: Read from stdin: {input:?}"); // Debug line
-                        if stdin_tx.blocking_send(input.clone()).is_err() {
-                            break; // Receiver dropped
+                if let Ok(true) = event::poll(Duration::from_millis(10)) {
+                    match event::read().expect("should not fail because of `poll`") {
+                        Event::Key(KeyEvent { code, modifiers, .. }) => {
+                            match (code, modifiers) {
+                                (KeyCode::Char('l'), KeyModifiers::CONTROL) => {
+                                    execute!(stdout, terminal::Clear(ClearType::All), cursor::MoveTo(0,0)).ok();
+                                }
+                                (KeyCode::Char('q'), KeyModifiers::CONTROL) | (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
+                                    // TODO: HANDLE GRACEFULL PROCESS EXIT maybe just need to
+                                    // return an error from this function?
+                                    break;
+                                }
+                                (KeyCode::Enter, _) => {
+                                    // if !current_line.is_empty() {
+                                    //     execute!(stdout, Print(&current_line), Print("\r\n")).ok();
+                                    // }
+                                    current_line.push('\r');
+                                    if stdin_tx.blocking_send(current_line.clone()).is_err() {
+                                        break;
+                                    }
+                                    current_line.clear();
+                                }
+                                (KeyCode::Backspace, _) => {
+                                    if !current_line.is_empty() {
+                                        current_line.pop();
+                                        execute!(stdout, cursor::MoveLeft(1), Print(""), cursor::MoveLeft(1)).ok();
+                                    }
+                                }
+                                (KeyCode::Char(c), _) => {
+                                    current_line.push(c);
+                                    stdin_tx.blocking_send(c.to_string()).ok();
+                                    // execute!(stdout, Print(c)).ok();
+                                }
+                                _ => {}
+                            }
+                            stdout.flush().ok();
                         }
-                    }
-                    Err(e) => {
-                        eprintln!("Input error: {e}");
-                        break;
+                        _ => {}
                     }
                 }
+                // input.clear();
+                // match reader.read_line(&mut input) {
+                //     Ok(0) => break, // EOF
+                //     Ok(_) => {
+                //         eprintln!("DEBUG: Read from stdin: {input:?}"); // Debug line
+                //         if stdin_tx.blocking_send(input.clone()).is_err() {
+                //             break; // Receiver dropped
+                //         }
+                //     }
+                //     Err(e) => {
+                //         eprintln!("Input error: {e}");
+                //         break;
+                //     }
+                // }
             }
         });
 
         // Async task receives from channel and writes to serial
-        while let Some(input) = stdin_rx.recv().await {
+        while let Some(data) = stdin_rx.recv().await {
             let connection = write_con.lock().await;
-            let input_bytes = input.replace('\n', "\r").into_bytes();
-            if let Err(e) = connection.write(&input_bytes).await {
-                eprintln!("Serial write error: {e}");
-                break;
-            }
+            connection.write_all(data.as_bytes()).await.ok();
+            // let text = String::from_utf8_lossy(&data).to_string();
+            // display_tx.send(text).ok();
         }
+        // while let Some(input) = stdin_rx.recv().await {
+        //     let connection = write_con.lock().await;
+        //     let input_bytes = input.replace('\n', "\r").into_bytes();
+        //     if let Err(e) = connection.write(&input_bytes).await {
+        //         eprintln!("Serial write error: {e}");
+        //         break;
+        //     }
+        // }
     });
-    tokio::try_join!(read_handle, print_stdout_handle, write_handle)?;
+    let result = tokio::try_join!(read_handle, print_stdout_handle, write_handle);
+    // tokio::try_join!(read_handle, write_handle)?;
+    terminal::disable_raw_mode()?;
+    execute!(io::stdout(), cursor::Show)?;
+    result?;
     Ok(())
 }
 
