@@ -139,10 +139,6 @@ async fn interactive_session(baud: Option<u32>, port: &str, keep_settings: bool)
                         break;
                     }
                 }
-                // Ok(Err(_)) | Err(_) => {
-                //     tokio::time::sleep(Duration::from_millis(10)).await;
-                //     continue;
-                // }
                 Ok(Err(e)) => {
                     eprintln!("Read error: {e}");
                     break;
@@ -183,7 +179,7 @@ async fn interactive_session(baud: Option<u32>, port: &str, keep_settings: bool)
                 match reader.read_line(&mut input) {
                     Ok(0) => break, // EOF
                     Ok(_) => {
-                        // eprintln!("DEBUG: Read from stdin: {input:?}"); // Debug line
+                        eprintln!("DEBUG: Read from stdin: {input:?}"); // Debug line
                         if stdin_tx.blocking_send(input.clone()).is_err() {
                             break; // Receiver dropped
                         }
@@ -199,7 +195,8 @@ async fn interactive_session(baud: Option<u32>, port: &str, keep_settings: bool)
         // Async task receives from channel and writes to serial
         while let Some(input) = stdin_rx.recv().await {
             let connection = write_con.lock().await;
-            if let Err(e) = connection.write(input.as_bytes()).await {
+            let input_bytes = input.replace('\n', "\r").into_bytes();
+            if let Err(e) = connection.write(&input_bytes).await {
                 eprintln!("Serial write error: {e}");
                 break;
             }
