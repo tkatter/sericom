@@ -4,9 +4,8 @@ use std::{
 };
 
 use clap::{Parser, Subcommand};
-use crossterm::{cursor, event::{self, Event, KeyCode, KeyEvent, KeyModifiers}, execute, queue, style::Print, terminal::{self, ClearType} };
+use crossterm::{cursor, event::{self, Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind}, execute, style::Print, terminal::{self, ClearType} };
 use serial2_tokio::SerialPort;
-use tokio::io::AsyncWriteExt;
 
 #[derive(Parser)]
 #[command(name = "SerialTool", version, about, long_about = None)]
@@ -116,7 +115,9 @@ async fn main() -> io::Result<()> {
 async fn interactive_session(baud: Option<u32>, port: &str, keep_settings: bool) -> io::Result<()> {
     use tokio::{sync::Mutex, time::{timeout, Duration}};
     use std::sync::Arc;
+    let mut stdout = io::stdout();
     terminal::enable_raw_mode()?;
+    execute!(stdout, terminal::Clear(ClearType::All), cursor::SetCursorStyle::BlinkingBar, cursor::MoveTo(0,0)).ok();
     let (tx, mut rx) = tokio::sync::mpsc::channel::<Vec<u8>>(100);
     let con = Arc::new(Mutex::new(open_port(baud, port, keep_settings)?));
 
@@ -199,6 +200,7 @@ async fn interactive_session(baud: Option<u32>, port: &str, keep_settings: bool)
                                     // if !current_line.is_empty() {
                                     //     execute!(stdout, Print(&current_line), Print("\r\n")).ok();
                                     // }
+                                    execute!(stdout, crossterm::clipboard::CopyToClipboard::to_clipboard_from(&current_line)).ok();
                                     current_line.push('\r');
                                     if stdin_tx.blocking_send(current_line.clone()).is_err() {
                                         break;
@@ -220,6 +222,13 @@ async fn interactive_session(baud: Option<u32>, port: &str, keep_settings: bool)
                             }
                             stdout.flush().ok();
                         }
+                        // Event::Mouse(event) => {
+                        //     match event {
+                        //         MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), column, row, .. } => {
+                        //         }
+                        //         _ => {}
+                        //     }
+                        // }
                         _ => {}
                     }
                 }
@@ -259,7 +268,7 @@ async fn interactive_session(baud: Option<u32>, port: &str, keep_settings: bool)
     let result = tokio::try_join!(read_handle, print_stdout_handle, write_handle);
     // tokio::try_join!(read_handle, write_handle)?;
     terminal::disable_raw_mode()?;
-    execute!(io::stdout(), cursor::Show)?;
+    execute!(stdout, cursor::Show)?;
     result?;
     Ok(())
 }
