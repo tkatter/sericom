@@ -179,7 +179,7 @@ async fn interactive_session(baud: Option<u32>, port: &str, keep_settings: bool)
                 match reader.read_line(&mut input) {
                     Ok(0) => break, // EOF
                     Ok(_) => {
-                        eprintln!("DEBUG: Read from stdin: {input:?}"); // Debug line
+                        // eprintln!("DEBUG: Read from stdin: {input:?}"); // Debug line
                         if stdin_tx.blocking_send(input.clone()).is_err() {
                             break; // Receiver dropped
                         }
