@@ -4,7 +4,7 @@ use std::{
 };
 
 use clap::{Parser, Subcommand};
-use crossterm::{cursor, event::{self, Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind}, execute, style::Print, terminal::{self, ClearType} };
+use crossterm::{cursor, event::{self, Event, KeyCode, KeyEvent, KeyModifiers}, execute, style::Print, terminal::{self, ClearType} };
 use serial2_tokio::SerialPort;
 
 #[derive(Parser)]
@@ -63,6 +63,16 @@ enum Commands {
     },
 }
 
+const UTF_TAB: &str = "\u{0009}";
+const UTF_BKSP: &str = "\u{0008}";
+const UTF_DEL: &str = "\u{007F}";
+const UTF_ESC: &str = "\u{001B}";
+const UTF_CTRL_C: &str = "\u{001B}\u{0043}";
+const UTF_UP_KEY: &str = "\u{001B}\u{005B}\u{0041}";
+const UTF_DOWN_KEY: &str = "\u{001B}\u{005B}\u{0042}";
+const UTF_LEFT_KEY: &str = "\u{001B}\u{005B}\u{0044}";
+const UTF_RIGHT_KEY: &str = "\u{001B}\u{005B}\u{0043}";
+
 #[tokio::main]
 async fn main() -> io::Result<()> {
     let cli = Cli::parse();
@@ -113,162 +123,188 @@ async fn main() -> io::Result<()> {
 }
 
 async fn interactive_session(baud: Option<u32>, port: &str, keep_settings: bool) -> io::Result<()> {
-    use tokio::{sync::Mutex, time::{timeout, Duration}};
+    use tokio::{sync::{broadcast, Mutex}, time::{timeout, Duration}};
     use std::sync::Arc;
     let mut stdout = io::stdout();
+    execute!(stdout, terminal::EnterAlternateScreen)?;
     terminal::enable_raw_mode()?;
-    execute!(stdout, terminal::Clear(ClearType::All), cursor::SetCursorStyle::BlinkingBar, cursor::MoveTo(0,0)).ok();
+    execute!(stdout, terminal::Clear(ClearType::All), cursor::MoveTo(0,0)).ok();
+
+    // Sends a kill signal to all tokio processes
+    let (shutdown_tx, _) = broadcast::channel::<()>(1);
     let (tx, mut rx) = tokio::sync::mpsc::channel::<Vec<u8>>(100);
     let con = Arc::new(Mutex::new(open_port(baud, port, keep_settings)?));
 
     // Reads the incoming serial data from the connection and sends it
     // to the `write_handle` via `mpsc::channel` to be written to stdout
     let read_con = Arc::clone(&con);
+    let mut read_shutdown_rx = shutdown_tx.subscribe();
     let read_handle = tokio::spawn(async move {
         let mut buffer = vec![0u8; 1024];
         loop {
-            let read_result = {
-                let connection = read_con.lock().await;
-                timeout(Duration::from_millis(100), connection.read(&mut buffer)).await 
-            };
-            match read_result {
-                Ok(Ok(0)) => {
-                    eprintln!("Serial connection closed");
+            tokio::select! {
+                _ = read_shutdown_rx.recv() => {
                     break;
                 }
-                Ok(Ok(n)) => {
-                    let data = buffer[..n].to_vec();
-                    if tx.send(data).await.is_err() {
-                        break;
+                read_result = async {
+                    let connection = read_con.lock().await;
+                    timeout(Duration::from_millis(100), connection.read(&mut buffer)).await 
+                } => {
+                    match read_result {
+                        Ok(Ok(0)) => {
+                            eprintln!("Serial connection closed");
+                            break;
+                        }
+                        Ok(Ok(n)) => {
+                            let data = buffer[..n].to_vec();
+                            if tx.send(data).await.is_err() {
+                                break;
+                            }
+                        }
+                        Ok(Err(e)) => {
+                            eprintln!("Read error: {e}");
+                            break;
+                        }
+                        Err(_) => continue,
                     }
                 }
-                Ok(Err(e)) => {
-                    eprintln!("Read error: {e}");
-                    break;
-                }
-                Err(_) => continue,
             }
         }
     });
 
     // Writes incoming serial data from the connection to stdout via `mpsc::channel`
+    let mut print_shutdown_rx = shutdown_tx.subscribe();
     let print_stdout_handle = tokio::spawn(async move {
-        // let mut stdout = tokio::io::stdout();
         while let Some(data) = rx.recv().await {
-            let text = String::from_utf8_lossy(&data).to_string();
-            tokio::task::spawn_blocking(move || {
-                let mut stdout = io::stdout();
-                execute!(stdout, Print(&text)).ok();
-                stdout.flush().ok()
-            }).await.ok();
-            // if let Err(e) = stdout.write_all(text.as_bytes()).await {
-            //     eprintln!("Write error: {e}");
-            //     break;
-            // };
-            // stdout.flush().await.ok();
+            tokio::select! {
+                _ = print_shutdown_rx.recv() => {
+                    break;
+                }
+                _ = tokio::task::spawn_blocking(move || {
+                    let mut stdout = io::stdout();
+                    execute!(stdout, crossterm::style::SetColors(crossterm::style::Colors::new(crossterm::style::Color::Green, crossterm::style::Color::Black)), Print(String::from_utf8_lossy(&data).to_string())).ok();
+                    stdout.flush().ok()
+                }) => {}
+            }
         }
     });
 
+    // TODO: Implement asynchronous logging to a file?
+    // thinking that i need to read data to a buffer x amount of bytes
+    // to efficiently scan the buffer for certain words like `Error` or `serial`
+    // also need to look into a proper channel for the serial connection data streaming
+    // currently using mpsc but i only have one producer and will be having multiple consumers...
+    // let log_file = tokio::spawn(async move {
+    //     while let Some(data) = rx.recv().await {
+    //     }
+    // });
+
     // Reads data from stdin and sends it to the serial connection
     let write_con = Arc::clone(&con);
+    let mut write_shutdown_rx = shutdown_tx.subscribe();
     let write_handle = tokio::spawn(async move {
         let (stdin_tx, mut stdin_rx) = tokio::sync::mpsc::channel::<String>(10);
 
         // Spawn blocking thread for stdin - use std::thread::spawn, not spawn_blocking
         std::thread::spawn(move || {
-            // use std::io::{self, BufRead};
-            // let stdin = io::stdin();
-            // let handle = stdin.lock();
-            // let mut reader = io::BufReader::new(handle);
-            // let mut input = String::new();
-            let mut current_line = String::new();
             let mut stdout = io::stdout();
             loop {
                 if let Ok(true) = event::poll(Duration::from_millis(10)) {
-                    match event::read().expect("should not fail because of `poll`") {
+                    match event::read().expect("should not fail because of `crossterm::event::poll`") {
                         Event::Key(KeyEvent { code, modifiers, .. }) => {
                             match (code, modifiers) {
                                 (KeyCode::Char('l'), KeyModifiers::CONTROL) => {
                                     execute!(stdout, terminal::Clear(ClearType::All), cursor::MoveTo(0,0)).ok();
                                 }
-                                (KeyCode::Char('q'), KeyModifiers::CONTROL) | (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
-                                    // TODO: HANDLE GRACEFULL PROCESS EXIT maybe just need to
-                                    // return an error from this function?
+                                (KeyCode::Char('q'), KeyModifiers::CONTROL) => {
+                                    let _ = shutdown_tx.send(());
                                     break;
                                 }
-                                (KeyCode::Enter, _) => {
-                                    // if !current_line.is_empty() {
-                                    //     execute!(stdout, Print(&current_line), Print("\r\n")).ok();
-                                    // }
-                                    execute!(stdout, crossterm::clipboard::CopyToClipboard::to_clipboard_from(&current_line)).ok();
-                                    current_line.push('\r');
-                                    if stdin_tx.blocking_send(current_line.clone()).is_err() {
+                                (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
+                                    if stdin_tx.blocking_send(UTF_CTRL_C.to_string()).is_err() {
                                         break;
                                     }
-                                    current_line.clear();
                                 }
-                                (KeyCode::Backspace, _) => {
-                                    if !current_line.is_empty() {
-                                        current_line.pop();
-                                        execute!(stdout, cursor::MoveLeft(1), Print(""), cursor::MoveLeft(1)).ok();
+                                (KeyCode::Tab, _) => {
+                                    if stdin_tx.blocking_send(UTF_TAB.to_string()).is_err() {
+                                        break;
                                     }
                                 }
+                                (KeyCode::Delete, _) => {
+                                    if stdin_tx.blocking_send(UTF_DEL.to_string()).is_err() {
+                                        break;
+                                    }
+                                }
+                                (KeyCode::Up, _) => {
+                                    if stdin_tx.blocking_send(UTF_UP_KEY.to_string()).is_err() {
+                                        break;
+                                    }
+                                }
+                                (KeyCode::Down, _) => {
+                                    if stdin_tx.blocking_send(UTF_DOWN_KEY.to_string()).is_err() {
+                                        break;
+                                    }
+                                }
+                                (KeyCode::Left, _) => {
+                                    if stdin_tx.blocking_send(UTF_LEFT_KEY.to_string()).is_err() {
+                                        break;
+                                    }
+                                }
+                                (KeyCode::Right, _) => {
+                                    if stdin_tx.blocking_send(UTF_RIGHT_KEY.to_string()).is_err() {
+                                        break;
+                                    }
+                                }
+                                (KeyCode::Enter, _) => {
+                                    if stdin_tx.blocking_send('\r'.to_string()).is_err() {
+                                        break;
+                                    }
+                                }
+                                (KeyCode::Backspace, _) => {
+                                    if stdin_tx.blocking_send(UTF_BKSP.to_string()).is_err() {
+                                        break;
+                                    };
+                                }
+                                (KeyCode::Esc, _) => {
+                                    if stdin_tx.blocking_send(UTF_ESC.to_string()).is_err() {
+                                        break;
+                                    };
+                                }
                                 (KeyCode::Char(c), _) => {
-                                    current_line.push(c);
-                                    stdin_tx.blocking_send(c.to_string()).ok();
-                                    // execute!(stdout, Print(c)).ok();
+                                    if stdin_tx.blocking_send(c.to_string()).is_err() {
+                                        break;
+                                    };
                                 }
                                 _ => {}
                             }
                             stdout.flush().ok();
                         }
-                        // Event::Mouse(event) => {
-                        //     match event {
-                        //         MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), column, row, .. } => {
-                        //         }
-                        //         _ => {}
-                        //     }
-                        // }
                         _ => {}
                     }
                 }
-                // input.clear();
-                // match reader.read_line(&mut input) {
-                //     Ok(0) => break, // EOF
-                //     Ok(_) => {
-                //         eprintln!("DEBUG: Read from stdin: {input:?}"); // Debug line
-                //         if stdin_tx.blocking_send(input.clone()).is_err() {
-                //             break; // Receiver dropped
-                //         }
-                //     }
-                //     Err(e) => {
-                //         eprintln!("Input error: {e}");
-                //         break;
-                //     }
-                // }
             }
         });
 
         // Async task receives from channel and writes to serial
         while let Some(data) = stdin_rx.recv().await {
-            let connection = write_con.lock().await;
-            connection.write_all(data.as_bytes()).await.ok();
-            // let text = String::from_utf8_lossy(&data).to_string();
-            // display_tx.send(text).ok();
+            tokio::select! {
+                _ = write_shutdown_rx.recv() => {
+                    break;
+                }
+                result = async {
+                    let connection = write_con.lock().await;
+                    connection.write_all(data.as_bytes()).await
+                } => {
+                    if let Err(e) = result {
+                        eprintln!("Write error: {e}");
+                        break;
+                    }
+                }
+            };
         }
-        // while let Some(input) = stdin_rx.recv().await {
-        //     let connection = write_con.lock().await;
-        //     let input_bytes = input.replace('\n', "\r").into_bytes();
-        //     if let Err(e) = connection.write(&input_bytes).await {
-        //         eprintln!("Serial write error: {e}");
-        //         break;
-        //     }
-        // }
     });
     let result = tokio::try_join!(read_handle, print_stdout_handle, write_handle);
-    // tokio::try_join!(read_handle, write_handle)?;
-    terminal::disable_raw_mode()?;
-    execute!(stdout, cursor::Show)?;
+    ensure_terminal_cleanup(stdout);
     result?;
     Ok(())
 }
@@ -348,4 +384,11 @@ fn valid_baud_rate(s: &str) -> Result<u32, String> {
             serial2_tokio::COMMON_BAUD_RATES
         ))
     }
+}
+
+fn ensure_terminal_cleanup(mut stdout: io::Stdout) {
+    use crossterm::{cursor::Show, execute, terminal::{disable_raw_mode, LeaveAlternateScreen}};
+    let _ = disable_raw_mode();
+    let _ = execute!(stdout, LeaveAlternateScreen, Show);
+    let _ = stdout.flush();
 }
