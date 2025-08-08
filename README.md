@@ -8,6 +8,13 @@ This is done via a serial connection to the device's CONSOLE port. I've decided
 to try to build a CLI tool in Rust that can run a set of scripts to help automate  
 this process.
 
+## TODO
+
+- [ ] Implement scrolling w/ crossterm
+- [ ] Implement hot-keys like <F1> or <Alt + B> etc.
+- [ ] Implement copying output, either a selection or all output (all will be easier)
+- [ ] Implement reading data to a buffer and logging while scanning buffer for patterns (errors and info like serial number)
+
 ## Linux Setup
 
 Need to add user to the correct group to avoid getting `Permission Denied` errors.  
