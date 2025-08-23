@@ -14,6 +14,7 @@ this process.
 - [ ] Implement hot-keys like <F1> or <Alt + B> etc.
 - [ ] Implement copying output, either a selection or all output (all will be easier)
 - [ ] Implement reading data to a buffer and logging while scanning buffer for patterns (errors and info like serial number)
+- [ ] Implement config file (location is OS dependent) for controling things like apperance and destination for files
 
 ## Linux Setup
 
