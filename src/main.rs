@@ -209,78 +209,81 @@ async fn interactive_session(baud: Option<u32>, port: &str, keep_settings: bool)
         std::thread::spawn(move || {
             let mut stdout = io::stdout();
             loop {
-                if let Ok(true) = event::poll(Duration::from_millis(10)) {
-                    match event::read().expect("should not fail because of `crossterm::event::poll`") {
-                        Event::Key(KeyEvent { code, modifiers, .. }) => {
-                            match (code, modifiers) {
-                                (KeyCode::Char('l'), KeyModifiers::CONTROL) => {
-                                    execute!(stdout, terminal::Clear(ClearType::All), cursor::MoveTo(0,0)).ok();
-                                }
-                                (KeyCode::Char('q'), KeyModifiers::CONTROL) => {
-                                    let _ = shutdown_tx.send(());
+                match event::read() {
+                    Ok(Event::Key(KeyEvent { code, modifiers, kind, .. })) => {
+                        if kind != crossterm::event::KeyEventKind::Press {
+                            continue;
+                        }
+
+                        match (code, modifiers) {
+                            (KeyCode::Char('l'), KeyModifiers::CONTROL) => {
+                                execute!(stdout, terminal::Clear(ClearType::All), cursor::MoveTo(0,0)).ok();
+                            }
+                            (KeyCode::Char('q'), KeyModifiers::CONTROL) => {
+                                let _ = shutdown_tx.send(());
+                                break;
+                            }
+                            (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
+                                if stdin_tx.blocking_send(UTF_CTRL_C.to_string()).is_err() {
                                     break;
                                 }
-                                (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
-                                    if stdin_tx.blocking_send(UTF_CTRL_C.to_string()).is_err() {
-                                        break;
-                                    }
-                                }
-                                (KeyCode::Tab, _) => {
-                                    if stdin_tx.blocking_send(UTF_TAB.to_string()).is_err() {
-                                        break;
-                                    }
-                                }
-                                (KeyCode::Delete, _) => {
-                                    if stdin_tx.blocking_send(UTF_DEL.to_string()).is_err() {
-                                        break;
-                                    }
-                                }
-                                (KeyCode::Up, _) => {
-                                    if stdin_tx.blocking_send(UTF_UP_KEY.to_string()).is_err() {
-                                        break;
-                                    }
-                                }
-                                (KeyCode::Down, _) => {
-                                    if stdin_tx.blocking_send(UTF_DOWN_KEY.to_string()).is_err() {
-                                        break;
-                                    }
-                                }
-                                (KeyCode::Left, _) => {
-                                    if stdin_tx.blocking_send(UTF_LEFT_KEY.to_string()).is_err() {
-                                        break;
-                                    }
-                                }
-                                (KeyCode::Right, _) => {
-                                    if stdin_tx.blocking_send(UTF_RIGHT_KEY.to_string()).is_err() {
-                                        break;
-                                    }
-                                }
-                                (KeyCode::Enter, _) => {
-                                    if stdin_tx.blocking_send('\r'.to_string()).is_err() {
-                                        break;
-                                    }
-                                }
-                                (KeyCode::Backspace, _) => {
-                                    if stdin_tx.blocking_send(UTF_BKSP.to_string()).is_err() {
-                                        break;
-                                    };
-                                }
-                                (KeyCode::Esc, _) => {
-                                    if stdin_tx.blocking_send(UTF_ESC.to_string()).is_err() {
-                                        break;
-                                    };
-                                }
-                                (KeyCode::Char(c), _) => {
-                                    if stdin_tx.blocking_send(c.to_string()).is_err() {
-                                        break;
-                                    };
-                                }
-                                _ => {}
                             }
-                            stdout.flush().ok();
+                            (KeyCode::Tab, _) => {
+                                if stdin_tx.blocking_send(UTF_TAB.to_string()).is_err() {
+                                    break;
+                                }
+                            }
+                            (KeyCode::Delete, _) => {
+                                if stdin_tx.blocking_send(UTF_DEL.to_string()).is_err() {
+                                    break;
+                                }
+                            }
+                            (KeyCode::Up, _) => {
+                                if stdin_tx.blocking_send(UTF_UP_KEY.to_string()).is_err() {
+                                    break;
+                                }
+                            }
+                            (KeyCode::Down, _) => {
+                                if stdin_tx.blocking_send(UTF_DOWN_KEY.to_string()).is_err() {
+                                    break;
+                                }
+                            }
+                            (KeyCode::Left, _) => {
+                                if stdin_tx.blocking_send(UTF_LEFT_KEY.to_string()).is_err() {
+                                    break;
+                                }
+                            }
+                            (KeyCode::Right, _) => {
+                                if stdin_tx.blocking_send(UTF_RIGHT_KEY.to_string()).is_err() {
+                                    break;
+                                }
+                            }
+                            (KeyCode::Enter, _) => {
+                                if stdin_tx.blocking_send('\r'.to_string()).is_err() {
+                                    break;
+                                }
+                            }
+                            (KeyCode::Backspace, _) => {
+                                if stdin_tx.blocking_send(UTF_BKSP.to_string()).is_err() {
+                                    break;
+                                };
+                            }
+                            (KeyCode::Esc, _) => {
+                                if stdin_tx.blocking_send(UTF_ESC.to_string()).is_err() {
+                                    break;
+                                };
+                            }
+                            (KeyCode::Char(c), _) => {
+                                if stdin_tx.blocking_send(c.to_string()).is_err() {
+                                    break;
+                                };
+                            }
+                            _ => {}
                         }
-                        _ => {}
+                        stdout.flush().ok();
                     }
+                    Ok(_) => {} // Ignore other events
+                    Err(_) => break,
                 }
             }
         });
