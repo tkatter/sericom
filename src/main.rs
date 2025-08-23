@@ -3,7 +3,7 @@ use std::{
     io::{self, Write},
 };
 
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
 use crossterm::{cursor, event::{self, Event, KeyCode, KeyEvent, KeyModifiers}, execute, style::Print, terminal::{self, ClearType} };
 use serial2_tokio::SerialPort;
 
@@ -12,8 +12,15 @@ use serial2_tokio::SerialPort;
 #[command(next_line_help = true)]
 #[command(propagate_version = true)]
 struct Cli {
+    /// The path to a serial port.
+    ///
+    /// For Linux/MacOS something like '/dev/tty1', Windows 'COM1'.
+    /// To see available ports, use `netcon list-ports`.
+    port: Option<String>,
+    #[arg(short, long, value_parser = valid_baud_rate, default_value_t = 9600)]
+    baud: u32,
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
 }
 
 #[derive(Subcommand)]
@@ -48,19 +55,6 @@ enum Commands {
         #[arg(short, long)]
         file: Option<String>,
     },
-    /// Opens a port and reads the recieved data
-    PortSesh {
-        /// Specify the baud rate for the serial connection - REQUIRED IF '--keep-settings' NOT
-        /// PRESENT
-        #[arg(short, long, value_parser = valid_baud_rate, required_unless_present = "keep_settings")]
-        baud: Option<u32>,
-        /// Path to the port to open
-        #[arg(short, long)]
-        port: String,
-        /// Keeps the existing serial port configuration
-        #[arg(short, long)]
-        keep_settings: bool
-    },
 }
 
 const UTF_TAB: &str = "\u{0009}";
@@ -76,53 +70,70 @@ const UTF_RIGHT_KEY: &str = "\u{001B}\u{005B}\u{0043}";
 #[tokio::main]
 async fn main() -> io::Result<()> {
     let cli = Cli::parse();
-    match cli.command {
-        Commands::ListBauds => {
-            let mut handle = io::stdout().lock();
-            write!(handle, "Valid baud rates:\r\n")?;
-            for baud in serial2_tokio::COMMON_BAUD_RATES {
-                write!(handle, "{baud}\r\n")?;
-            }
-        }
-        Commands::ListPorts { stream, file } => {
-            let handle = io::stdout().lock();
-            if let Some(file) = file {
-                let path = std::path::Path::new(&file);
-                let mut file_handle = File::options().append(true).create(true).open(path)?;
-                if path.metadata()?.len() == 0 {
-                    write!(file_handle, "UTC: {}\r\n", chrono::Utc::now())?;
-                } else {
-                    write!(file_handle, "\r\nUTC: {}\r\n", chrono::Utc::now())?;
+
+    if cli.port.is_none() && cli.command.is_none() {
+            let mut cmd = Cli::command();
+            cmd.error(
+                clap::error::ErrorKind::MissingRequiredArgument,
+                "Missing either PORT or COMMAND."
+            ).exit();
+    }
+
+    if cli.port.is_some() && cli.command.is_some() {
+            let mut cmd = Cli::command();
+            cmd.error(
+                clap::error::ErrorKind::ArgumentConflict,
+                "Must specify either PORT or SUBCOMMAND, not both."
+            ).exit();
+    }
+
+    if let Some(port) = cli.port {
+        interactive_session(cli.baud, &port).await?;
+    } else if let Some(cmd) = cli.command {
+        match cmd {
+            Commands::ListBauds => {
+                let mut handle = io::stdout().lock();
+                write!(handle, "Valid baud rates:\r\n")?;
+                for baud in serial2_tokio::COMMON_BAUD_RATES {
+                    write!(handle, "{baud}\r\n")?;
                 }
-                list_serial_ports(Box::new(file_handle))?
-            } else if stream {
-                list_serial_ports(Box::new(handle))?
             }
-        }
-        Commands::ListSettings { baud, port, keep_settings, stream, file } => {
-            let handle = io::stdout().lock();
-            if let Some(file) = file {
-                let path = std::path::Path::new(&file);
-                let mut file_handle = File::options().append(true).create(true).open(path)?;
-                if path.metadata()?.len() == 0 {
-                    write!(file_handle, "TIMESTAMP: {}\r\nPORT: {port}\r\n", chrono::Utc::now())?;
-                } else {
-                    write!(file_handle, "\r\nTIMESTAMP: {}\r\nPORT: {port}\r\n", chrono::Utc::now())?;
+            Commands::ListPorts { stream, file } => {
+                let handle = io::stdout().lock();
+                if let Some(file) = file {
+                    let path = std::path::Path::new(&file);
+                    let mut file_handle = File::options().append(true).create(true).open(path)?;
+                    if path.metadata()?.len() == 0 {
+                        write!(file_handle, "UTC: {}\r\n", chrono::Utc::now())?;
+                    } else {
+                        write!(file_handle, "\r\nUTC: {}\r\n", chrono::Utc::now())?;
+                    }
+                    list_serial_ports(Box::new(file_handle))?
+                } else if stream {
+                    list_serial_ports(Box::new(handle))?
                 }
-                get_settings(Box::new(file_handle), baud, &port, keep_settings)?;
-            } else if stream {
-                get_settings(Box::new(handle), baud, &port, keep_settings)?;
             }
-        }
-        Commands::PortSesh { baud, port, keep_settings}
-        => {
-            interactive_session(baud, &port, keep_settings).await?;
+            Commands::ListSettings { baud, port, keep_settings, stream, file } => {
+                let handle = io::stdout().lock();
+                if let Some(file) = file {
+                    let path = std::path::Path::new(&file);
+                    let mut file_handle = File::options().append(true).create(true).open(path)?;
+                    if path.metadata()?.len() == 0 {
+                        write!(file_handle, "TIMESTAMP: {}\r\nPORT: {port}\r\n", chrono::Utc::now())?;
+                    } else {
+                        write!(file_handle, "\r\nTIMESTAMP: {}\r\nPORT: {port}\r\n", chrono::Utc::now())?;
+                    }
+                    get_settings(Box::new(file_handle), baud, &port, keep_settings)?;
+                } else if stream {
+                    get_settings(Box::new(handle), baud, &port, keep_settings)?;
+                }
+            }
         }
     }
     Ok(())
 }
 
-async fn interactive_session(baud: Option<u32>, port: &str, keep_settings: bool) -> io::Result<()> {
+async fn interactive_session(baud: u32, port: &str) -> io::Result<()> {
     use tokio::{sync::{broadcast, Mutex}, time::{timeout, Duration}};
     use std::sync::Arc;
     let mut stdout = io::stdout();
@@ -133,7 +144,7 @@ async fn interactive_session(baud: Option<u32>, port: &str, keep_settings: bool)
     // Sends a kill signal to all tokio processes
     let (shutdown_tx, _) = broadcast::channel::<()>(1);
     let (tx, mut rx) = tokio::sync::mpsc::channel::<Vec<u8>>(100);
-    let con = Arc::new(Mutex::new(open_port(baud, port, keep_settings)?));
+    let con = Arc::new(Mutex::new(temp_open_port(baud, port)?));
 
     // Reads the incoming serial data from the connection and sends it
     // to the `write_handle` via `mpsc::channel` to be written to stdout
@@ -312,6 +323,21 @@ async fn interactive_session(baud: Option<u32>, port: &str, keep_settings: bool)
     Ok(())
 }
 
+fn temp_open_port(baud: u32, port: &str) -> io::Result<SerialPort> {
+    let settings = |mut s: serial2_tokio::Settings| -> std::io::Result<serial2_tokio::Settings> {
+        s.set_raw();
+        s.set_baud_rate(baud)?;
+        s.set_char_size(serial2_tokio::CharSize::Bits8);
+        s.set_stop_bits(serial2_tokio::StopBits::One);
+        s.set_parity(serial2_tokio::Parity::None);
+        s.set_flow_control(serial2_tokio::FlowControl::None);
+        Ok(s)
+    };
+    let con = SerialPort::open(port, settings)?;
+    Ok(con)
+}
+
+// TODO: Consolidate this funciton to the `temp_open_port` function
 fn open_port(baud: Option<u32>, port: &str, keep_settings: bool) -> io::Result<SerialPort> {
     let con = if keep_settings {
         SerialPort::open(port, serial2_tokio::KeepSettings)?
