@@ -8,7 +8,7 @@ use crossterm::{cursor, event::{self, Event, KeyCode, KeyEvent, KeyModifiers}, e
 use serial2_tokio::SerialPort;
 
 #[derive(Parser)]
-#[command(name = "SerialTool", version, about, long_about = None)]
+#[command(name = "netcon", version, about, long_about = None)]
 #[command(next_line_help = true)]
 #[command(propagate_version = true)]
 struct Cli {

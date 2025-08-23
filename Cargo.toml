@@ -1,6 +1,6 @@
 [package]
-name = "serial_scripts"
-version = "0.0.1"
+name = "netcon"
+version = "0.0.2"
 edition = "2024"
 description = "CLI tool for issuing commands to network switches and routers over their serial connections."
 
