@@ -1,61 +1,9 @@
 use std::{
-    fs::File,
-    io::{self, Write},
+    fs::File, io::{self, Write}
 };
-
 use clap::{CommandFactory, Parser, Subcommand};
 use crossterm::{cursor, event::{self, Event, KeyCode, KeyEvent, KeyModifiers}, execute, style::Print, terminal::{self, ClearType} };
 use serial2_tokio::SerialPort;
-
-#[derive(Parser)]
-#[command(name = "netcon", version, about, long_about = None)]
-#[command(next_line_help = true)]
-#[command(propagate_version = true)]
-struct Cli {
-    /// The path to a serial port.
-    ///
-    /// For Linux/MacOS something like '/dev/tty1', Windows 'COM1'.
-    /// To see available ports, use `netcon list-ports`.
-    port: Option<String>,
-    #[arg(short, long, value_parser = valid_baud_rate, default_value_t = 9600)]
-    baud: u32,
-    #[command(subcommand)]
-    command: Option<Commands>,
-}
-
-#[derive(Subcommand)]
-enum Commands {
-    /// Lists all valid baud rates
-    ListBauds,
-    /// Lists all available serial ports
-    ListPorts {
-        /// [DEFAULT] - Streams the serial output to stdout
-        #[arg(short, long, default_value_t = true)]
-        stream: bool,
-        /// Writes the serial output to the specified file
-        #[arg(short, long)]
-        file: Option<String>,
-    },
-    /// Gets the settings for a serial port
-    ListSettings {
-        /// Specify the baud rate for the serial connection - REQUIRED IF '--keep-settings' NOT
-        /// PRESENT
-        #[arg(short, long, value_parser = valid_baud_rate, required_unless_present = "keep_settings")]
-        baud: Option<u32>,
-        /// Path to the port to open
-        #[arg(short, long)]
-        port: String,
-        /// Keeps the existing serial port configuration
-        #[arg(short, long)]
-        keep_settings: bool,
-        /// [DEFAULT] - Streams the serial output to stdout
-        #[arg(short, long, default_value_t = true)]
-        stream: bool,
-        /// Writes the serial output to the specified file
-        #[arg(short, long)]
-        file: Option<String>,
-    },
-}
 
 const UTF_TAB: &str = "\u{0009}";
 const UTF_BKSP: &str = "\u{0008}";
@@ -66,6 +14,120 @@ const UTF_UP_KEY: &str = "\u{001B}\u{005B}\u{0041}";
 const UTF_DOWN_KEY: &str = "\u{001B}\u{005B}\u{0042}";
 const UTF_LEFT_KEY: &str = "\u{001B}\u{005B}\u{0044}";
 const UTF_RIGHT_KEY: &str = "\u{001B}\u{005B}\u{0043}";
+
+#[derive(Parser)]
+#[command(name = "netcon", version, about, long_about = None)]
+#[command(next_line_help = true)]
+#[command(propagate_version = true)]
+struct Cli {
+    /// The path to a serial port.
+    ///
+    /// For Linux/MacOS something like `/dev/tty1`, Windows `COM1`.
+    /// To see available ports, use `netcon list-ports`.
+    port: Option<String>,
+    /// Baud rate for the serial connection.
+    ///
+    /// To see a list of valid baud rates, use `netcon list-bauds`.
+    #[arg(short, long, value_parser = valid_baud_rate, default_value_t = 9600)]
+    baud: u32,
+    /// Path to a file for the output.
+    #[arg(short, long)]
+    file: Option<String>,
+    #[command(subcommand)]
+    command: Option<Commands>,
+}
+
+#[allow(clippy::enum_variant_names)]
+#[derive(Subcommand)]
+enum Commands {
+    /// Lists all valid baud rates
+    ListBauds,
+    /// Lists all available serial ports
+    ListPorts,
+    /// Gets the settings for a serial port
+    ListSettings {
+        #[arg(short, long, value_parser = valid_baud_rate, default_value_t = 9600)]
+        baud: u32,
+        /// Path to the port to open
+        #[arg(short, long)]
+        port: String,
+    },
+}
+
+#[derive(Debug)]
+enum SerialMessage {
+    Write(Vec<u8>),
+    Shutdown,
+}
+
+#[derive(Debug, Clone)]
+enum SerialEvent {
+    Data(Vec<u8>),
+    Error(String),
+    ConnectionClosed,
+}
+
+struct SerialActor {
+    connection: SerialPort,
+    command_rx: tokio::sync::mpsc::Receiver<SerialMessage>,
+    channels: Vec<tokio::sync::mpsc::Sender<SerialEvent>>
+}
+
+impl SerialActor {
+    fn new (
+        connection: SerialPort,
+        command_rx: tokio::sync::mpsc::Receiver<SerialMessage>,
+        channels: Vec<tokio::sync::mpsc::Sender<SerialEvent>>
+    ) -> Self {
+        Self {
+            connection,
+            command_rx,
+            channels
+        }
+    }
+    async fn broadcast_event(&self, event: SerialEvent) {
+        for channel in &self.channels {
+            let _ = channel.send(event.clone()).await;
+        }
+    }
+    async fn run(mut self) {
+        let mut buffer = vec![0u8; 1024];
+        loop {
+            tokio::select! {
+                // Handle commands/input from stdin
+                cmd = self.command_rx.recv() => {
+                    match cmd {
+                        Some(SerialMessage::Write(data)) => {
+                            if let Err(e) = self.connection.write_all(&data).await {
+                                self.broadcast_event(SerialEvent::Error(e.to_string())).await;
+                            }
+                        }
+                        Some(SerialMessage::Shutdown) => {
+                            self.broadcast_event(SerialEvent::ConnectionClosed).await;
+                        }
+                        None => break,
+                    }
+                }
+                read_result = self.connection.read(&mut buffer) => {
+                    match read_result {
+                        Ok(0) => {
+                            self.broadcast_event(SerialEvent::ConnectionClosed).await;
+                            break;
+                        }
+                        Ok(n) => {
+                            let data = buffer[..n].to_vec();
+                            self.broadcast_event(SerialEvent::Data(data)).await;
+                        }
+                        Err(e) => {
+                            self.broadcast_event(SerialEvent::Error(e.to_string())).await;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
@@ -88,238 +150,186 @@ async fn main() -> io::Result<()> {
     }
 
     if let Some(port) = cli.port {
-        interactive_session(cli.baud, &port).await?;
+        match temp_open_port(cli.baud, &port) {
+            Err(e) => {
+                if e.kind() == io::ErrorKind::NotFound {
+                    let mut cmd = Cli::command();
+                    cmd.error(
+                        clap::error::ErrorKind::InvalidValue,
+                        "The specified PORT is invalid. Use `netcon list-ports` to see a list of valid ports."
+                    ).exit();
+                }
+            }
+            Ok(con) => {
+                interactive_session(con, cli.file).await?;
+            }
+        }
     } else if let Some(cmd) = cli.command {
         match cmd {
             Commands::ListBauds => {
-                let mut handle = io::stdout().lock();
-                write!(handle, "Valid baud rates:\r\n")?;
+                let mut stdout = io::stdout();
+                write!(stdout, "Valid baud rates:\r\n")?;
                 for baud in serial2_tokio::COMMON_BAUD_RATES {
-                    write!(handle, "{baud}\r\n")?;
+                    write!(stdout, "{baud}\r\n")?;
                 }
             }
-            Commands::ListPorts { stream, file } => {
-                let handle = io::stdout().lock();
-                if let Some(file) = file {
-                    let path = std::path::Path::new(&file);
-                    let mut file_handle = File::options().append(true).create(true).open(path)?;
-                    if path.metadata()?.len() == 0 {
-                        write!(file_handle, "UTC: {}\r\n", chrono::Utc::now())?;
-                    } else {
-                        write!(file_handle, "\r\nUTC: {}\r\n", chrono::Utc::now())?;
-                    }
-                    list_serial_ports(Box::new(file_handle))?
-                } else if stream {
-                    list_serial_ports(Box::new(handle))?
-                }
+            Commands::ListPorts => {
+                list_serial_ports()?;
             }
-            Commands::ListSettings { baud, port, keep_settings, stream, file } => {
-                let handle = io::stdout().lock();
-                if let Some(file) = file {
-                    let path = std::path::Path::new(&file);
-                    let mut file_handle = File::options().append(true).create(true).open(path)?;
-                    if path.metadata()?.len() == 0 {
-                        write!(file_handle, "TIMESTAMP: {}\r\nPORT: {port}\r\n", chrono::Utc::now())?;
-                    } else {
-                        write!(file_handle, "\r\nTIMESTAMP: {}\r\nPORT: {port}\r\n", chrono::Utc::now())?;
-                    }
-                    get_settings(Box::new(file_handle), baud, &port, keep_settings)?;
-                } else if stream {
-                    get_settings(Box::new(handle), baud, &port, keep_settings)?;
-                }
+            Commands::ListSettings { baud, port } => {
+                get_settings(baud, &port)?;
             }
         }
     }
     Ok(())
 }
 
-async fn interactive_session(baud: u32, port: &str) -> io::Result<()> {
-    use tokio::{sync::{broadcast, Mutex}, time::{timeout, Duration}};
-    use std::sync::Arc;
+async fn run_stdout_output(mut con_rx: tokio::sync::mpsc::Receiver<SerialEvent>) {
+    let mut stdout = io::stdout();
+
+    while let Some(event) = con_rx.recv().await {
+        match event {
+            // NOTE: May have errors here without using `tokio::task::spawn_blocking`
+            SerialEvent::Data(data) => {
+                execute!(
+                    stdout,
+                    crossterm::style::SetForegroundColor(crossterm::style::Color::Green),
+                    Print(String::from_utf8_lossy(&data)),
+                    ).ok();
+                stdout.flush().ok();
+            }
+            SerialEvent::Error(e) => {
+                eprintln!("SERIAL ERROR: {e}");
+            }
+            SerialEvent::ConnectionClosed => {
+                eprintln!("\r\nConnection closed");
+                break;
+            }
+        }
+    }
+}
+
+async fn run_stdin_input(command_tx: tokio::sync::mpsc::Sender<SerialMessage>) {
+    let (stdin_tx, mut stdin_rx) = tokio::sync::mpsc::channel::<String>(10);
+    let shutdown_tx_clone = command_tx.clone();
+
+    std::thread::spawn(move || {
+        stdin_input_loop(stdin_tx, shutdown_tx_clone)
+    });
+
+    while let Some(data) = stdin_rx.recv().await {
+        if command_tx.send(SerialMessage::Write(data.into_bytes())).await.is_err() {
+            break;
+        }
+    }
+}
+
+fn stdin_input_loop(stdin_tx: tokio::sync::mpsc::Sender<String>, shutdown_tx: tokio::sync::mpsc::Sender<SerialMessage>) {
+    loop {
+        match event::read() {
+            Ok(Event::Key(KeyEvent { code, modifiers, kind, .. })) => {
+                if kind != crossterm::event::KeyEventKind::Press {
+                    continue;
+                }
+
+                let data = match (code, modifiers) {
+                    (KeyCode::Char('l'), KeyModifiers::CONTROL) => {
+                        execute!(io::stdout(), terminal::Clear(ClearType::All), cursor::MoveTo(0,0)).ok();
+                        continue;
+                    }
+                    (KeyCode::Char('q'), KeyModifiers::CONTROL) => {
+                        let _ = shutdown_tx.blocking_send(SerialMessage::Shutdown);
+                        break;
+                    }
+                    (KeyCode::Char('c'), KeyModifiers::CONTROL) => UTF_CTRL_C.to_string(),
+                    (KeyCode::Tab, _) => UTF_TAB.to_string(),
+                    (KeyCode::Delete, _) => UTF_DEL.to_string(),
+                    (KeyCode::Up, _) => UTF_UP_KEY.to_string(),
+                    (KeyCode::Down, _) => UTF_DOWN_KEY.to_string(),
+                    (KeyCode::Left, _) => UTF_LEFT_KEY.to_string(),
+                    (KeyCode::Right, _) => UTF_RIGHT_KEY.to_string(),
+                    (KeyCode::Enter, _) => '\r'.to_string(),
+                    (KeyCode::Backspace, _) => UTF_BKSP.to_string(),
+                    (KeyCode::Esc, _) => UTF_ESC.to_string(),
+                    (KeyCode::Char(c), _) => c.to_string(),
+                    _ => continue,
+                };
+
+                if stdin_tx.blocking_send(data).is_err() {
+                    break;
+                }
+            }
+            Ok(_) => {} // Ignore other events
+            Err(_) => break,
+        }
+    }
+}
+async fn run_file_output(mut file_rx: tokio::sync::mpsc::Receiver<SerialEvent>, filename: String) {
+    let mut file = match File::create(&filename) {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("Failed to create file '{filename}': {e}");
+            return;
+        }
+    };
+
+    writeln!(file, "Session started at: {}", chrono::Utc::now()).ok();
+
+    while let Some(event) = file_rx.recv().await {
+        match event {
+            SerialEvent::Data(data) => {
+                file.write_all(&data).ok();
+                file.flush().ok();
+            }
+            SerialEvent::Error(e) => {
+                writeln!(file, "\r\n[ERROR {}] {}", chrono::Utc::now(), e).ok();
+            }
+            SerialEvent::ConnectionClosed => {
+                writeln!(file, "\r\n[CLOSED {}] Connection closed.", chrono::Utc::now()).ok();
+                break;
+            }
+        }
+    }
+}
+
+async fn interactive_session(connection: SerialPort, file: Option<String>) -> io::Result<()> {
+    // Setup terminal
     let mut stdout = io::stdout();
     execute!(stdout, terminal::EnterAlternateScreen)?;
     terminal::enable_raw_mode()?;
     execute!(stdout, terminal::Clear(ClearType::All), cursor::MoveTo(0,0)).ok();
 
-    // Sends a kill signal to all tokio processes
-    let (shutdown_tx, _) = broadcast::channel::<()>(1);
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<Vec<u8>>(100);
-    let con = Arc::new(Mutex::new(temp_open_port(baud, port)?));
+    // Create channels
+    let (command_tx, command_rx) = tokio::sync::mpsc::channel::<SerialMessage>(100);
+    let (stdout_tx, stdout_rx) = tokio::sync::mpsc::channel::<SerialEvent>(100);
 
-    // Reads the incoming serial data from the connection and sends it
-    // to the `write_handle` via `mpsc::channel` to be written to stdout
-    let read_con = Arc::clone(&con);
-    let mut read_shutdown_rx = shutdown_tx.subscribe();
-    let read_handle = tokio::spawn(async move {
-        let mut buffer = vec![0u8; 1024];
-        loop {
-            tokio::select! {
-                _ = read_shutdown_rx.recv() => {
-                    break;
-                }
-                read_result = async {
-                    let connection = read_con.lock().await;
-                    timeout(Duration::from_millis(100), connection.read(&mut buffer)).await 
-                } => {
-                    match read_result {
-                        Ok(Ok(0)) => {
-                            eprintln!("Serial connection closed");
-                            break;
-                        }
-                        Ok(Ok(n)) => {
-                            let data = buffer[..n].to_vec();
-                            if tx.send(data).await.is_err() {
-                                break;
-                            }
-                        }
-                        Ok(Err(e)) => {
-                            eprintln!("Read error: {e}");
-                            break;
-                        }
-                        Err(_) => continue,
-                    }
-                }
-            }
-        }
-    });
+    let mut channels = vec![stdout_tx];
+    let mut tasks = Vec::new();
 
-    // Writes incoming serial data from the connection to stdout via `mpsc::channel`
-    let mut print_shutdown_rx = shutdown_tx.subscribe();
-    let print_stdout_handle = tokio::spawn(async move {
-        while let Some(data) = rx.recv().await {
-            tokio::select! {
-                _ = print_shutdown_rx.recv() => {
-                    break;
-                }
-                _ = tokio::task::spawn_blocking(move || {
-                    let mut stdout = io::stdout();
-                    execute!(stdout, crossterm::style::SetColors(crossterm::style::Colors::new(crossterm::style::Color::Green, crossterm::style::Color::Black)), Print(String::from_utf8_lossy(&data).to_string())).ok();
-                    stdout.flush().ok()
-                }) => {}
-            }
-        }
-    });
+    if let Some(filename) = file {
+        let (file_tx, file_rx) = tokio::sync::mpsc::channel::<SerialEvent>(100);
+        channels.push(file_tx);
+        tasks.push(tokio::spawn(run_file_output(file_rx, filename)));
+    }
 
-    // TODO: Implement asynchronous logging to a file?
-    // thinking that i need to read data to a buffer x amount of bytes
-    // to efficiently scan the buffer for certain words like `Error` or `serial`
-    // also need to look into a proper channel for the serial connection data streaming
-    // currently using mpsc but i only have one producer and will be having multiple consumers...
-    // let log_file = tokio::spawn(async move {
-    //     while let Some(data) = rx.recv().await {
-    //     }
-    // });
+    // Create and spawn SerialActor
+    let actor = SerialActor::new(connection, command_rx, channels);
+    let actor_handle = tokio::spawn(actor.run());
 
-    // Reads data from stdin and sends it to the serial connection
-    let write_con = Arc::clone(&con);
-    let mut write_shutdown_rx = shutdown_tx.subscribe();
-    let write_handle = tokio::spawn(async move {
-        let (stdin_tx, mut stdin_rx) = tokio::sync::mpsc::channel::<String>(10);
+    // Spawn output and input tasks
+    let stdout_task = tokio::spawn(run_stdout_output(stdout_rx));
+    let stdin_task = tokio::spawn(run_stdin_input(command_tx));
 
-        // Spawn blocking thread for stdin - use std::thread::spawn, not spawn_blocking
-        std::thread::spawn(move || {
-            let mut stdout = io::stdout();
-            loop {
-                match event::read() {
-                    Ok(Event::Key(KeyEvent { code, modifiers, kind, .. })) => {
-                        if kind != crossterm::event::KeyEventKind::Press {
-                            continue;
-                        }
+    tasks.push(actor_handle);
+    tasks.push(stdout_task);
+    tasks.push(stdin_task);
 
-                        match (code, modifiers) {
-                            (KeyCode::Char('l'), KeyModifiers::CONTROL) => {
-                                execute!(stdout, terminal::Clear(ClearType::All), cursor::MoveTo(0,0)).ok();
-                            }
-                            (KeyCode::Char('q'), KeyModifiers::CONTROL) => {
-                                let _ = shutdown_tx.send(());
-                                break;
-                            }
-                            (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
-                                if stdin_tx.blocking_send(UTF_CTRL_C.to_string()).is_err() {
-                                    break;
-                                }
-                            }
-                            (KeyCode::Tab, _) => {
-                                if stdin_tx.blocking_send(UTF_TAB.to_string()).is_err() {
-                                    break;
-                                }
-                            }
-                            (KeyCode::Delete, _) => {
-                                if stdin_tx.blocking_send(UTF_DEL.to_string()).is_err() {
-                                    break;
-                                }
-                            }
-                            (KeyCode::Up, _) => {
-                                if stdin_tx.blocking_send(UTF_UP_KEY.to_string()).is_err() {
-                                    break;
-                                }
-                            }
-                            (KeyCode::Down, _) => {
-                                if stdin_tx.blocking_send(UTF_DOWN_KEY.to_string()).is_err() {
-                                    break;
-                                }
-                            }
-                            (KeyCode::Left, _) => {
-                                if stdin_tx.blocking_send(UTF_LEFT_KEY.to_string()).is_err() {
-                                    break;
-                                }
-                            }
-                            (KeyCode::Right, _) => {
-                                if stdin_tx.blocking_send(UTF_RIGHT_KEY.to_string()).is_err() {
-                                    break;
-                                }
-                            }
-                            (KeyCode::Enter, _) => {
-                                if stdin_tx.blocking_send('\r'.to_string()).is_err() {
-                                    break;
-                                }
-                            }
-                            (KeyCode::Backspace, _) => {
-                                if stdin_tx.blocking_send(UTF_BKSP.to_string()).is_err() {
-                                    break;
-                                };
-                            }
-                            (KeyCode::Esc, _) => {
-                                if stdin_tx.blocking_send(UTF_ESC.to_string()).is_err() {
-                                    break;
-                                };
-                            }
-                            (KeyCode::Char(c), _) => {
-                                if stdin_tx.blocking_send(c.to_string()).is_err() {
-                                    break;
-                                };
-                            }
-                            _ => {}
-                        }
-                        stdout.flush().ok();
-                    }
-                    Ok(_) => {} // Ignore other events
-                    Err(_) => break,
-                }
-            }
-        });
+    // Wait for tasks to complete
+    for task in tasks {
+        let _ = task.await;
+    }
 
-        // Async task receives from channel and writes to serial
-        while let Some(data) = stdin_rx.recv().await {
-            tokio::select! {
-                _ = write_shutdown_rx.recv() => {
-                    break;
-                }
-                result = async {
-                    let connection = write_con.lock().await;
-                    connection.write_all(data.as_bytes()).await
-                } => {
-                    if let Err(e) = result {
-                        eprintln!("Write error: {e}");
-                        break;
-                    }
-                }
-            };
-        }
-    });
-    let result = tokio::try_join!(read_handle, print_stdout_handle, write_handle);
     ensure_terminal_cleanup(stdout);
-    result?;
     Ok(())
 }
 
@@ -337,30 +347,10 @@ fn temp_open_port(baud: u32, port: &str) -> io::Result<SerialPort> {
     Ok(con)
 }
 
-// TODO: Consolidate this funciton to the `temp_open_port` function
-fn open_port(baud: Option<u32>, port: &str, keep_settings: bool) -> io::Result<SerialPort> {
-    let con = if keep_settings {
-        SerialPort::open(port, serial2_tokio::KeepSettings)?
-    } else if let Some(baud) = baud {
-        let settings = |mut s: serial2_tokio::Settings| -> std::io::Result<serial2_tokio::Settings> {
-            s.set_raw();
-            s.set_baud_rate(baud)?;
-            s.set_char_size(serial2_tokio::CharSize::Bits8);
-            s.set_stop_bits(serial2_tokio::StopBits::One);
-            s.set_parity(serial2_tokio::Parity::None);
-            s.set_flow_control(serial2_tokio::FlowControl::None);
-            Ok(s)
-        };
-        SerialPort::open(port, settings)?
-    } else {
-        unreachable!()
-    };
-    Ok(con)
-}
-
-fn get_settings(mut handle: Box<dyn io::Write>, baud: Option<u32>, port: &str, keep_settings: bool) -> Result<(), io::Error> {
+fn get_settings(baud: u32, port: &str) -> Result<(), io::Error> {
     // https://www.contec.com/support/basic-knowledge/daq-control/serial-communicatin/
-    let con = open_port(baud, port, keep_settings)?;
+    let mut stdout = io::stdout();
+    let con = temp_open_port(baud, port)?;
     let settings = con.get_configuration()?;
 
     let b = settings.get_baud_rate()?;
@@ -374,25 +364,26 @@ fn get_settings(mut handle: Box<dyn io::Write>, baud: Option<u32>, port: &str, k
     let ri = con.read_ri()?;
     let cd = con.read_cd()?;
 
-    write!(handle, "Baud rate: {b}\r\n")?;
-    write!(handle, "Char size: {c}\r\n")?;
-    write!(handle, "Stop bits: {s}\r\n")?;
-    write!(handle, "Parity mechanism: {p}\r\n")?;
-    write!(handle, "Flow control: {f}\r\n")?;
-    write!(handle, "Clear To Send line: {cts}\r\n")?;
-    write!(handle, "Data Set Ready line: {dsr}\r\n")?;
-    write!(handle, "Ring Indicator line: {ri}\r\n")?;
-    write!(handle, "Carrier Detect line: {cd}\r\n")?;
+    write!(stdout, "Baud rate: {b}\r\n")?;
+    write!(stdout, "Char size: {c}\r\n")?;
+    write!(stdout, "Stop bits: {s}\r\n")?;
+    write!(stdout, "Parity mechanism: {p}\r\n")?;
+    write!(stdout, "Flow control: {f}\r\n")?;
+    write!(stdout, "Clear To Send line: {cts}\r\n")?;
+    write!(stdout, "Data Set Ready line: {dsr}\r\n")?;
+    write!(stdout, "Ring Indicator line: {ri}\r\n")?;
+    write!(stdout, "Carrier Detect line: {cd}\r\n")?;
 
     Ok(())
 }
 
-fn list_serial_ports(mut handle: Box<dyn io::Write>) -> Result<(), io::Error> {
+fn list_serial_ports() -> Result<(), io::Error> {
+    let mut stdout = io::stdout();
     let ports = SerialPort::available_ports()?;
     for path in ports {
         if let Some(path) = path.to_str() {
             let line = [path, "\r\n"].concat();
-            handle.write(line.as_bytes())?
+            stdout.write(line.as_bytes())?
         } else {
             continue;
         };
