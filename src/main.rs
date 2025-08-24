@@ -1,15 +1,16 @@
 use std::{
-    fs::File, io::{self, Write}
+    fs::File, io::{self, BufWriter, Write}
 };
 use clap::{CommandFactory, Parser, Subcommand};
-use crossterm::{cursor, event::{self, Event, KeyCode, KeyEvent, KeyModifiers}, execute, style::Print, terminal::{self, ClearType} };
+use crossterm::{cursor, event::{self, Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent}, execute, style::Print, terminal::{self, ClearType} };
 use serial2_tokio::SerialPort;
+use netcon::screen_buffer::ScreenBuffer;
 
 const UTF_TAB: &str = "\u{0009}";
 const UTF_BKSP: &str = "\u{0008}";
 const UTF_DEL: &str = "\u{007F}";
 const UTF_ESC: &str = "\u{001B}";
-const UTF_CTRL_C: &str = "\u{001B}\u{0043}";
+const UTF_CTRL_C: &str = "\u{03}";
 const UTF_UP_KEY: &str = "\u{001B}\u{005B}\u{0041}";
 const UTF_DOWN_KEY: &str = "\u{001B}\u{005B}\u{0042}";
 const UTF_LEFT_KEY: &str = "\u{001B}\u{005B}\u{0044}";
@@ -33,6 +34,9 @@ struct Cli {
     /// Path to a file for the output.
     #[arg(short, long)]
     file: Option<String>,
+    /// Display debug output
+    #[arg(short, long)]
+    debug: bool,
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -55,7 +59,10 @@ enum Commands {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 enum SerialMessage {
+    Script(Vec<u8>),
+    Scroll(crossterm::event::MouseEventKind),
     Write(Vec<u8>),
     Shutdown,
 }
@@ -65,6 +72,7 @@ enum SerialEvent {
     Data(Vec<u8>),
     Error(String),
     ConnectionClosed,
+    Scroll(crossterm::event::MouseEventKind),
 }
 
 struct SerialActor {
@@ -102,12 +110,21 @@ impl SerialActor {
                                 self.broadcast_event(SerialEvent::Error(e.to_string())).await;
                             }
                         }
+                        Some(SerialMessage::Script(data)) => {
+                            if let Err(e) = self.connection.write_all(&data).await {
+                                self.broadcast_event(SerialEvent::Error(e.to_string())).await;
+                            }
+                        }
+                        Some(SerialMessage::Scroll(kind)) => {
+                            self.broadcast_event(SerialEvent::Scroll(kind)).await;
+                        }
                         Some(SerialMessage::Shutdown) => {
                             self.broadcast_event(SerialEvent::ConnectionClosed).await;
                         }
                         None => break,
                     }
                 }
+                // Handle reading data from serial connection
                 read_result = self.connection.read(&mut buffer) => {
                     match read_result {
                         Ok(0) => {
@@ -125,6 +142,44 @@ impl SerialActor {
                     }
                 }
             }
+        }
+    }
+}
+
+async fn run_debug_output(mut rx: tokio::sync::mpsc::Receiver<SerialEvent>) {
+    let file = match File::create("/home/thomas/Code/Work/netcon/debug.txt") {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("Failed to create debug file: {e}");
+            return;
+        }
+    };
+
+    let mut writer = BufWriter::new(file);
+    writeln!(writer, "Session started at: {}", chrono::Utc::now()).ok();
+
+    while let Some(event) = rx.recv().await {
+        match event {
+            SerialEvent::Data(data) => {
+                writeln!(writer,
+                    "[{}] RX {} bytes: {:02X?}{} UTF8: {}",
+                    chrono::Utc::now().format("%H:%M:%S%.3f"),
+                    data.len(),
+                    &data[..std::cmp::min(8, data.len())],
+                    if data.len() > 8 { "..." } else { "" },
+                    String::from_utf8_lossy(&data)
+                ).ok();
+            }
+            SerialEvent::Error(e) => {
+                println!("[{}] ERROR: {}", chrono::Utc::now().format("%H:%M:%S%.3f"), e);
+                writer.flush().ok();
+            }
+            SerialEvent::ConnectionClosed => {
+                println!("[{}] Connection closed", chrono::Utc::now().format("%H:%M:%S%.3f"));
+                writer.flush().ok();
+                break;
+            }
+            _ => {},
         }
     }
 }
@@ -161,7 +216,7 @@ async fn main() -> io::Result<()> {
                 }
             }
             Ok(con) => {
-                interactive_session(con, cli.file).await?;
+                interactive_session(con, cli.file, cli.debug).await?;
             }
         }
     } else if let Some(cmd) = cli.command {
@@ -205,16 +260,27 @@ async fn run_stdout_output(mut con_rx: tokio::sync::mpsc::Receiver<SerialEvent>)
                 eprintln!("\r\nConnection closed");
                 break;
             }
+            SerialEvent::Scroll(kind) => {
+                match kind {
+                    event::MouseEventKind::ScrollUp => {
+                        execute!(stdout, terminal::ScrollUp(1)).ok();
+                    }
+                    event::MouseEventKind::ScrollDown => {
+                        execute!(stdout, terminal::ScrollDown(1)).ok();
+                    }
+                    _ => {},
+                }
+            }
         }
     }
 }
 
 async fn run_stdin_input(command_tx: tokio::sync::mpsc::Sender<SerialMessage>) {
     let (stdin_tx, mut stdin_rx) = tokio::sync::mpsc::channel::<String>(10);
-    let shutdown_tx_clone = command_tx.clone();
+    let command_tx_clone = command_tx.clone();
 
     std::thread::spawn(move || {
-        stdin_input_loop(stdin_tx, shutdown_tx_clone)
+        stdin_input_loop(stdin_tx, command_tx_clone)
     });
 
     while let Some(data) = stdin_rx.recv().await {
@@ -224,21 +290,40 @@ async fn run_stdin_input(command_tx: tokio::sync::mpsc::Sender<SerialMessage>) {
     }
 }
 
-fn stdin_input_loop(stdin_tx: tokio::sync::mpsc::Sender<String>, shutdown_tx: tokio::sync::mpsc::Sender<SerialMessage>) {
+fn stdin_input_loop(stdin_tx: tokio::sync::mpsc::Sender<String>, command_tx: tokio::sync::mpsc::Sender<SerialMessage>) {
     loop {
         match event::read() {
+            // Match function keys
+            Ok(Event::Key(KeyEvent { code: KeyCode::F(f_code), modifiers: _modifiers, kind, .. })) => {
+                if kind != crossterm::event::KeyEventKind::Press {
+                    continue;
+                }
+                match f_code {
+                    1 => {
+                        let term_len = "terminal length 0\r".to_string();
+                        if stdin_tx.blocking_send(term_len).is_err() {
+                            break;
+                        }
+                        let test_report = "show inventory\rshow version\rshow env all\rshow license\rshow interface status\rshow vlan\rshow switch\rshow vtp status\rshow diagnostic result switch all\r".to_string();
+                        if stdin_tx.blocking_send(test_report).is_err() {
+                            break;
+                        }
+                    },
+                    _ => continue,
+                };
+            }
+            // Match every other key
             Ok(Event::Key(KeyEvent { code, modifiers, kind, .. })) => {
                 if kind != crossterm::event::KeyEventKind::Press {
                     continue;
                 }
-
                 let data = match (code, modifiers) {
                     (KeyCode::Char('l'), KeyModifiers::CONTROL) => {
                         execute!(io::stdout(), terminal::Clear(ClearType::All), cursor::MoveTo(0,0)).ok();
                         continue;
                     }
                     (KeyCode::Char('q'), KeyModifiers::CONTROL) => {
-                        let _ = shutdown_tx.blocking_send(SerialMessage::Shutdown);
+                        let _ = command_tx.blocking_send(SerialMessage::Shutdown);
                         break;
                     }
                     (KeyCode::Char('c'), KeyModifiers::CONTROL) => UTF_CTRL_C.to_string(),
@@ -259,45 +344,66 @@ fn stdin_input_loop(stdin_tx: tokio::sync::mpsc::Sender<String>, shutdown_tx: to
                     break;
                 }
             }
+            Ok(Event::Mouse(MouseEvent { kind, column, row, .. })) => {
+                match kind {
+                    event::MouseEventKind::ScrollUp => {
+                        let _ = command_tx.blocking_send(SerialMessage::Scroll(event::MouseEventKind::ScrollUp));
+                    }
+                    event::MouseEventKind::ScrollDown => {
+                        let _ = command_tx.blocking_send(SerialMessage::Scroll(event::MouseEventKind::ScrollDown));
+                    }
+                    event::MouseEventKind::Down(_) => {
+                        eprintln!("POS: ({column}, {row})");
+                    }
+                    event::MouseEventKind::Drag(_) => {
+                        eprintln!("POS: ({column}, {row})");
+                    }
+                    event::MouseEventKind::Up(_) => {
+                        eprintln!("POS: ({column}, {row})");
+                    }
+                    _ => {}
+                }
+            }
             Ok(_) => {} // Ignore other events
             Err(_) => break,
         }
     }
 }
 async fn run_file_output(mut file_rx: tokio::sync::mpsc::Receiver<SerialEvent>, filename: String) {
-    let mut file = match File::create(&filename) {
+    let file = match File::create(&filename) {
         Ok(f) => f,
         Err(e) => {
             eprintln!("Failed to create file '{filename}': {e}");
             return;
         }
     };
-
-    writeln!(file, "Session started at: {}", chrono::Utc::now()).ok();
-
+    let mut writer = BufWriter::new(file);
+    writeln!(writer, "Session started at: {}", chrono::Utc::now()).ok();
     while let Some(event) = file_rx.recv().await {
         match event {
             SerialEvent::Data(data) => {
-                file.write_all(&data).ok();
-                file.flush().ok();
+                writer.write_all(&data).ok();
             }
             SerialEvent::Error(e) => {
-                writeln!(file, "\r\n[ERROR {}] {}", chrono::Utc::now(), e).ok();
+                writeln!(writer, "\r\n[ERROR {}] {}", chrono::Utc::now(), e).ok();
+                writer.flush().ok();
             }
             SerialEvent::ConnectionClosed => {
-                writeln!(file, "\r\n[CLOSED {}] Connection closed.", chrono::Utc::now()).ok();
+                writeln!(writer, "\r\n[CLOSED {}] Connection closed.", chrono::Utc::now()).ok();
+                writer.flush().ok();
                 break;
             }
+            _ => {},
         }
     }
 }
 
-async fn interactive_session(connection: SerialPort, file: Option<String>) -> io::Result<()> {
+async fn interactive_session(connection: SerialPort, file: Option<String>, debug: bool) -> io::Result<()> {
     // Setup terminal
     let mut stdout = io::stdout();
     execute!(stdout, terminal::EnterAlternateScreen)?;
     terminal::enable_raw_mode()?;
-    execute!(stdout, terminal::Clear(ClearType::All), cursor::MoveTo(0,0)).ok();
+    execute!(stdout, terminal::Clear(ClearType::All), event::EnableMouseCapture, cursor::MoveTo(0,0)).ok();
 
     // Create channels
     let (command_tx, command_rx) = tokio::sync::mpsc::channel::<SerialMessage>(100);
@@ -310,6 +416,12 @@ async fn interactive_session(connection: SerialPort, file: Option<String>) -> io
         let (file_tx, file_rx) = tokio::sync::mpsc::channel::<SerialEvent>(100);
         channels.push(file_tx);
         tasks.push(tokio::spawn(run_file_output(file_rx, filename)));
+    }
+
+    if debug {
+        let (debug_tx, debug_rx) = tokio::sync::mpsc::channel::<SerialEvent>(100);
+        channels.push(debug_tx);
+        tasks.push(tokio::spawn(run_debug_output(debug_rx)));
     }
 
     // Create and spawn SerialActor
@@ -408,6 +520,7 @@ fn valid_baud_rate(s: &str) -> Result<u32, String> {
 
 fn ensure_terminal_cleanup(mut stdout: io::Stdout) {
     use crossterm::{cursor::Show, execute, terminal::{disable_raw_mode, LeaveAlternateScreen}};
+    let _ = execute!(stdout, event::DisableMouseCapture);
     let _ = disable_raw_mode();
     let _ = execute!(stdout, LeaveAlternateScreen, Show);
     let _ = stdout.flush();
