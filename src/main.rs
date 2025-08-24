@@ -174,7 +174,6 @@ async fn run_debug_output(mut rx: tokio::sync::mpsc::Receiver<SerialEvent>) {
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
-    console_subscriber::init();
     let cli = Cli::parse();
 
     if cli.port.is_none() && cli.command.is_none() {
