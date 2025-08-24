@@ -411,7 +411,7 @@ async fn run_file_output(mut file_rx: tokio::sync::mpsc::Receiver<SerialEvent>, 
     let (write_tx, mut write_rx) = tokio::sync::mpsc::channel::<Vec<u8>>(100);
     let filename_clone = filename.clone();
 
-    let write_handle = tokio::task::spawn_blocking(move || {
+    let write_handle = std::thread::spawn(move || {
         let file = match File::create(&filename_clone) {
             Ok(f) => f,
             Err(e) => {
@@ -482,7 +482,7 @@ async fn run_file_output(mut file_rx: tokio::sync::mpsc::Receiver<SerialEvent>, 
         }
     }
     drop(write_tx);
-    let _ = write_handle.await;
+    let _ = write_handle.join();
 }
 
 async fn interactive_session(connection: SerialPort, file: Option<String>, debug: bool) -> io::Result<()> {
