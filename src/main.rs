@@ -174,6 +174,7 @@ async fn run_debug_output(mut rx: tokio::sync::mpsc::Receiver<SerialEvent>) {
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
+    console_subscriber::init();
     let cli = Cli::parse();
 
     if cli.port.is_none() && cli.command.is_none() {
@@ -231,16 +232,16 @@ async fn run_stdout_output(mut con_rx: tokio::sync::mpsc::Receiver<SerialEvent>,
     let (width, height) = terminal::size().unwrap_or((80, 24));
     let mut screen_buffer = ScreenBuffer::new(width, height, 10000);
 
-    let mut render_interval = tokio::time::interval(tokio::time::Duration::from_millis(16));
+    let mut render_interval = tokio::time::interval(tokio::time::Duration::from_millis(32));
     let mut needs_render = false;
+    let mut data_buffer = Vec::new();
 
     loop {
         tokio::select!{
             serial_event = con_rx.recv() => {
                 match serial_event {
                     Some(SerialEvent::Data(data)) => {
-                        screen_buffer.add_data(&data);
-                        // screen_buffer.render().ok();
+                        data_buffer.extend_from_slice(&data);
                         needs_render = true;
                     }
                     Some(SerialEvent::Error(e)) => {
@@ -281,8 +282,10 @@ async fn run_stdout_output(mut con_rx: tokio::sync::mpsc::Receiver<SerialEvent>,
                     None => break,
                 }
             }
-            _ = render_interval.tick() => {
-                if needs_render {
+            _ = render_interval.tick(), if needs_render => {
+                if !data_buffer.is_empty() {
+                    screen_buffer.add_data(&data_buffer);
+                    data_buffer.clear();
                     screen_buffer.render().ok();
                     needs_render = false;
                 }
