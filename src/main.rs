@@ -2,9 +2,9 @@ use std::{
     fs::File, io::{self, BufWriter, Write}
 };
 use clap::{CommandFactory, Parser, Subcommand};
-use crossterm::{cursor, event::{self, Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent}, execute, style::Print, terminal::{self, ClearType} };
+use crossterm::{cursor, event::{self, Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent}, execute, terminal::{self, ClearType} };
 use serial2_tokio::SerialPort;
-use netcon::screen_buffer::ScreenBuffer;
+use netcon::screen_buffer::{ScreenBuffer, UICommand};
 
 const UTF_TAB: &str = "\u{0009}";
 const UTF_BKSP: &str = "\u{0008}";
@@ -61,18 +61,15 @@ enum Commands {
 #[derive(Debug)]
 #[allow(dead_code)]
 enum SerialMessage {
-    Script(Vec<u8>),
-    Scroll(crossterm::event::MouseEventKind),
     Write(Vec<u8>),
     Shutdown,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 enum SerialEvent {
     Data(Vec<u8>),
     Error(String),
     ConnectionClosed,
-    Scroll(crossterm::event::MouseEventKind),
 }
 
 struct SerialActor {
@@ -109,14 +106,6 @@ impl SerialActor {
                             if let Err(e) = self.connection.write_all(&data).await {
                                 self.broadcast_event(SerialEvent::Error(e.to_string())).await;
                             }
-                        }
-                        Some(SerialMessage::Script(data)) => {
-                            if let Err(e) = self.connection.write_all(&data).await {
-                                self.broadcast_event(SerialEvent::Error(e.to_string())).await;
-                            }
-                        }
-                        Some(SerialMessage::Scroll(kind)) => {
-                            self.broadcast_event(SerialEvent::Scroll(kind)).await;
                         }
                         Some(SerialMessage::Shutdown) => {
                             self.broadcast_event(SerialEvent::ConnectionClosed).await;
@@ -179,7 +168,6 @@ async fn run_debug_output(mut rx: tokio::sync::mpsc::Receiver<SerialEvent>) {
                 writer.flush().ok();
                 break;
             }
-            _ => {},
         }
     }
 }
@@ -239,48 +227,76 @@ async fn main() -> io::Result<()> {
     Ok(())
 }
 
-async fn run_stdout_output(mut con_rx: tokio::sync::mpsc::Receiver<SerialEvent>) {
-    let mut stdout = io::stdout();
+async fn run_stdout_output(mut con_rx: tokio::sync::mpsc::Receiver<SerialEvent>, mut ui_rx: tokio::sync::mpsc::Receiver<UICommand>) {
+    let (width, height) = terminal::size().unwrap_or((80, 24));
+    let mut screen_buffer = ScreenBuffer::new(width, height, 10000);
 
-    while let Some(event) = con_rx.recv().await {
-        match event {
-            // NOTE: May have errors here without using `tokio::task::spawn_blocking`
-            SerialEvent::Data(data) => {
-                execute!(
-                    stdout,
-                    crossterm::style::SetForegroundColor(crossterm::style::Color::Green),
-                    Print(String::from_utf8_lossy(&data)),
-                    ).ok();
-                stdout.flush().ok();
-            }
-            SerialEvent::Error(e) => {
-                eprintln!("SERIAL ERROR: {e}");
-            }
-            SerialEvent::ConnectionClosed => {
-                eprintln!("\r\nConnection closed");
-                break;
-            }
-            SerialEvent::Scroll(kind) => {
-                match kind {
-                    event::MouseEventKind::ScrollUp => {
-                        execute!(stdout, terminal::ScrollUp(1)).ok();
+    let mut render_interval = tokio::time::interval(tokio::time::Duration::from_millis(16));
+    let mut needs_render = false;
+
+    loop {
+        tokio::select!{
+            serial_event = con_rx.recv() => {
+                match serial_event {
+                    Some(SerialEvent::Data(data)) => {
+                        screen_buffer.add_data(&data);
+                        // screen_buffer.render().ok();
+                        needs_render = true;
                     }
-                    event::MouseEventKind::ScrollDown => {
-                        execute!(stdout, terminal::ScrollDown(1)).ok();
+                    Some(SerialEvent::Error(e)) => {
+                        let error_msg = format!("[ERROR] {e}\r\n");
+                        screen_buffer.add_data(error_msg.as_bytes());
+                        screen_buffer.render().ok();
                     }
-                    _ => {},
+                    Some(SerialEvent::ConnectionClosed) => break,
+                    None => break,
+                }
+            }
+            ui_command = ui_rx.recv() => {
+                match ui_command {
+                    Some(UICommand::ScrollUp(lines)) => {
+                        screen_buffer.scroll_up(lines);
+                        screen_buffer.render().ok();
+                    }
+                    Some(UICommand::ScrollDown(lines)) => {
+                        screen_buffer.scroll_down(lines);
+                        screen_buffer.render().ok();
+                    }
+                    Some(UICommand::StartSelection(x, y)) => {
+                        screen_buffer.start_selection(x, y);
+                        screen_buffer.render().ok();
+                    }
+                    Some(UICommand::UpdateSelection(x, y)) => {
+                        screen_buffer.update_selection(x, y);
+                        screen_buffer.render().ok();
+                    }
+                    Some(UICommand::CopySelection) => {
+                        screen_buffer.copy_to_clipboard().ok();
+                        screen_buffer.render().ok();
+                    }
+                    Some(UICommand::ClearSelection) => {
+                        screen_buffer.clear_selection();
+                        screen_buffer.render().ok();
+                    }
+                    None => break,
+                }
+            }
+            _ = render_interval.tick() => {
+                if needs_render {
+                    screen_buffer.render().ok();
+                    needs_render = false;
                 }
             }
         }
     }
 }
 
-async fn run_stdin_input(command_tx: tokio::sync::mpsc::Sender<SerialMessage>) {
+async fn run_stdin_input(command_tx: tokio::sync::mpsc::Sender<SerialMessage>, ui_tx: tokio::sync::mpsc::Sender<UICommand>) {
     let (stdin_tx, mut stdin_rx) = tokio::sync::mpsc::channel::<String>(10);
     let command_tx_clone = command_tx.clone();
 
     std::thread::spawn(move || {
-        stdin_input_loop(stdin_tx, command_tx_clone)
+        stdin_input_loop(stdin_tx, command_tx_clone, ui_tx)
     });
 
     while let Some(data) = stdin_rx.recv().await {
@@ -290,7 +306,7 @@ async fn run_stdin_input(command_tx: tokio::sync::mpsc::Sender<SerialMessage>) {
     }
 }
 
-fn stdin_input_loop(stdin_tx: tokio::sync::mpsc::Sender<String>, command_tx: tokio::sync::mpsc::Sender<SerialMessage>) {
+fn stdin_input_loop(stdin_tx: tokio::sync::mpsc::Sender<String>, command_tx: tokio::sync::mpsc::Sender<SerialMessage>, ui_tx: tokio::sync::mpsc::Sender<UICommand>) {
     loop {
         match event::read() {
             // Match function keys
@@ -304,6 +320,9 @@ fn stdin_input_loop(stdin_tx: tokio::sync::mpsc::Sender<String>, command_tx: tok
                         if stdin_tx.blocking_send(term_len).is_err() {
                             break;
                         }
+                        // if stdin_tx.blocking_send("show version | include System serial".to_string()).is_err() || command_tx.blocking_send(SerialMessage::ReadSerial(Software::IOS)).is_err() {
+                        //     break;
+                        // }
                         let test_report = "show inventory\rshow version\rshow env all\rshow license\rshow interface status\rshow vlan\rshow switch\rshow vtp status\rshow diagnostic result switch all\r".to_string();
                         if stdin_tx.blocking_send(test_report).is_err() {
                             break;
@@ -345,23 +364,21 @@ fn stdin_input_loop(stdin_tx: tokio::sync::mpsc::Sender<String>, command_tx: tok
                 }
             }
             Ok(Event::Mouse(MouseEvent { kind, column, row, .. })) => {
-                match kind {
-                    event::MouseEventKind::ScrollUp => {
-                        let _ = command_tx.blocking_send(SerialMessage::Scroll(event::MouseEventKind::ScrollUp));
-                    }
-                    event::MouseEventKind::ScrollDown => {
-                        let _ = command_tx.blocking_send(SerialMessage::Scroll(event::MouseEventKind::ScrollDown));
-                    }
-                    event::MouseEventKind::Down(_) => {
-                        eprintln!("POS: ({column}, {row})");
-                    }
-                    event::MouseEventKind::Drag(_) => {
-                        eprintln!("POS: ({column}, {row})");
-                    }
-                    event::MouseEventKind::Up(_) => {
-                        eprintln!("POS: ({column}, {row})");
-                    }
-                    _ => {}
+                let ui_command = match kind {
+                    event::MouseEventKind::ScrollUp => UICommand::ScrollUp(1),
+                    event::MouseEventKind::ScrollDown => UICommand::ScrollDown(1),
+                    event::MouseEventKind::Down(_) => UICommand::StartSelection(column, row),
+                    event::MouseEventKind::Drag(_) => UICommand::UpdateSelection(column, row),
+                    event::MouseEventKind::Up(_) => UICommand::CopySelection,
+                    _ => continue,
+                };
+                if ui_tx.blocking_send(ui_command).is_err() {
+                    break;
+                }
+            }
+            Ok(Event::Paste(text)) => {
+                if stdin_tx.blocking_send(text).is_err() {
+                    break;
                 }
             }
             Ok(_) => {} // Ignore other events
@@ -393,7 +410,6 @@ async fn run_file_output(mut file_rx: tokio::sync::mpsc::Receiver<SerialEvent>, 
                 writer.flush().ok();
                 break;
             }
-            _ => {},
         }
     }
 }
@@ -403,11 +419,12 @@ async fn interactive_session(connection: SerialPort, file: Option<String>, debug
     let mut stdout = io::stdout();
     execute!(stdout, terminal::EnterAlternateScreen)?;
     terminal::enable_raw_mode()?;
-    execute!(stdout, terminal::Clear(ClearType::All), event::EnableMouseCapture, cursor::MoveTo(0,0)).ok();
+    execute!(stdout, terminal::Clear(ClearType::All), event::EnableBracketedPaste, event::EnableMouseCapture, cursor::MoveTo(0,0)).ok();
 
     // Create channels
     let (command_tx, command_rx) = tokio::sync::mpsc::channel::<SerialMessage>(100);
     let (stdout_tx, stdout_rx) = tokio::sync::mpsc::channel::<SerialEvent>(100);
+    let (ui_tx, ui_rx) = tokio::sync::mpsc::channel::<UICommand>(100);
 
     let mut channels = vec![stdout_tx];
     let mut tasks = Vec::new();
@@ -429,8 +446,8 @@ async fn interactive_session(connection: SerialPort, file: Option<String>, debug
     let actor_handle = tokio::spawn(actor.run());
 
     // Spawn output and input tasks
-    let stdout_task = tokio::spawn(run_stdout_output(stdout_rx));
-    let stdin_task = tokio::spawn(run_stdin_input(command_tx));
+    let stdout_task = tokio::spawn(run_stdout_output(stdout_rx, ui_rx));
+    let stdin_task = tokio::spawn(run_stdin_input(command_tx, ui_tx));
 
     tasks.push(actor_handle);
     tasks.push(stdout_task);
@@ -520,7 +537,7 @@ fn valid_baud_rate(s: &str) -> Result<u32, String> {
 
 fn ensure_terminal_cleanup(mut stdout: io::Stdout) {
     use crossterm::{cursor::Show, execute, terminal::{disable_raw_mode, LeaveAlternateScreen}};
-    let _ = execute!(stdout, event::DisableMouseCapture);
+    let _ = execute!(stdout, event::DisableMouseCapture, event::DisableBracketedPaste);
     let _ = disable_raw_mode();
     let _ = execute!(stdout, LeaveAlternateScreen, Show);
     let _ = stdout.flush();
