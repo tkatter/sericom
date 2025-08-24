@@ -231,10 +231,10 @@ async fn main() -> io::Result<()> {
 async fn run_stdout_output(mut con_rx: tokio::sync::mpsc::Receiver<SerialEvent>, mut ui_rx: tokio::sync::mpsc::Receiver<UICommand>) {
     let (width, height) = terminal::size().unwrap_or((80, 24));
     let mut screen_buffer = ScreenBuffer::new(width, height, 10000);
-
-    let mut render_interval = tokio::time::interval(tokio::time::Duration::from_millis(32));
-    let mut needs_render = false;
     let mut data_buffer = Vec::new();
+    let mut needs_render = false;
+
+    let mut render_timer: Option<tokio::time::Interval> = None;
 
     loop {
         tokio::select!{
@@ -243,11 +243,22 @@ async fn run_stdout_output(mut con_rx: tokio::sync::mpsc::Receiver<SerialEvent>,
                     Some(SerialEvent::Data(data)) => {
                         data_buffer.extend_from_slice(&data);
                         needs_render = true;
+                        if data_buffer.len() > 1024 || data.contains(&b'\n') {
+                            screen_buffer.add_data(&data_buffer);
+                            data_buffer.clear();
+                            screen_buffer.render().ok();
+                            needs_render = false;
+                            render_timer = None;
+                        } else if render_timer.is_none() {
+                            render_timer = Some(tokio::time::interval(tokio::time::Duration::from_millis(16)));
+                        }
                     }
                     Some(SerialEvent::Error(e)) => {
                         let error_msg = format!("[ERROR] {e}\r\n");
                         screen_buffer.add_data(error_msg.as_bytes());
                         screen_buffer.render().ok();
+                        needs_render = false;
+                        render_timer = None;
                     }
                     Some(SerialEvent::ConnectionClosed) => break,
                     None => break,
@@ -282,13 +293,20 @@ async fn run_stdout_output(mut con_rx: tokio::sync::mpsc::Receiver<SerialEvent>,
                     None => break,
                 }
             }
-            _ = render_interval.tick(), if needs_render => {
+            _ = async {
+                if let Some(ref mut timer) = render_timer {
+                    timer.tick().await;
+                } else {
+                    std::future::pending::<()>().await;
+                }
+            }, if needs_render => {
                 if !data_buffer.is_empty() {
                     screen_buffer.add_data(&data_buffer);
                     data_buffer.clear();
                     screen_buffer.render().ok();
-                    needs_render = false;
                 }
+                needs_render = false;
+                render_timer = None;
             }
         }
     }
@@ -390,31 +408,81 @@ fn stdin_input_loop(stdin_tx: tokio::sync::mpsc::Sender<String>, command_tx: tok
     }
 }
 async fn run_file_output(mut file_rx: tokio::sync::mpsc::Receiver<SerialEvent>, filename: String) {
-    let file = match File::create(&filename) {
-        Ok(f) => f,
-        Err(e) => {
-            eprintln!("Failed to create file '{filename}': {e}");
-            return;
+    let (write_tx, mut write_rx) = tokio::sync::mpsc::channel::<Vec<u8>>(100);
+    let filename_clone = filename.clone();
+
+    let write_handle = tokio::task::spawn_blocking(move || {
+        let file = match File::create(&filename_clone) {
+            Ok(f) => f,
+            Err(e) => {
+                eprintln!("Failed to create file '{filename_clone}': {e}");
+                return;
+            }
+        };
+        let mut writer = BufWriter::new(file);
+        writeln!(writer, "Session started at: {}", chrono::Utc::now()).ok();
+        while let Some(data) = write_rx.blocking_recv() {
+            writer.write_all(&data).ok();
+            writer.flush().ok();
         }
-    };
-    let mut writer = BufWriter::new(file);
-    writeln!(writer, "Session started at: {}", chrono::Utc::now()).ok();
-    while let Some(event) = file_rx.recv().await {
-        match event {
-            SerialEvent::Data(data) => {
-                writer.write_all(&data).ok();
+    });
+
+    let mut write_buf = Vec::new();
+    let mut flush_deadline: Option<tokio::time::Instant> = None;
+
+    loop {
+        tokio::select! {
+            event = file_rx.recv() => {
+                match event {
+                    Some(SerialEvent::Data(data)) => {
+                        write_buf.extend_from_slice(&data);
+
+                        if write_buf.len() >= 4096 || data.contains(&b'\n') {
+                            let _ = write_tx.send(write_buf.clone()).await;
+                            write_buf.clear();
+                            flush_deadline = None;
+                        } else if flush_deadline.is_none() && !write_buf.is_empty() {
+                            flush_deadline = Some(
+                                tokio::time::Instant::now() +
+                                tokio::time::Duration::from_millis(100)
+                            );
+                        }
+                    }
+                    Some(SerialEvent::Error(e)) => {
+                        if !write_buf.is_empty() {
+                            let _ = write_tx.send(write_buf.clone()).await;
+                            write_buf.clear();
+                        }
+                        let error_msg = format!("\r\n[ERROR {}] {e}\r\n", chrono::Utc::now());
+                        let _ = write_tx.send(error_msg.into_bytes()).await;
+                        flush_deadline = None;
+                    }
+                    Some(SerialEvent::ConnectionClosed) => {
+                        if !write_buf.is_empty() {
+                            let _ = write_tx.send(write_buf.clone()).await;
+                        }
+                        let close_msg = format!("\r\n[CLOSED {}] Connection closed.\r\n", chrono::Utc::now());
+                        let _ = write_tx.send(close_msg.into_bytes()).await;
+                        break;
+                    }
+                    None => break,
+                }
             }
-            SerialEvent::Error(e) => {
-                writeln!(writer, "\r\n[ERROR {}] {}", chrono::Utc::now(), e).ok();
-                writer.flush().ok();
-            }
-            SerialEvent::ConnectionClosed => {
-                writeln!(writer, "\r\n[CLOSED {}] Connection closed.", chrono::Utc::now()).ok();
-                writer.flush().ok();
-                break;
+            _ = async {
+                if let Some(deadline) = flush_deadline {
+                    tokio::time::sleep_until(deadline).await;
+                } else {
+                    std::future::pending::<()>().await;
+                }
+            }, if !write_buf.is_empty() => {
+                let _ = write_tx.send(write_buf.clone()).await;
+                write_buf.clear();
+                flush_deadline = None;
             }
         }
     }
+    drop(write_tx);
+    let _ = write_handle.await;
 }
 
 async fn interactive_session(connection: SerialPort, file: Option<String>, debug: bool) -> io::Result<()> {
