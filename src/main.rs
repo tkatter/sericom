@@ -1,5 +1,5 @@
 use std::{
-    fs::File, io::{self, BufWriter, Write}
+    fs::File, io::{self, BufWriter, Write}, sync::Arc
 };
 use clap::{CommandFactory, Parser, Subcommand};
 use crossterm::{cursor, event::{self, Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent}, execute, terminal::{self, ClearType} };
@@ -67,7 +67,7 @@ enum SerialMessage {
 
 #[derive(Clone, Debug)]
 enum SerialEvent {
-    Data(Vec<u8>),
+    Data(Arc<[u8]>),
     Error(String),
     ConnectionClosed,
 }
@@ -75,14 +75,15 @@ enum SerialEvent {
 struct SerialActor {
     connection: SerialPort,
     command_rx: tokio::sync::mpsc::Receiver<SerialMessage>,
-    channels: Vec<tokio::sync::mpsc::Sender<SerialEvent>>
+    // channels: Vec<tokio::sync::mpsc::Sender<SerialEvent>>
+    channels: tokio::sync::broadcast::Sender<SerialEvent>
 }
 
 impl SerialActor {
     fn new (
         connection: SerialPort,
         command_rx: tokio::sync::mpsc::Receiver<SerialMessage>,
-        channels: Vec<tokio::sync::mpsc::Sender<SerialEvent>>
+        channels: tokio::sync::broadcast::Sender<SerialEvent>
     ) -> Self {
         Self {
             connection,
@@ -90,13 +91,9 @@ impl SerialActor {
             channels
         }
     }
-    async fn broadcast_event(&self, event: SerialEvent) {
-        for channel in &self.channels {
-            let _ = channel.send(event.clone()).await;
-        }
-    }
+
     async fn run(mut self) {
-        let mut buffer = vec![0u8; 1024];
+        let mut buffer = vec![0u8; 4096];
         loop {
             tokio::select! {
                 // Handle commands/input from stdin
@@ -104,11 +101,12 @@ impl SerialActor {
                     match cmd {
                         Some(SerialMessage::Write(data)) => {
                             if let Err(e) = self.connection.write_all(&data).await {
-                                self.broadcast_event(SerialEvent::Error(e.to_string())).await;
+                                self.channels.send(SerialEvent::Error(e.to_string())).ok();
                             }
                         }
                         Some(SerialMessage::Shutdown) => {
-                            self.broadcast_event(SerialEvent::ConnectionClosed).await;
+                            // self.broadcast_event(SerialEvent::ConnectionClosed).await;
+                            self.channels.send(SerialEvent::ConnectionClosed).ok();
                         }
                         None => break,
                     }
@@ -117,15 +115,15 @@ impl SerialActor {
                 read_result = self.connection.read(&mut buffer) => {
                     match read_result {
                         Ok(0) => {
-                            self.broadcast_event(SerialEvent::ConnectionClosed).await;
+                            self.channels.send(SerialEvent::ConnectionClosed).ok();
                             break;
                         }
                         Ok(n) => {
-                            let data = buffer[..n].to_vec();
-                            self.broadcast_event(SerialEvent::Data(data)).await;
+                            let data: Arc<[u8]> = buffer[..n].into();
+                            self.channels.send(SerialEvent::Data(data)).ok();
                         }
                         Err(e) => {
-                            self.broadcast_event(SerialEvent::Error(e.to_string())).await;
+                            self.channels.send(SerialEvent::Error(e.to_string())).ok();
                             break;
                         }
                     }
@@ -135,7 +133,7 @@ impl SerialActor {
     }
 }
 
-async fn run_debug_output(mut rx: tokio::sync::mpsc::Receiver<SerialEvent>) {
+async fn run_debug_output(mut rx: tokio::sync::broadcast::Receiver<SerialEvent>) {
     let file = match File::create("/home/thomas/Code/Work/netcon/debug.txt") {
         Ok(f) => f,
         Err(e) => {
@@ -147,7 +145,7 @@ async fn run_debug_output(mut rx: tokio::sync::mpsc::Receiver<SerialEvent>) {
     let mut writer = BufWriter::new(file);
     writeln!(writer, "Session started at: {}", chrono::Utc::now()).ok();
 
-    while let Some(event) = rx.recv().await {
+    while let Ok(event) = rx.recv().await {
         match event {
             SerialEvent::Data(data) => {
                 writeln!(writer,
@@ -174,6 +172,7 @@ async fn run_debug_output(mut rx: tokio::sync::mpsc::Receiver<SerialEvent>) {
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
+    // console_subscriber::init();
     let cli = Cli::parse();
 
     if cli.port.is_none() && cli.command.is_none() {
@@ -227,40 +226,48 @@ async fn main() -> io::Result<()> {
     Ok(())
 }
 
-async fn run_stdout_output(mut con_rx: tokio::sync::mpsc::Receiver<SerialEvent>, mut ui_rx: tokio::sync::mpsc::Receiver<UICommand>) {
+async fn run_stdout_output(mut con_rx: tokio::sync::broadcast::Receiver<SerialEvent>, mut ui_rx: tokio::sync::mpsc::Receiver<UICommand>) {
     let (width, height) = terminal::size().unwrap_or((80, 24));
     let mut screen_buffer = ScreenBuffer::new(width, height, 10000);
     let mut data_buffer = Vec::new();
-    let mut needs_render = false;
-
     let mut render_timer: Option<tokio::time::Interval> = None;
 
     loop {
         tokio::select!{
             serial_event = con_rx.recv() => {
                 match serial_event {
-                    Some(SerialEvent::Data(data)) => {
+                    Ok(SerialEvent::Data(data)) => {
                         data_buffer.extend_from_slice(&data);
-                        needs_render = true;
+
                         if data_buffer.len() > 1024 || data.contains(&b'\n') {
                             screen_buffer.add_data(&data_buffer);
                             data_buffer.clear();
-                            screen_buffer.render().ok();
-                            needs_render = false;
-                            render_timer = None;
-                        } else if render_timer.is_none() {
-                            render_timer = Some(tokio::time::interval(tokio::time::Duration::from_millis(16)));
+
+                            if screen_buffer.should_render_now() {
+                                screen_buffer.render().ok();
+                                render_timer = None;
+                            } else if render_timer.is_none() {
+                                render_timer = Some(tokio::time::interval(tokio::time::Duration::from_millis(16)));
+                            }
+                        } else {
+                            screen_buffer.add_data(&data_buffer);
+                            data_buffer.clear();
+
+                            if screen_buffer.should_render_now() {
+                                screen_buffer.render().ok();
+                            } else if render_timer.is_none() {
+                                render_timer = Some(tokio::time::interval(tokio::time::Duration::from_millis(16)));
+                            }
                         }
                     }
-                    Some(SerialEvent::Error(e)) => {
+                    Ok(SerialEvent::Error(e)) => {
                         let error_msg = format!("[ERROR] {e}\r\n");
                         screen_buffer.add_data(error_msg.as_bytes());
                         screen_buffer.render().ok();
-                        needs_render = false;
                         render_timer = None;
                     }
-                    Some(SerialEvent::ConnectionClosed) => break,
-                    None => break,
+                    Ok(SerialEvent::ConnectionClosed) => break,
+                    Err(_) => break,
                 }
             }
             ui_command = ui_rx.recv() => {
@@ -296,16 +303,13 @@ async fn run_stdout_output(mut con_rx: tokio::sync::mpsc::Receiver<SerialEvent>,
                 if let Some(ref mut timer) = render_timer {
                     timer.tick().await;
                 } else {
-                    std::future::pending::<()>().await;
+                    std::future::pending::<()>().await
                 }
-            }, if needs_render => {
-                if !data_buffer.is_empty() {
-                    screen_buffer.add_data(&data_buffer);
-                    data_buffer.clear();
+            } => {
+                if screen_buffer.should_render_now() {
                     screen_buffer.render().ok();
+                    render_timer = None;
                 }
-                needs_render = false;
-                render_timer = None;
             }
         }
     }
@@ -315,7 +319,7 @@ async fn run_stdin_input(command_tx: tokio::sync::mpsc::Sender<SerialMessage>, u
     let (stdin_tx, mut stdin_rx) = tokio::sync::mpsc::channel::<String>(10);
     let command_tx_clone = command_tx.clone();
 
-    std::thread::spawn(move || {
+    tokio::task::spawn_blocking(move || {
         stdin_input_loop(stdin_tx, command_tx_clone, ui_tx)
     });
 
@@ -340,9 +344,6 @@ fn stdin_input_loop(stdin_tx: tokio::sync::mpsc::Sender<String>, command_tx: tok
                         if stdin_tx.blocking_send(term_len).is_err() {
                             break;
                         }
-                        // if stdin_tx.blocking_send("show version | include System serial".to_string()).is_err() || command_tx.blocking_send(SerialMessage::ReadSerial(Software::IOS)).is_err() {
-                        //     break;
-                        // }
                         let test_report = "show inventory\rshow version\rshow env all\rshow license\rshow interface status\rshow vlan\rshow switch\rshow vtp status\rshow diagnostic result switch all\r".to_string();
                         if stdin_tx.blocking_send(test_report).is_err() {
                             break;
@@ -406,11 +407,12 @@ fn stdin_input_loop(stdin_tx: tokio::sync::mpsc::Sender<String>, command_tx: tok
         }
     }
 }
-async fn run_file_output(mut file_rx: tokio::sync::mpsc::Receiver<SerialEvent>, filename: String) {
-    let (write_tx, mut write_rx) = tokio::sync::mpsc::channel::<Vec<u8>>(100);
+
+async fn run_file_output(mut file_rx: tokio::sync::broadcast::Receiver<SerialEvent>, filename: String) {
+    let (write_tx, write_rx) = std::sync::mpsc::channel::<Vec<u8>>();
     let filename_clone = filename.clone();
 
-    let write_handle = std::thread::spawn(move || {
+    let write_handle = tokio::task::spawn_blocking(move || {
         let file = match File::create(&filename_clone) {
             Ok(f) => f,
             Err(e) => {
@@ -418,70 +420,80 @@ async fn run_file_output(mut file_rx: tokio::sync::mpsc::Receiver<SerialEvent>, 
                 return;
             }
         };
-        let mut writer = BufWriter::new(file);
+        let mut writer = BufWriter::with_capacity(48 * 1024, file);
+        let mut last_flush = std::time::Instant::now();
+
         writeln!(writer, "Session started at: {}", chrono::Utc::now()).ok();
-        while let Some(data) = write_rx.blocking_recv() {
+        while let Ok(data) = write_rx.recv() {
             writer.write_all(&data).ok();
-            writer.flush().ok();
+
+            let now = std::time::Instant::now();
+            if now.duration_since(last_flush) > std::time::Duration::from_millis(100)
+                || writer.buffer().len() > 32 * 1024 {
+                    let _ = writer.flush();
+                    last_flush = now;
+            }
         }
+        let _ = writer.flush();
     });
 
-    let mut write_buf = Vec::new();
-    let mut flush_deadline: Option<tokio::time::Instant> = None;
 
-    loop {
-        tokio::select! {
-            event = file_rx.recv() => {
-                match event {
-                    Some(SerialEvent::Data(data)) => {
-                        write_buf.extend_from_slice(&data);
+    let data_streamer = tokio::spawn(async move {
+        let mut write_buf = Vec::with_capacity(4096);
+        let mut batch_timer = tokio::time::interval(tokio::time::Duration::from_millis(200));
 
-                        if write_buf.len() >= 4096 || data.contains(&b'\n') {
-                            let _ = write_tx.send(write_buf.clone()).await;
-                            write_buf.clear();
-                            flush_deadline = None;
-                        } else if flush_deadline.is_none() && !write_buf.is_empty() {
-                            flush_deadline = Some(
-                                tokio::time::Instant::now() +
-                                tokio::time::Duration::from_millis(100)
-                            );
+        loop {
+            tokio::select! {
+                event = file_rx.recv() => {
+                    match event {
+                        Ok(SerialEvent::Data(data)) => {
+                            write_buf.extend_from_slice(&data);
+
+                            if write_buf.len() >= 4096 && write_tx.send(std::mem::take(&mut write_buf)).is_err() {
+                                    break;
+                            }
                         }
-                    }
-                    Some(SerialEvent::Error(e)) => {
-                        if !write_buf.is_empty() {
-                            let _ = write_tx.send(write_buf.clone()).await;
-                            write_buf.clear();
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                            eprintln!("File writer lagged, skipped {skipped} messages");
+                            continue; // Don't break on lag
                         }
-                        let error_msg = format!("\r\n[ERROR {}] {e}\r\n", chrono::Utc::now());
-                        let _ = write_tx.send(error_msg.into_bytes()).await;
-                        flush_deadline = None;
+                        // Ok(SerialEvent::Error(e)) => {
+                        //     if !write_buf.is_empty() {
+                        //         if write_tx.send(write_buf.clone()).is_err() {
+                        //             break;
+                        //         }
+                        //         write_buf.clear();
+                        //     }
+                        //     let error_msg = format!("\r\n[ERROR {}] {e}\r\n", chrono::Utc::now());
+                        //     let _ = write_tx.send(error_msg.into_bytes()).await;
+                        //     flush_deadline = None;
+                        // }
+                        // Ok(SerialEvent::ConnectionClosed) => {
+                        //     if !write_buf.is_empty() {
+                        //         let _ = write_tx.send(write_buf.clone()).await;
+                        //     }
+                        //     let close_msg = format!("\r\n[CLOSED {}] Connection closed.\r\n", chrono::Utc::now());
+                        //     let _ = write_tx.send(close_msg.into_bytes()).await;
+                        //     break;
+                        // }
+                        _ => break,
                     }
-                    Some(SerialEvent::ConnectionClosed) => {
-                        if !write_buf.is_empty() {
-                            let _ = write_tx.send(write_buf.clone()).await;
-                        }
-                        let close_msg = format!("\r\n[CLOSED {}] Connection closed.\r\n", chrono::Utc::now());
-                        let _ = write_tx.send(close_msg.into_bytes()).await;
-                        break;
-                    }
-                    None => break,
                 }
-            }
-            _ = async {
-                if let Some(deadline) = flush_deadline {
-                    tokio::time::sleep_until(deadline).await;
-                } else {
-                    std::future::pending::<()>().await;
+                _ = batch_timer.tick() => {
+                    if !write_buf.is_empty() && write_tx.send(std::mem::take(&mut write_buf)).is_err() {
+                            break;
+                    }
                 }
-            }, if !write_buf.is_empty() => {
-                let _ = write_tx.send(write_buf.clone()).await;
-                write_buf.clear();
-                flush_deadline = None;
             }
         }
-    }
-    drop(write_tx);
-    let _ = write_handle.join();
+        if !write_buf.is_empty() {
+            let _ = write_tx.send(std::mem::take(&mut write_buf));
+        }
+        drop(write_tx);
+    });
+
+    let _ = data_streamer.await;
+    let _ = write_handle.await;
 }
 
 async fn interactive_session(connection: SerialPort, file: Option<String>, debug: bool) -> io::Result<()> {
@@ -493,26 +505,23 @@ async fn interactive_session(connection: SerialPort, file: Option<String>, debug
 
     // Create channels
     let (command_tx, command_rx) = tokio::sync::mpsc::channel::<SerialMessage>(100);
-    let (stdout_tx, stdout_rx) = tokio::sync::mpsc::channel::<SerialEvent>(100);
     let (ui_tx, ui_rx) = tokio::sync::mpsc::channel::<UICommand>(100);
-
-    let mut channels = vec![stdout_tx];
+    let (event_tx, _) = tokio::sync::broadcast::channel::<SerialEvent>(128);
+    let stdout_rx = event_tx.subscribe();
     let mut tasks = Vec::new();
 
     if let Some(filename) = file {
-        let (file_tx, file_rx) = tokio::sync::mpsc::channel::<SerialEvent>(100);
-        channels.push(file_tx);
+        let file_rx = event_tx.subscribe();
         tasks.push(tokio::spawn(run_file_output(file_rx, filename)));
     }
 
     if debug {
-        let (debug_tx, debug_rx) = tokio::sync::mpsc::channel::<SerialEvent>(100);
-        channels.push(debug_tx);
+        let debug_rx = event_tx.subscribe();
         tasks.push(tokio::spawn(run_debug_output(debug_rx)));
     }
 
     // Create and spawn SerialActor
-    let actor = SerialActor::new(connection, command_rx, channels);
+    let actor = SerialActor::new(connection, command_rx, event_tx);
     let actor_handle = tokio::spawn(actor.run());
 
     // Spawn output and input tasks

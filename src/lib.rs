@@ -1,6 +1,8 @@
 pub mod screen_buffer {
-    use std::collections::VecDeque;
+    use std::{collections::VecDeque, io::BufWriter};
     use crossterm::style::Color;
+
+    const MIN_RENDER_INTERVAL: tokio::time::Duration = tokio::time::Duration::from_millis(33);
 
     #[derive(Clone, Debug)]
     pub enum UICommand {
@@ -53,6 +55,9 @@ pub mod screen_buffer {
         pub selection_end: Option<(u16, usize)>,
         /// Configuration for the maximum amount of lines to keep in memory.
         pub max_scrollback: usize,
+        pub last_render: Option<tokio::time::Instant>,
+        pub needs_render: bool,
+        pub render_scheduled: bool,
     }
 
     impl ScreenBuffer {
@@ -69,6 +74,9 @@ pub mod screen_buffer {
                 selection_start: None,
                 selection_end: None,
                 max_scrollback,
+                last_render: None,
+                needs_render: false,
+                render_scheduled: false,
             };
             // Start with an empty line
             buffer.lines.push_back(vec![Cell::default(); width as usize]);
@@ -77,9 +85,17 @@ pub mod screen_buffer {
 
         pub fn add_data(&mut self, data: &[u8]) {
             let text = String::from_utf8_lossy(data);
-            for ch in text.chars() {
+            let mut chars = text.chars().peekable();
+
+            while let Some(ch) = chars.next() {
                 match ch {
-                    '\r' => self.cursor_x = 0,
+                    '\r' => {
+                        self.cursor_x = 0;
+                        if chars.peek() == Some(&'\n') {
+                            chars.next();
+                            self.new_line();
+                        }
+                    }
                     '\n' => self.new_line(),
                     '\x08' => {
                         if self.cursor_x > 0 {
@@ -87,18 +103,74 @@ pub mod screen_buffer {
                             self.set_char_at_cursor(' ');
                         }
                     }
-                    // Handling of Unicode control characters
-                    // c if c.is_control() => {},
                     c => {
-                        self.set_char_at_cursor(c);
+                        let mut batch = vec![c];
+                        while let Some(&next_ch) = chars.peek() {
+                            if next_ch.is_control() || self.cursor_x + batch.len() as u16 >= self.width {
+                                break;
+                            }
+                            batch.push(chars.next().unwrap());
+                        }
+                        self.add_char_batch(&batch);
+                    }
+                }
+            }
+            // for ch in text.chars() {
+            //     match ch {
+            //         '\r' => self.cursor_x = 0,
+            //         '\n' => self.new_line(),
+            //         '\x08' => {
+            //             if self.cursor_x > 0 {
+            //                 self.cursor_x -= 1;
+            //                 self.set_char_at_cursor(' ');
+            //             }
+            //         }
+            //         // Handling of Unicode control characters
+            //         // c if c.is_control() => {},
+            //         c => {
+            //             self.set_char_at_cursor(c);
+            //             self.cursor_x += 1;
+            //             if self.cursor_x >= self.width {
+            //                 self.new_line();
+            //             }
+            //         }
+            //     }
+            // }
+            self.needs_render = true;
+            self.scroll_to_bottom();
+        }
+
+        fn add_char_batch(&mut self, chars: &[char]) {
+            while self.cursor_y >= self.lines.len() {
+                self.lines.push_back(vec![Cell::default(); self.width as usize]);
+            }
+
+            if let Some(line) = self.lines.get_mut(self.cursor_y) {
+                for &ch in chars {
+                    if (self.cursor_x as usize) < line.len() {
+                        line[self.cursor_x as usize].character = ch;
                         self.cursor_x += 1;
                         if self.cursor_x >= self.width {
                             self.new_line();
+                            break;
                         }
                     }
                 }
             }
-            self.scroll_to_bottom();
+        }
+
+        pub fn should_render_now(&self) -> bool {
+            use tokio::time::Instant;
+
+            if !self.needs_render {
+                return false;
+            }
+
+            let now = Instant::now();
+            match self.last_render {
+                Some(last) => now.duration_since(last) >= MIN_RENDER_INTERVAL,
+                None => true,
+            }
         }
 
         /// Sets the character in `ScreenBuffer.lines` at the line and
@@ -269,42 +341,52 @@ pub mod screen_buffer {
             }
         }
 
-        pub fn render(&self) -> std::io::Result<()> {
+        // fn build_line_bytes(&self, line: &Vec<Cell>) -> Vec<u8> {
+        //     let mut chars = String::new();
+        //     for cell in line {
+        //         chars.push(cell.character);
+        //     }
+        //     chars.into_bytes()
+        // }
+        //
+        pub fn render(&mut self) -> std::io::Result<()> {
             use std::io::Write;
-            use crossterm::{ execute, cursor, style };
+            use crossterm::{ queue, cursor, style };
+            use tokio::time::Instant;
 
-            let mut stdout = std::io::stdout();
-            execute!(stdout, cursor::Hide)?;
-
+            if !self.needs_render {
+                return Ok(());
+            }
+            let stdout = std::io::stdout();
+            let mut writer = BufWriter::new(stdout);
+            queue!(writer, cursor::Hide)?;
+            
             for screen_y in 0..self.height {
                 let line_idx = self.view_start + screen_y as usize;
-                execute!(stdout, cursor::MoveTo(0, screen_y))?;
-
+                queue!(writer, cursor::MoveTo(0, screen_y))?;
+                
                 if let Some(line) = self.lines.get(line_idx) {
-                    execute!(stdout, style::ResetColor)?;
                     let mut current_fg = Color::Green;
                     let mut current_bg = Color::Reset;
-                    execute!(stdout, style::SetForegroundColor(current_fg))?;
-                    execute!(stdout, style::SetBackgroundColor(current_bg))?;
+                    queue!(writer, style::SetForegroundColor(current_fg))?;
+                    queue!(writer, style::SetBackgroundColor(current_bg))?;
 
                     for cell in line {
                         let fg = if cell.is_selected { Color::Black } else { cell.fg_color };
                         let bg = if cell.is_selected { Color::White } else { cell.bg_color };
                         if fg != current_fg {
-                            execute!(stdout, style::SetForegroundColor(fg))?;
+                            queue!(writer, style::SetForegroundColor(fg))?;
                             current_fg = fg;
                         }
                         if bg != current_bg {
-                            execute!(stdout, style::SetBackgroundColor(bg))?;
+                            queue!(writer, style::SetBackgroundColor(bg))?;
                             current_bg = bg;
                         }
-                        execute!(stdout, style::Print(cell.character))?;
+                        queue!(writer, style::Print(cell.character))?;
                     }
-
                 } else {
-                    execute!(stdout, style::ResetColor)?;
-                    // Clears empty lines
-                    execute!(stdout, style::Print(" ".repeat(self.width as usize)))?;
+                    queue!(writer, style::ResetColor)?;
+                    queue!(writer, style::Print(" ".repeat(self.width as usize)))?;
                 }
             }
 
@@ -315,10 +397,10 @@ pub mod screen_buffer {
                 self.height - 1
             };
 
-            execute!(stdout, cursor::MoveTo(self.cursor_x, screen_cursor_y))?;
-            execute!(stdout, cursor::Show)?;
-            execute!(stdout, style::ResetColor)?;
-            stdout.flush()?;
+            queue!(writer, cursor::MoveTo(self.cursor_x, screen_cursor_y), cursor::Show)?;
+            writer.flush()?;
+            self.last_render = Some(Instant::now());
+            self.needs_render = false;
             Ok(())
         }
     }
