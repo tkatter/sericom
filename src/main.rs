@@ -344,11 +344,21 @@ fn stdin_input_loop(stdin_tx: tokio::sync::mpsc::Sender<String>, command_tx: tok
                         if stdin_tx.blocking_send(term_len).is_err() {
                             break;
                         }
-                        let test_report = "show inventory\rshow version\rshow env all\rshow license\rshow interface status\rshow vlan\rshow switch\rshow vtp status\rshow diagnostic result switch all\r".to_string();
+                        let test_report = "show inventory\rshow version\rshow license summary\rshow license usage\rshow environment all\rshow power inline\rshow interface status\rshow diagnostic post\rshow diagnostic result switch all\r".to_string();
                         if stdin_tx.blocking_send(test_report).is_err() {
                             break;
                         }
                     },
+		    2 => {
+		        let term_len = "terminal length 0\r".to_string();
+			if stdin_tx.blocking_send(term_len).is_err() {
+			    break;
+			}
+			let test_report = "show inventory\rshow version\rshow license\rshow license usage\rshow environment\rshow startup-config\rshow interface status\rshow boot\rshow diagnostic result all\r".to_string();
+			if stdin_tx.blocking_send(test_report).is_err() {
+			    break;
+			}
+		    },
                     _ => continue,
                 };
             }
@@ -423,6 +433,7 @@ async fn run_file_output(mut file_rx: tokio::sync::broadcast::Receiver<SerialEve
         let mut writer = BufWriter::with_capacity(48 * 1024, file);
         let mut last_flush = std::time::Instant::now();
 
+        writeln!(writer, "SERIAL: ").ok();
         writeln!(writer, "Session started at: {}", chrono::Utc::now()).ok();
         while let Ok(data) = write_rx.recv() {
             writer.write_all(&data).ok();
