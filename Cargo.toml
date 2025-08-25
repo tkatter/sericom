@@ -1,6 +1,6 @@
 [package]
-name = "serial_scripts"
-version = "0.0.1"
+name = "netcon"
+version = "0.1.0"
 edition = "2024"
 description = "CLI tool for issuing commands to network switches and routers over their serial connections."
 
@@ -10,7 +10,8 @@ clap = { version = "4.5.41", features = ["derive"] }
 crossterm = { version = "0.29.0", features = ["osc52", "event-stream"] }
 serial2-tokio = { version = "0.1.15", features = ["windows"] }
 tokio = { version = "1.47.0", features = ["full"] }
+# tracing = "0.1"
+# console-subscriber = "0.4.1"
 
-[profile.release-win]
-inherits = "release"
-debug = "full"
+[profile.release]
+debug = true
