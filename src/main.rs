@@ -58,14 +58,6 @@ enum Commands {
     },
 }
 
-#[derive(Debug, PartialEq)]
-enum PromptState {
-    WaitingForPromptStart,
-    AccumulatingPrompt,
-    PromptDetected(u16),
-    InputActive,
-}
-
 #[derive(Debug)]
 enum SerialMessage {
     Write(Vec<u8>),
@@ -77,15 +69,12 @@ enum SerialEvent {
     Data(Arc<[u8]>),
     Error(String),
     ConnectionClosed,
-    PromptDetected(u16),
 }
 
 struct SerialActor {
     connection: SerialPort,
     command_rx: tokio::sync::mpsc::Receiver<SerialMessage>,
     broadcast_channel: tokio::sync::broadcast::Sender<SerialEvent>,
-    prompt_state: PromptState,
-    potential_prompt_buf: Vec<u8>,
 }
 
 impl SerialActor {
@@ -98,8 +87,6 @@ impl SerialActor {
             connection,
             command_rx,
             broadcast_channel,
-            prompt_state: PromptState::WaitingForPromptStart,
-            potential_prompt_buf: Vec::with_capacity(64),
         }
     }
 
@@ -111,8 +98,6 @@ impl SerialActor {
                 cmd = self.command_rx.recv() => {
                     match cmd {
                         Some(SerialMessage::Write(data)) => {
-                            self.prompt_state = PromptState::InputActive;
-                            self.potential_prompt_buf.clear();
                             if let Err(e) = self.connection.write_all(&data).await {
                                 self.broadcast_channel.send(SerialEvent::Error(e.to_string())).ok();
                             }
@@ -131,49 +116,8 @@ impl SerialActor {
                             break;
                         }
                         Ok(n) => {
-                            let incoming_bytes = &buffer[..n];
-
                             let data: Arc<[u8]> = buffer[..n].into();
                             self.broadcast_channel.send(SerialEvent::Data(data)).ok();
-
-                            if self.prompt_state == PromptState::WaitingForPromptStart || self.prompt_state == PromptState::AccumulatingPrompt {
-                                for &byte in incoming_bytes.iter() {
-                                    match self.prompt_state {
-                                        PromptState::WaitingForPromptStart => {
-                                            if byte == b'\n' || byte == b'\r' {
-                                                self.prompt_state = PromptState::AccumulatingPrompt;
-                                                self.potential_prompt_buf.clear();
-                                            }
-                                        }
-                                        PromptState::AccumulatingPrompt => {
-                                            if byte == b'\n' || byte == b'\r' {
-                                                self.potential_prompt_buf.clear();
-                                            } else if byte.is_ascii_control() && byte != b'\t' {
-                                            } else {
-                                                self.potential_prompt_buf.push(byte);
-                                                if byte == b'#' || byte == b'>' || byte == b'$' || byte == b':' {
-                                                    let prompt_len = self.potential_prompt_buf.len() as u16;
-                                                    self.broadcast_channel.send(SerialEvent::PromptDetected(prompt_len)).ok();
-                                                    self.prompt_state = PromptState::PromptDetected(prompt_len);
-                                                    self.potential_prompt_buf.clear();
-                                                }
-                                                if self.potential_prompt_buf.len() > 128 {
-                                                    self.prompt_state = PromptState::WaitingForPromptStart;
-                                                    self.potential_prompt_buf.clear();
-                                                }
-                                            }
-                                        }
-                                        _ => {}
-                                    }
-                                }
-                            }
-                            if self.prompt_state == PromptState::InputActive 
-                                && (incoming_bytes.contains(&b'\n') || incoming_bytes.contains(&b'\r')) {
-                                    self.prompt_state = PromptState::WaitingForPromptStart;
-                                    self.potential_prompt_buf.clear();
-
-                            }
-
                         }
                         Err(e) => {
                             self.broadcast_channel.send(SerialEvent::Error(e.to_string())).ok();
@@ -189,7 +133,7 @@ impl SerialActor {
 async fn run_debug_output(mut rx: tokio::sync::broadcast::Receiver<SerialEvent>) {
     let (write_tx, write_rx) = std::sync::mpsc::channel::<Vec<u8>>();
     let write_handle = tokio::task::spawn_blocking(move || {
-        let file = match File::create("/home/thomas/Code/Work/netcon/debug.txt") {
+        let file = match File::create("debug.txt") {
             Ok(f) => f,
             Err(e) => {
                 eprintln!("Failed to create file: {e}");
@@ -201,7 +145,14 @@ async fn run_debug_output(mut rx: tokio::sync::broadcast::Receiver<SerialEvent>)
 
         writeln!(writer, "Session started at: {}", chrono::Utc::now()).ok();
         while let Ok(data) = write_rx.recv() {
-            writer.write_all(&data).ok();
+            writeln!(writer,
+                "[{}] RX {} bytes: {:02X?}{} UTF8: {}",
+                chrono::Utc::now().format("%H:%M:%S%.3f"),
+                data.len(),
+                &data[..std::cmp::min(8, data.len())],
+                if data.len() > 8 { "..." } else { "" },
+                String::from_utf8_lossy(&data)
+            ).ok();
 
             let now = std::time::Instant::now();
             if now.duration_since(last_flush) > std::time::Duration::from_millis(100)
@@ -224,15 +175,19 @@ async fn run_debug_output(mut rx: tokio::sync::broadcast::Receiver<SerialEvent>)
                     match event {
                         Ok(SerialEvent::Data(data)) => {
                             write_buf.extend_from_slice(&data);
-
                             if write_buf.len() >= 4096 && write_tx.send(std::mem::take(&mut write_buf)).is_err() {
                                     break;
                             }
                         }
-                        Ok(SerialEvent::PromptDetected(len)) => {
-                            
-                            write_tx.send(len.to_string().as_bytes().to_vec()).ok();
-                        }
+                        // SerialEvent::Error(e) => {
+                        //     println!("[{}] ERROR: {}", chrono::Utc::now().format("%H:%M:%S%.3f"), e);
+                        //     writer.flush().ok();
+                        // }
+                        // SerialEvent::ConnectionClosed => {
+                        //     println!("[{}] Connection closed", chrono::Utc::now().format("%H:%M:%S%.3f"));
+                        //     writer.flush().ok();
+                        //     break;
+                        // }
                         Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
                             eprintln!("File writer lagged, skipped {skipped} messages");
                             continue; // Don't break on lag
@@ -255,41 +210,6 @@ async fn run_debug_output(mut rx: tokio::sync::broadcast::Receiver<SerialEvent>)
     let _ = data_streamer.await;
     let _ = write_handle.await;
 }
-//     let file = match File::create("/home/thomas/Code/Work/netcon/debug.txt") {
-//         Ok(f) => f,
-//         Err(e) => {
-//             eprintln!("Failed to create debug file: {e}");
-//             return;
-//         }
-//     };
-//
-//     let mut writer = BufWriter::new(file);
-//     writeln!(writer, "Session started at: {}", chrono::Utc::now()).ok();
-//
-//     while let Ok(event) = rx.recv().await {
-//         match event {
-//             SerialEvent::Data(data) => {
-//                 writeln!(writer,
-//                     "[{}] RX {} bytes: {:02X?}{} UTF8: {}",
-//                     chrono::Utc::now().format("%H:%M:%S%.3f"),
-//                     data.len(),
-//                     &data[..std::cmp::min(8, data.len())],
-//                     if data.len() > 8 { "..." } else { "" },
-//                     String::from_utf8_lossy(&data)
-//                 ).ok();
-//             }
-//             SerialEvent::Error(e) => {
-//                 println!("[{}] ERROR: {}", chrono::Utc::now().format("%H:%M:%S%.3f"), e);
-//                 writer.flush().ok();
-//             }
-//             SerialEvent::ConnectionClosed => {
-//                 println!("[{}] Connection closed", chrono::Utc::now().format("%H:%M:%S%.3f"));
-//                 writer.flush().ok();
-//                 break;
-//             }
-//         }
-//     }
-// }
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
@@ -390,11 +310,6 @@ async fn run_stdout_output(mut con_rx: tokio::sync::broadcast::Receiver<SerialEv
                                 render_timer = Some(tokio::time::interval(tokio::time::Duration::from_millis(16)));
                             }
                         }
-                    }
-                    Ok(SerialEvent::PromptDetected(len)) => {
-                        screen_buffer.set_input_start(len);
-                        // screen_buffer.render().ok();
-                        // render_timer = None;
                     }
                     Ok(SerialEvent::Error(e)) => {
                         let error_msg = format!("[ERROR] {e}\r\n");
@@ -508,9 +423,12 @@ fn stdin_input_loop(stdin_tx: tokio::sync::mpsc::Sender<String>, command_tx: tok
                     continue;
                 }
                 match code {
+                    KeyCode::Char('c') => {
+                        let _ = stdin_tx.blocking_send(UTF_CTRL_C.to_string());
+                        continue;
+                    }
                     KeyCode::Char('l') => {
                         let _ = ui_tx.blocking_send(UICommand::ClearBuffer);
-                        // execute!(io::stdout(), terminal::Clear(ClearType::All), cursor::MoveTo(0,0)).ok();
                         continue;
                     }
                     KeyCode::Char('q') => {
@@ -521,22 +439,21 @@ fn stdin_input_loop(stdin_tx: tokio::sync::mpsc::Sender<String>, command_tx: tok
                 };
             }
             // Match every other key
-            Ok(Event::Key(KeyEvent { code, modifiers, kind, .. })) => {
+            Ok(Event::Key(KeyEvent { code, modifiers: _, kind, .. })) => {
                 if kind != crossterm::event::KeyEventKind::Press {
                     continue;
                 }
-                let data = match (code, modifiers) {
-                    (KeyCode::Char('c'), KeyModifiers::CONTROL) => UTF_CTRL_C.to_string(),
-                    (KeyCode::Tab, _) => UTF_TAB.to_string(),
-                    (KeyCode::Delete, _) => UTF_DEL.to_string(),
-                    (KeyCode::Up, _) => UTF_UP_KEY.to_string(),
-                    (KeyCode::Down, _) => UTF_DOWN_KEY.to_string(),
-                    (KeyCode::Left, _) => UTF_LEFT_KEY.to_string(),
-                    (KeyCode::Right, _) => UTF_RIGHT_KEY.to_string(),
-                    (KeyCode::Enter, _) => '\r'.to_string(),
-                    (KeyCode::Backspace, _) => UTF_BKSP.to_string(),
-                    (KeyCode::Esc, _) => UTF_ESC.to_string(),
-                    (KeyCode::Char(c), _) => c.to_string(),
+                let data = match code {
+                    KeyCode::Tab => UTF_TAB.to_string(),
+                    KeyCode::Delete => UTF_DEL.to_string(),
+                    KeyCode::Up => UTF_UP_KEY.to_string(),
+                    KeyCode::Down => UTF_DOWN_KEY.to_string(),
+                    KeyCode::Left => UTF_LEFT_KEY.to_string(),
+                    KeyCode::Right => UTF_RIGHT_KEY.to_string(),
+                    KeyCode::Enter => '\r'.to_string(),
+                    KeyCode::Backspace => UTF_BKSP.to_string(),
+                    KeyCode::Esc => UTF_ESC.to_string(),
+                    KeyCode::Char(c) => c.to_string(),
                     _ => continue,
                 };
 

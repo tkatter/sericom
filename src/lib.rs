@@ -4,6 +4,17 @@ pub mod screen_buffer {
 
     const MIN_RENDER_INTERVAL: tokio::time::Duration = tokio::time::Duration::from_millis(33);
 
+    /// `EscapeState` holds stateful information about the incoming
+    /// data to allow for proper processing of ansii escape codes/characters.
+    enum EscapeState {
+        Normal,
+        /// Just received an ESC (0x1B)
+        Esc,
+        /// Received ESC and then '[' (0x5B)
+        Csi,
+    }
+
+    /// `UICommand` is used for communication between stdin and the `ScreenBuffer`.
     #[derive(Clone, Debug)]
     pub enum UICommand {
         ScrollUp(usize),
@@ -15,12 +26,15 @@ pub mod screen_buffer {
         ClearBuffer,
     }
 
+    /// `Cell` represents a cell within the terminal's window/frame.
+    /// Used to hold rendering state for all the cells within the `ScreenBuffer`.
+    /// Each line within `ScreenBuffer` is represented by a `Vec<Cell>`.
     #[derive(Clone, Debug)]
-    pub struct Cell {
-        pub character: char,
-        pub fg_color: Color,
-        pub bg_color: Color,
-        pub is_selected: bool,
+    struct Cell {
+        character: char,
+        fg_color: Color,
+        bg_color: Color,
+        is_selected: bool,
     }
 
     impl Default for Cell {
@@ -34,11 +48,9 @@ pub mod screen_buffer {
         }
     }
 
-    /// The `ScreenBuffer` is used to keep track of different parts of the
-    /// terminal's state throughout a serial connection's session.
-    ///
-    /// The state is used to allow for further functionality within the terminal's
-    /// runtime such as scrolling, selecting text, and copying to a clipboard.
+    /// The `ScreenBuffer` holds rendering state for the entire terminal's window/frame.
+    /// It mainly serves to allow for user-interactions that require a history and location
+    /// of the data displayed within the terminal i.e. copy/paste, scrolling, & highlighting.
     pub struct ScreenBuffer {
         /// Terminal width
         width: u16,
@@ -50,14 +62,15 @@ pub mod screen_buffer {
         /// Current view into the buffer.
         /// Denotes which line is at the top of the screen.
         view_start: usize,
-        /// Denotes the first *writeable* column for the current line.
-        input_start_x: u16,
         cursor_x: u16,
         cursor_y: usize,
+        /// Start of text selection. Used for highlighting and copying to clipboard.
         selection_start: Option<(u16, usize)>,
+        /// End of text selection. Used for highlighting and copying to clipboard.
         selection_end: Option<(u16, usize)>,
         /// Configuration for the maximum amount of lines to keep in memory.
         max_scrollback: usize,
+        escape_state: EscapeState,
         last_render: Option<tokio::time::Instant>,
         needs_render: bool,
     }
@@ -71,7 +84,6 @@ pub mod screen_buffer {
                 height,
                 lines: VecDeque::new(),
                 view_start: 0,
-                input_start_x: 0,
                 cursor_x: 0,
                 cursor_y: 0,
                 selection_start: None,
@@ -79,6 +91,7 @@ pub mod screen_buffer {
                 max_scrollback,
                 last_render: None,
                 needs_render: false,
+                escape_state: EscapeState::Normal,
             };
             // Start with an empty line
             buffer.lines.push_back(vec![Cell::default(); width as usize]);
@@ -90,33 +103,84 @@ pub mod screen_buffer {
             let mut chars = text.chars().peekable();
 
             while let Some(ch) = chars.next() {
-                match ch {
-                    '\r' => {
-                        self.cursor_x = 0;
-                        if chars.peek() == Some(&'\n') {
-                            chars.next();
-                            self.new_line();
-                        }
-                    }
-                    '\n' => {
-                        self.new_line();
-                    }
-                    '\x08' => {
-                        if self.cursor_x > self.input_start_x {
-                        // if self.cursor_x > 0 {
-                            self.cursor_x -= 1;
-                            // self.set_char_at_cursor(' ');
-                        }
-                    }
-                    c => {
-                        let mut batch = vec![c];
-                        while let Some(&next_ch) = chars.peek() {
-                            if next_ch.is_control() || self.cursor_x + batch.len() as u16 >= self.width {
-                                break;
+                match self.escape_state {
+                    EscapeState::Normal => {
+                        match ch {
+                            '\r' => {
+                                self.cursor_x = 0;
+                                if chars.peek() == Some(&'\n') {
+                                    chars.next();
+                                    self.new_line();
+                                }
                             }
-                            batch.push(chars.next().unwrap());
+                            '\n' => {
+                                self.new_line();
+                            }
+                            '\x07' => {}
+                            '\x08' => {
+                                let mut temp_chars = chars.clone();
+                                // Matches the `\x08 ' ' \x08` deletion sequence
+                                if let (Some(' '), Some('\x08')) = (temp_chars.next(), temp_chars.next()) {
+                                    // Consume them - to remove from further processing
+                                    chars.next();
+                                    chars.next();
+                                    self.cursor_x = self.cursor_x.saturating_sub(1);
+                                    self.set_char_at_cursor(' ');
+                                } else {
+                                    // If not the deletion sequence, move cursor left
+                                    // when receiving a single '\x08'
+                                    self.cursor_x = self.cursor_x.saturating_sub(1);
+                                }
+                            }
+                            '\x1B' => {
+                                self.escape_state = EscapeState::Esc;
+                            }
+                            c => {
+                                let mut batch = vec![c];
+                                while let Some(&next_ch) = chars.peek() {
+                                    if next_ch.is_control() || next_ch == '\x1B' || self.cursor_x + batch.len() as u16 >= self.width {
+                                    // if self.cursor_x + batch.len() as u16 >= self.width {
+                                    break;
+                                    }
+                                    batch.push(chars.next().unwrap());
+                                }
+                                self.add_char_batch(&batch);
+                            }
                         }
-                        self.add_char_batch(&batch);
+                    }
+                    EscapeState::Esc => {
+                        match ch {
+                            '[' => {
+                                self.escape_state = EscapeState::Csi;
+
+                            }
+                            _ => {
+                                self.escape_state = EscapeState::Normal;
+                            }
+                        }
+                    }
+                    EscapeState::Csi => {
+                        match ch {
+                            'J' => {
+                                self.clear_from_cursor_to_eol();
+                                self.escape_state = EscapeState::Normal;
+                            }
+                            'K' => {
+                                self.clear_from_cursor_to_eol();
+                                self.escape_state = EscapeState::Normal;
+                            }
+                            'C' => {
+                                self.cursor_x = self.cursor_x.saturating_add(1);
+                                self.escape_state = EscapeState::Normal;
+                            }
+                            'D' => {
+                                self.cursor_x = self.cursor_x.saturating_sub(1);
+                                self.escape_state = EscapeState::Normal;
+                            }
+                            _ => {
+                                self.escape_state = EscapeState::Normal;
+                            }
+                        }
                     }
                 }
             }
@@ -157,17 +221,25 @@ pub mod screen_buffer {
             }
         }
 
-        // fn set_char_at_cursor(&mut self, ch: char) {
-        //     while self.cursor_y >= self.lines.len() {
-        //         self.lines.push_back(vec![Cell::default(); self.width as usize]);
-        //     }
-        //
-        //     if let Some(line) = self.lines.get_mut(self.cursor_y) {
-        //         if (self.cursor_x as usize) < line.len() {
-        //             line[self.cursor_x as usize].character = ch;
-        //         }
-        //     }
-        // }
+        fn set_char_at_cursor(&mut self, ch: char) {
+            while self.cursor_y >= self.lines.len() {
+                self.lines.push_back(vec![Cell::default(); self.width as usize]);
+            }
+        
+            if let Some(line) = self.lines.get_mut(self.cursor_y) {
+                if (self.cursor_x as usize) < line.len() {
+                    line[self.cursor_x as usize].character = ch;
+                }
+            }
+        }
+
+        fn clear_from_cursor_to_eol(&mut self) {
+            if let Some(line) = self.lines.get_mut(self.cursor_y) {
+                for x in (self.cursor_x as usize)..line.len() {
+                    line[x] = Cell::default();
+                }
+            }
+        }
 
         fn new_line(&mut self) {
             self.cursor_y += 1;
@@ -176,8 +248,6 @@ pub mod screen_buffer {
             if self.cursor_y >= self.lines.len() {
                 self.lines.push_back(vec![Cell::default(); self.width as usize]);
             }
-
-            self.input_start_x = 0;
 
             // Remove old lines if exceeding `ScreenBuffer.max_scrollback`
             while self.lines.len() > self.max_scrollback {
@@ -339,13 +409,6 @@ pub mod screen_buffer {
             self.cursor_x = 0;
             self.cursor_y = 0;
             self.lines.push_back(vec![Cell::default(); self.width as usize]);
-            self.needs_render = true;
-            self.input_start_x = 0;
-        }
-
-        pub fn set_input_start(&mut self, prompt_len: u16) {
-            self.input_start_x = prompt_len;
-            self.cursor_x = prompt_len;
             self.needs_render = true;
         }
 
