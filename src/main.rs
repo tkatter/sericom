@@ -58,8 +58,15 @@ enum Commands {
     },
 }
 
+#[derive(Debug, PartialEq)]
+enum PromptState {
+    WaitingForPromptStart,
+    AccumulatingPrompt,
+    PromptDetected(u16),
+    InputActive,
+}
+
 #[derive(Debug)]
-#[allow(dead_code)]
 enum SerialMessage {
     Write(Vec<u8>),
     Shutdown,
@@ -70,25 +77,29 @@ enum SerialEvent {
     Data(Arc<[u8]>),
     Error(String),
     ConnectionClosed,
+    PromptDetected(u16),
 }
 
 struct SerialActor {
     connection: SerialPort,
     command_rx: tokio::sync::mpsc::Receiver<SerialMessage>,
-    // channels: Vec<tokio::sync::mpsc::Sender<SerialEvent>>
-    channels: tokio::sync::broadcast::Sender<SerialEvent>
+    broadcast_channel: tokio::sync::broadcast::Sender<SerialEvent>,
+    prompt_state: PromptState,
+    potential_prompt_buf: Vec<u8>,
 }
 
 impl SerialActor {
     fn new (
         connection: SerialPort,
         command_rx: tokio::sync::mpsc::Receiver<SerialMessage>,
-        channels: tokio::sync::broadcast::Sender<SerialEvent>
+        broadcast_channel: tokio::sync::broadcast::Sender<SerialEvent>
     ) -> Self {
         Self {
             connection,
             command_rx,
-            channels
+            broadcast_channel,
+            prompt_state: PromptState::WaitingForPromptStart,
+            potential_prompt_buf: Vec::with_capacity(64),
         }
     }
 
@@ -96,17 +107,18 @@ impl SerialActor {
         let mut buffer = vec![0u8; 4096];
         loop {
             tokio::select! {
-                // Handle commands/input from stdin
+                // Handle commands/input from tasks
                 cmd = self.command_rx.recv() => {
                     match cmd {
                         Some(SerialMessage::Write(data)) => {
+                            self.prompt_state = PromptState::InputActive;
+                            self.potential_prompt_buf.clear();
                             if let Err(e) = self.connection.write_all(&data).await {
-                                self.channels.send(SerialEvent::Error(e.to_string())).ok();
+                                self.broadcast_channel.send(SerialEvent::Error(e.to_string())).ok();
                             }
                         }
                         Some(SerialMessage::Shutdown) => {
-                            // self.broadcast_event(SerialEvent::ConnectionClosed).await;
-                            self.channels.send(SerialEvent::ConnectionClosed).ok();
+                            self.broadcast_channel.send(SerialEvent::ConnectionClosed).ok();
                         }
                         None => break,
                     }
@@ -115,15 +127,56 @@ impl SerialActor {
                 read_result = self.connection.read(&mut buffer) => {
                     match read_result {
                         Ok(0) => {
-                            self.channels.send(SerialEvent::ConnectionClosed).ok();
+                            self.broadcast_channel.send(SerialEvent::ConnectionClosed).ok();
                             break;
                         }
                         Ok(n) => {
+                            let incoming_bytes = &buffer[..n];
+
                             let data: Arc<[u8]> = buffer[..n].into();
-                            self.channels.send(SerialEvent::Data(data)).ok();
+                            self.broadcast_channel.send(SerialEvent::Data(data)).ok();
+
+                            if self.prompt_state == PromptState::WaitingForPromptStart || self.prompt_state == PromptState::AccumulatingPrompt {
+                                for &byte in incoming_bytes.iter() {
+                                    match self.prompt_state {
+                                        PromptState::WaitingForPromptStart => {
+                                            if byte == b'\n' || byte == b'\r' {
+                                                self.prompt_state = PromptState::AccumulatingPrompt;
+                                                self.potential_prompt_buf.clear();
+                                            }
+                                        }
+                                        PromptState::AccumulatingPrompt => {
+                                            if byte == b'\n' || byte == b'\r' {
+                                                self.potential_prompt_buf.clear();
+                                            } else if byte.is_ascii_control() && byte != b'\t' {
+                                            } else {
+                                                self.potential_prompt_buf.push(byte);
+                                                if byte == b'#' || byte == b'>' || byte == b'$' || byte == b':' {
+                                                    let prompt_len = self.potential_prompt_buf.len() as u16;
+                                                    self.broadcast_channel.send(SerialEvent::PromptDetected(prompt_len)).ok();
+                                                    self.prompt_state = PromptState::PromptDetected(prompt_len);
+                                                    self.potential_prompt_buf.clear();
+                                                }
+                                                if self.potential_prompt_buf.len() > 128 {
+                                                    self.prompt_state = PromptState::WaitingForPromptStart;
+                                                    self.potential_prompt_buf.clear();
+                                                }
+                                            }
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                            }
+                            if self.prompt_state == PromptState::InputActive 
+                                && (incoming_bytes.contains(&b'\n') || incoming_bytes.contains(&b'\r')) {
+                                    self.prompt_state = PromptState::WaitingForPromptStart;
+                                    self.potential_prompt_buf.clear();
+
+                            }
+
                         }
                         Err(e) => {
-                            self.channels.send(SerialEvent::Error(e.to_string())).ok();
+                            self.broadcast_channel.send(SerialEvent::Error(e.to_string())).ok();
                             break;
                         }
                     }
@@ -134,41 +187,109 @@ impl SerialActor {
 }
 
 async fn run_debug_output(mut rx: tokio::sync::broadcast::Receiver<SerialEvent>) {
-    let file = match File::create("/home/thomas/Code/Work/netcon/debug.txt") {
-        Ok(f) => f,
-        Err(e) => {
-            eprintln!("Failed to create debug file: {e}");
-            return;
-        }
-    };
-
-    let mut writer = BufWriter::new(file);
-    writeln!(writer, "Session started at: {}", chrono::Utc::now()).ok();
-
-    while let Ok(event) = rx.recv().await {
-        match event {
-            SerialEvent::Data(data) => {
-                writeln!(writer,
-                    "[{}] RX {} bytes: {:02X?}{} UTF8: {}",
-                    chrono::Utc::now().format("%H:%M:%S%.3f"),
-                    data.len(),
-                    &data[..std::cmp::min(8, data.len())],
-                    if data.len() > 8 { "..." } else { "" },
-                    String::from_utf8_lossy(&data)
-                ).ok();
+    let (write_tx, write_rx) = std::sync::mpsc::channel::<Vec<u8>>();
+    let write_handle = tokio::task::spawn_blocking(move || {
+        let file = match File::create("/home/thomas/Code/Work/netcon/debug.txt") {
+            Ok(f) => f,
+            Err(e) => {
+                eprintln!("Failed to create file: {e}");
+                return;
             }
-            SerialEvent::Error(e) => {
-                println!("[{}] ERROR: {}", chrono::Utc::now().format("%H:%M:%S%.3f"), e);
-                writer.flush().ok();
-            }
-            SerialEvent::ConnectionClosed => {
-                println!("[{}] Connection closed", chrono::Utc::now().format("%H:%M:%S%.3f"));
-                writer.flush().ok();
-                break;
+        };
+        let mut writer = BufWriter::with_capacity(48 * 1024, file);
+        let mut last_flush = std::time::Instant::now();
+
+        writeln!(writer, "Session started at: {}", chrono::Utc::now()).ok();
+        while let Ok(data) = write_rx.recv() {
+            writer.write_all(&data).ok();
+
+            let now = std::time::Instant::now();
+            if now.duration_since(last_flush) > std::time::Duration::from_millis(100)
+                || writer.buffer().len() > 32 * 1024 {
+                    let _ = writer.flush();
+                    last_flush = now;
             }
         }
-    }
+        let _ = writer.flush();
+    });
+
+
+    let data_streamer = tokio::spawn(async move {
+        let mut write_buf = Vec::with_capacity(4096);
+        let mut batch_timer = tokio::time::interval(tokio::time::Duration::from_millis(200));
+
+        loop {
+            tokio::select! {
+                event = rx.recv() => {
+                    match event {
+                        Ok(SerialEvent::Data(data)) => {
+                            write_buf.extend_from_slice(&data);
+
+                            if write_buf.len() >= 4096 && write_tx.send(std::mem::take(&mut write_buf)).is_err() {
+                                    break;
+                            }
+                        }
+                        Ok(SerialEvent::PromptDetected(len)) => {
+                            
+                            write_tx.send(len.to_string().as_bytes().to_vec()).ok();
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                            eprintln!("File writer lagged, skipped {skipped} messages");
+                            continue; // Don't break on lag
+                        }
+                        _ => break,
+                    }
+                }
+                _ = batch_timer.tick() => {
+                    if !write_buf.is_empty() && write_tx.send(std::mem::take(&mut write_buf)).is_err() {
+                            break;
+                    }
+                }
+            }
+        }
+        if !write_buf.is_empty() { let _ = write_tx.send(std::mem::take(&mut write_buf));
+        }
+        drop(write_tx);
+    });
+
+    let _ = data_streamer.await;
+    let _ = write_handle.await;
 }
+//     let file = match File::create("/home/thomas/Code/Work/netcon/debug.txt") {
+//         Ok(f) => f,
+//         Err(e) => {
+//             eprintln!("Failed to create debug file: {e}");
+//             return;
+//         }
+//     };
+//
+//     let mut writer = BufWriter::new(file);
+//     writeln!(writer, "Session started at: {}", chrono::Utc::now()).ok();
+//
+//     while let Ok(event) = rx.recv().await {
+//         match event {
+//             SerialEvent::Data(data) => {
+//                 writeln!(writer,
+//                     "[{}] RX {} bytes: {:02X?}{} UTF8: {}",
+//                     chrono::Utc::now().format("%H:%M:%S%.3f"),
+//                     data.len(),
+//                     &data[..std::cmp::min(8, data.len())],
+//                     if data.len() > 8 { "..." } else { "" },
+//                     String::from_utf8_lossy(&data)
+//                 ).ok();
+//             }
+//             SerialEvent::Error(e) => {
+//                 println!("[{}] ERROR: {}", chrono::Utc::now().format("%H:%M:%S%.3f"), e);
+//                 writer.flush().ok();
+//             }
+//             SerialEvent::ConnectionClosed => {
+//                 println!("[{}] Connection closed", chrono::Utc::now().format("%H:%M:%S%.3f"));
+//                 writer.flush().ok();
+//                 break;
+//             }
+//         }
+//     }
+// }
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
@@ -192,18 +313,28 @@ async fn main() -> io::Result<()> {
     }
 
     if let Some(port) = cli.port {
-        match temp_open_port(cli.baud, &port) {
+        match open_connection(cli.baud, &port) {
             Err(e) => {
-                if e.kind() == io::ErrorKind::NotFound {
-                    let mut cmd = Cli::command();
-                    cmd.error(
-                        clap::error::ErrorKind::InvalidValue,
-                        "The specified PORT is invalid. Use `netcon list-ports` to see a list of valid ports."
-                    ).exit();
+                match e.kind() {
+                    io::ErrorKind::NotFound => {
+                        let mut cmd = Cli::command();
+                        cmd.error(
+                            clap::error::ErrorKind::InvalidValue,
+                            "The specified PORT is invalid. Use `netcon list-ports` to see a list of valid ports."
+                        ).exit();
+                    }
+                    e => {
+                        let mut cmd = Cli::command();
+                        let message = format!("{e}");
+                        cmd.error(
+                            clap::error::ErrorKind::InvalidValue,
+                            message
+                        ).exit();
+                    }
                 }
             }
             Ok(con) => {
-                interactive_session(con, cli.file, cli.debug).await?;
+                interactive_session(con, cli.file, cli.debug, &port).await?;
             }
         }
     } else if let Some(cmd) = cli.command {
@@ -260,6 +391,11 @@ async fn run_stdout_output(mut con_rx: tokio::sync::broadcast::Receiver<SerialEv
                             }
                         }
                     }
+                    Ok(SerialEvent::PromptDetected(len)) => {
+                        screen_buffer.set_input_start(len);
+                        // screen_buffer.render().ok();
+                        // render_timer = None;
+                    }
                     Ok(SerialEvent::Error(e)) => {
                         let error_msg = format!("[ERROR] {e}\r\n");
                         screen_buffer.add_data(error_msg.as_bytes());
@@ -294,6 +430,10 @@ async fn run_stdout_output(mut con_rx: tokio::sync::broadcast::Receiver<SerialEv
                     }
                     Some(UICommand::ClearSelection) => {
                         screen_buffer.clear_selection();
+                        screen_buffer.render().ok();
+                    }
+                    Some(UICommand::ClearBuffer) => {
+                        screen_buffer.clear_buffer();
                         screen_buffer.render().ok();
                     }
                     None => break,
@@ -349,16 +489,34 @@ fn stdin_input_loop(stdin_tx: tokio::sync::mpsc::Sender<String>, command_tx: tok
                             break;
                         }
                     },
-		    2 => {
-		        let term_len = "terminal length 0\r".to_string();
-			if stdin_tx.blocking_send(term_len).is_err() {
-			    break;
-			}
-			let test_report = "show inventory\rshow version\rshow license\rshow license usage\rshow environment\rshow startup-config\rshow interface status\rshow boot\rshow diagnostic result all\r".to_string();
-			if stdin_tx.blocking_send(test_report).is_err() {
-			    break;
-			}
-		    },
+                    2 => {
+                        let term_len = "terminal length 0\r".to_string();
+                        if stdin_tx.blocking_send(term_len).is_err() {
+                            break;
+                        }
+                        let test_report = "show inventory\rshow version\rshow license\rshow license usage\rshow environment\rshow startup-config\rshow interface status\rshow boot\rshow diagnostic result all\r".to_string();
+                        if stdin_tx.blocking_send(test_report).is_err() {
+                            break;
+                        }
+                    },
+                    _ => continue,
+                };
+            }
+            // Match Control + Code
+            Ok(Event::Key(KeyEvent { code, modifiers: KeyModifiers::CONTROL, kind, .. })) => {
+                if kind != crossterm::event::KeyEventKind::Press {
+                    continue;
+                }
+                match code {
+                    KeyCode::Char('l') => {
+                        let _ = ui_tx.blocking_send(UICommand::ClearBuffer);
+                        // execute!(io::stdout(), terminal::Clear(ClearType::All), cursor::MoveTo(0,0)).ok();
+                        continue;
+                    }
+                    KeyCode::Char('q') => {
+                        let _ = command_tx.blocking_send(SerialMessage::Shutdown);
+                        break;
+                    }
                     _ => continue,
                 };
             }
@@ -368,14 +526,6 @@ fn stdin_input_loop(stdin_tx: tokio::sync::mpsc::Sender<String>, command_tx: tok
                     continue;
                 }
                 let data = match (code, modifiers) {
-                    (KeyCode::Char('l'), KeyModifiers::CONTROL) => {
-                        execute!(io::stdout(), terminal::Clear(ClearType::All), cursor::MoveTo(0,0)).ok();
-                        continue;
-                    }
-                    (KeyCode::Char('q'), KeyModifiers::CONTROL) => {
-                        let _ = command_tx.blocking_send(SerialMessage::Shutdown);
-                        break;
-                    }
                     (KeyCode::Char('c'), KeyModifiers::CONTROL) => UTF_CTRL_C.to_string(),
                     (KeyCode::Tab, _) => UTF_TAB.to_string(),
                     (KeyCode::Delete, _) => UTF_DEL.to_string(),
@@ -506,52 +656,50 @@ async fn run_file_output(mut file_rx: tokio::sync::broadcast::Receiver<SerialEve
     let _ = write_handle.await;
 }
 
-async fn interactive_session(connection: SerialPort, file: Option<String>, debug: bool) -> io::Result<()> {
+async fn interactive_session(connection: SerialPort, file: Option<String>, debug: bool, port_name: &str) -> io::Result<()> {
     // Setup terminal
     let mut stdout = io::stdout();
-    execute!(stdout, terminal::EnterAlternateScreen)?;
     terminal::enable_raw_mode()?;
-    execute!(stdout, terminal::Clear(ClearType::All), event::EnableBracketedPaste, event::EnableMouseCapture, cursor::MoveTo(0,0)).ok();
+    execute!(stdout,
+        terminal::EnterAlternateScreen,
+        terminal::SetTitle(port_name),
+        terminal::Clear(ClearType::All),
+        event::EnableBracketedPaste,
+        event::EnableMouseCapture,
+        cursor::MoveTo(0,0)
+    )?;
 
     // Create channels
     let (command_tx, command_rx) = tokio::sync::mpsc::channel::<SerialMessage>(100);
     let (ui_tx, ui_rx) = tokio::sync::mpsc::channel::<UICommand>(100);
-    let (event_tx, _) = tokio::sync::broadcast::channel::<SerialEvent>(128);
-    let stdout_rx = event_tx.subscribe();
-    let mut tasks = Vec::new();
+    let (broadcast_event_tx, _) = tokio::sync::broadcast::channel::<SerialEvent>(128);
+    let stdout_rx = broadcast_event_tx.subscribe();
+
+    // Create tasks
+    let mut tasks = tokio::task::JoinSet::new();
 
     if let Some(filename) = file {
-        let file_rx = event_tx.subscribe();
-        tasks.push(tokio::spawn(run_file_output(file_rx, filename)));
+        let file_rx = broadcast_event_tx.subscribe();
+        tasks.spawn(run_file_output(file_rx, filename));
     }
 
     if debug {
-        let debug_rx = event_tx.subscribe();
-        tasks.push(tokio::spawn(run_debug_output(debug_rx)));
+        let debug_rx = broadcast_event_tx.subscribe();
+        tasks.spawn(run_debug_output(debug_rx));
     }
 
-    // Create and spawn SerialActor
-    let actor = SerialActor::new(connection, command_rx, event_tx);
-    let actor_handle = tokio::spawn(actor.run());
+    let actor = SerialActor::new(connection, command_rx, broadcast_event_tx);
+    tasks.spawn(actor.run());
 
-    // Spawn output and input tasks
-    let stdout_task = tokio::spawn(run_stdout_output(stdout_rx, ui_rx));
-    let stdin_task = tokio::spawn(run_stdin_input(command_tx, ui_tx));
+    tasks.spawn(run_stdout_output(stdout_rx, ui_rx));
+    tasks.spawn(run_stdin_input(command_tx, ui_tx));
 
-    tasks.push(actor_handle);
-    tasks.push(stdout_task);
-    tasks.push(stdin_task);
-
-    // Wait for tasks to complete
-    for task in tasks {
-        let _ = task.await;
-    }
-
+    tasks.join_all().await;
     ensure_terminal_cleanup(stdout);
     Ok(())
 }
 
-fn temp_open_port(baud: u32, port: &str) -> io::Result<SerialPort> {
+fn open_connection(baud: u32, port: &str) -> io::Result<SerialPort> {
     let settings = |mut s: serial2_tokio::Settings| -> std::io::Result<serial2_tokio::Settings> {
         s.set_raw();
         s.set_baud_rate(baud)?;
@@ -568,7 +716,7 @@ fn temp_open_port(baud: u32, port: &str) -> io::Result<SerialPort> {
 fn get_settings(baud: u32, port: &str) -> Result<(), io::Error> {
     // https://www.contec.com/support/basic-knowledge/daq-control/serial-communicatin/
     let mut stdout = io::stdout();
-    let con = temp_open_port(baud, port)?;
+    let con = open_connection(baud, port)?;
     let settings = con.get_configuration()?;
 
     let b = settings.get_baud_rate()?;
@@ -626,8 +774,7 @@ fn valid_baud_rate(s: &str) -> Result<u32, String> {
 
 fn ensure_terminal_cleanup(mut stdout: io::Stdout) {
     use crossterm::{cursor::Show, execute, terminal::{disable_raw_mode, LeaveAlternateScreen}};
-    let _ = execute!(stdout, event::DisableMouseCapture, event::DisableBracketedPaste);
+    let _ = execute!(stdout, event::DisableMouseCapture, event::DisableBracketedPaste, LeaveAlternateScreen, Show);
     let _ = disable_raw_mode();
-    let _ = execute!(stdout, LeaveAlternateScreen, Show);
     let _ = stdout.flush();
 }

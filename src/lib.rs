@@ -12,6 +12,7 @@ pub mod screen_buffer {
         UpdateSelection(u16, u16),
         CopySelection,
         ClearSelection,
+        ClearBuffer,
     }
 
     #[derive(Clone, Debug)]
@@ -40,24 +41,25 @@ pub mod screen_buffer {
     /// runtime such as scrolling, selecting text, and copying to a clipboard.
     pub struct ScreenBuffer {
         /// Terminal width
-        pub width: u16,
+        width: u16,
         /// Terminal height
-        pub height: u16,
+        height: u16,
         /// Scrollback buffer (all lines received from the serial connection).
         /// Limited by memory.
-        pub lines: VecDeque<Vec<Cell>>,
+        lines: VecDeque<Vec<Cell>>,
         /// Current view into the buffer.
         /// Denotes which line is at the top of the screen.
-        pub view_start: usize,
-        pub cursor_x: u16,
-        pub cursor_y: usize,
-        pub selection_start: Option<(u16, usize)>,
-        pub selection_end: Option<(u16, usize)>,
+        view_start: usize,
+        /// Denotes the first *writeable* column for the current line.
+        input_start_x: u16,
+        cursor_x: u16,
+        cursor_y: usize,
+        selection_start: Option<(u16, usize)>,
+        selection_end: Option<(u16, usize)>,
         /// Configuration for the maximum amount of lines to keep in memory.
-        pub max_scrollback: usize,
-        pub last_render: Option<tokio::time::Instant>,
-        pub needs_render: bool,
-        pub render_scheduled: bool,
+        max_scrollback: usize,
+        last_render: Option<tokio::time::Instant>,
+        needs_render: bool,
     }
 
     impl ScreenBuffer {
@@ -69,6 +71,7 @@ pub mod screen_buffer {
                 height,
                 lines: VecDeque::new(),
                 view_start: 0,
+                input_start_x: 0,
                 cursor_x: 0,
                 cursor_y: 0,
                 selection_start: None,
@@ -76,7 +79,6 @@ pub mod screen_buffer {
                 max_scrollback,
                 last_render: None,
                 needs_render: false,
-                render_scheduled: false,
             };
             // Start with an empty line
             buffer.lines.push_back(vec![Cell::default(); width as usize]);
@@ -96,11 +98,14 @@ pub mod screen_buffer {
                             self.new_line();
                         }
                     }
-                    '\n' => self.new_line(),
+                    '\n' => {
+                        self.new_line();
+                    }
                     '\x08' => {
-                        if self.cursor_x > 0 {
+                        if self.cursor_x > self.input_start_x {
+                        // if self.cursor_x > 0 {
                             self.cursor_x -= 1;
-                            self.set_char_at_cursor(' ');
+                            // self.set_char_at_cursor(' ');
                         }
                     }
                     c => {
@@ -115,29 +120,8 @@ pub mod screen_buffer {
                     }
                 }
             }
-            // for ch in text.chars() {
-            //     match ch {
-            //         '\r' => self.cursor_x = 0,
-            //         '\n' => self.new_line(),
-            //         '\x08' => {
-            //             if self.cursor_x > 0 {
-            //                 self.cursor_x -= 1;
-            //                 self.set_char_at_cursor(' ');
-            //             }
-            //         }
-            //         // Handling of Unicode control characters
-            //         // c if c.is_control() => {},
-            //         c => {
-            //             self.set_char_at_cursor(c);
-            //             self.cursor_x += 1;
-            //             if self.cursor_x >= self.width {
-            //                 self.new_line();
-            //             }
-            //         }
-            //     }
-            // }
-            self.needs_render = true;
             self.scroll_to_bottom();
+            self.needs_render = true;
         }
 
         fn add_char_batch(&mut self, chars: &[char]) {
@@ -173,19 +157,17 @@ pub mod screen_buffer {
             }
         }
 
-        /// Sets the character in `ScreenBuffer.lines` at the line and
-        /// position of the cursor within the screen.
-        fn set_char_at_cursor(&mut self, ch: char) {
-            while self.cursor_y >= self.lines.len() {
-                self.lines.push_back(vec![Cell::default(); self.width as usize]);
-            }
-
-            if let Some(line) = self.lines.get_mut(self.cursor_y) {
-                if (self.cursor_x as usize) < line.len() {
-                    line[self.cursor_x as usize].character = ch;
-                }
-            }
-        }
+        // fn set_char_at_cursor(&mut self, ch: char) {
+        //     while self.cursor_y >= self.lines.len() {
+        //         self.lines.push_back(vec![Cell::default(); self.width as usize]);
+        //     }
+        //
+        //     if let Some(line) = self.lines.get_mut(self.cursor_y) {
+        //         if (self.cursor_x as usize) < line.len() {
+        //             line[self.cursor_x as usize].character = ch;
+        //         }
+        //     }
+        // }
 
         fn new_line(&mut self) {
             self.cursor_y += 1;
@@ -194,6 +176,8 @@ pub mod screen_buffer {
             if self.cursor_y >= self.lines.len() {
                 self.lines.push_back(vec![Cell::default(); self.width as usize]);
             }
+
+            self.input_start_x = 0;
 
             // Remove old lines if exceeding `ScreenBuffer.max_scrollback`
             while self.lines.len() > self.max_scrollback {
@@ -215,32 +199,38 @@ pub mod screen_buffer {
                 self.view_start = 0;
             }
             self.clear_selection();
+            self.needs_render = true;
         }
 
         pub fn scroll_down(&mut self, lines: usize) {
             let max_view_start = self.lines.len().saturating_sub(self.height as usize);
             self.view_start = (self.view_start + lines).min(max_view_start);
             self.clear_selection();
+            self.needs_render = true;
         }
 
         pub fn scroll_to_bottom(&mut self) {
             self.view_start = self.lines.len().saturating_sub(self.height as usize);
+            self.needs_render = true;
         }
 
         pub fn scroll_to_top(&mut self) {
             self.view_start = 0;
+            self.needs_render = true;
         }
 
         pub fn start_selection(&mut self, screen_x: u16, screen_y: u16) {
             let absolute_line = self.view_start + screen_y as usize;
             self.clear_selection();
             self.selection_start = Some((screen_x, absolute_line));
+            self.needs_render = true;
         }
 
         pub fn update_selection(&mut self, screen_x: u16, screen_y: u16) {
             let absolute_line = self.view_start + screen_y as usize;
             self.selection_end = Some((screen_x, absolute_line));
             self.update_selection_highlighting();
+            self.needs_render = true;
         }
 
         pub fn clear_selection(&mut self) {
@@ -251,9 +241,10 @@ pub mod screen_buffer {
             }
             self.selection_start = None;
             self.selection_end = None;
+            self.needs_render = true;
         }
 
-        pub fn update_selection_highlighting(&mut self) {
+        fn update_selection_highlighting(&mut self) {
             for line in &mut self.lines {
                 for cell in line {
                     cell.is_selected = false;
@@ -330,7 +321,8 @@ pub mod screen_buffer {
             Ok(())
         }
 
-        pub fn get_stats(&self) -> BufferStats {
+        #[allow(dead_code)]
+        fn get_stats(&self) -> BufferStats {
             let total_lines = self.lines.len();
             BufferStats {
                 total_lines,
@@ -341,24 +333,32 @@ pub mod screen_buffer {
             }
         }
 
-        // fn build_line_bytes(&self, line: &Vec<Cell>) -> Vec<u8> {
-        //     let mut chars = String::new();
-        //     for cell in line {
-        //         chars.push(cell.character);
-        //     }
-        //     chars.into_bytes()
-        // }
-        //
+        pub fn clear_buffer(&mut self) {
+            self.lines.clear();
+            self.view_start = 0;
+            self.cursor_x = 0;
+            self.cursor_y = 0;
+            self.lines.push_back(vec![Cell::default(); self.width as usize]);
+            self.needs_render = true;
+            self.input_start_x = 0;
+        }
+
+        pub fn set_input_start(&mut self, prompt_len: u16) {
+            self.input_start_x = prompt_len;
+            self.cursor_x = prompt_len;
+            self.needs_render = true;
+        }
+
         pub fn render(&mut self) -> std::io::Result<()> {
-            use std::io::Write;
+            use std::io::{self, Write};
             use crossterm::{ queue, cursor, style };
             use tokio::time::Instant;
 
             if !self.needs_render {
                 return Ok(());
             }
-            let stdout = std::io::stdout();
-            let mut writer = BufWriter::new(stdout);
+
+            let mut writer = BufWriter::new(io::stdout());
             queue!(writer, cursor::Hide)?;
             
             for screen_y in 0..self.height {
