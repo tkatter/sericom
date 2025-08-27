@@ -14,4 +14,4 @@ tokio = { version = "1.47.0", features = ["full"] }
 # console-subscriber = "0.4.1"
 
 [profile.release]
-debug = true
+# debug = true

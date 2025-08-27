@@ -130,90 +130,8 @@ impl SerialActor {
     }
 }
 
-async fn run_debug_output(mut rx: tokio::sync::broadcast::Receiver<SerialEvent>) {
-    let (write_tx, write_rx) = std::sync::mpsc::channel::<Vec<u8>>();
-    let write_handle = tokio::task::spawn_blocking(move || {
-        let file = match File::create("debug.txt") {
-            Ok(f) => f,
-            Err(e) => {
-                eprintln!("Failed to create file: {e}");
-                return;
-            }
-        };
-        let mut writer = BufWriter::with_capacity(48 * 1024, file);
-        let mut last_flush = std::time::Instant::now();
-
-        writeln!(writer, "Session started at: {}", chrono::Utc::now()).ok();
-        while let Ok(data) = write_rx.recv() {
-            writeln!(writer,
-                "[{}] RX {} bytes: {:02X?}{} UTF8: {}",
-                chrono::Utc::now().format("%H:%M:%S%.3f"),
-                data.len(),
-                &data[..std::cmp::min(8, data.len())],
-                if data.len() > 8 { "..." } else { "" },
-                String::from_utf8_lossy(&data)
-            ).ok();
-
-            let now = std::time::Instant::now();
-            if now.duration_since(last_flush) > std::time::Duration::from_millis(100)
-                || writer.buffer().len() > 32 * 1024 {
-                    let _ = writer.flush();
-                    last_flush = now;
-            }
-        }
-        let _ = writer.flush();
-    });
-
-
-    let data_streamer = tokio::spawn(async move {
-        let mut write_buf = Vec::with_capacity(4096);
-        let mut batch_timer = tokio::time::interval(tokio::time::Duration::from_millis(200));
-
-        loop {
-            tokio::select! {
-                event = rx.recv() => {
-                    match event {
-                        Ok(SerialEvent::Data(data)) => {
-                            write_buf.extend_from_slice(&data);
-                            if write_buf.len() >= 4096 && write_tx.send(std::mem::take(&mut write_buf)).is_err() {
-                                    break;
-                            }
-                        }
-                        // SerialEvent::Error(e) => {
-                        //     println!("[{}] ERROR: {}", chrono::Utc::now().format("%H:%M:%S%.3f"), e);
-                        //     writer.flush().ok();
-                        // }
-                        // SerialEvent::ConnectionClosed => {
-                        //     println!("[{}] Connection closed", chrono::Utc::now().format("%H:%M:%S%.3f"));
-                        //     writer.flush().ok();
-                        //     break;
-                        // }
-                        Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
-                            eprintln!("File writer lagged, skipped {skipped} messages");
-                            continue; // Don't break on lag
-                        }
-                        _ => break,
-                    }
-                }
-                _ = batch_timer.tick() => {
-                    if !write_buf.is_empty() && write_tx.send(std::mem::take(&mut write_buf)).is_err() {
-                            break;
-                    }
-                }
-            }
-        }
-        if !write_buf.is_empty() { let _ = write_tx.send(std::mem::take(&mut write_buf));
-        }
-        drop(write_tx);
-    });
-
-    let _ = data_streamer.await;
-    let _ = write_handle.await;
-}
-
 #[tokio::main]
 async fn main() -> io::Result<()> {
-    // console_subscriber::init();
     let cli = Cli::parse();
 
     if cli.port.is_none() && cli.command.is_none() {
@@ -243,6 +161,14 @@ async fn main() -> io::Result<()> {
                             "The specified PORT is invalid. Use `netcon list-ports` to see a list of valid ports."
                         ).exit();
                     }
+                    #[cfg(target_os = "windows")]
+                    io::ErrorKind::PermissionDenied => {
+                        let mut cmd = Cli::command();
+                        cmd.error(
+                            clap::error::ErrorKind::InvalidValue,
+                            "The specified PORT is either invalid, or in use. Use `netcon list-ports` to see a list of valid ports."
+                        ).exit();
+                    }
                     e => {
                         let mut cmd = Cli::command();
                         let message = format!("{e}");
@@ -254,6 +180,9 @@ async fn main() -> io::Result<()> {
                 }
             }
             Ok(con) => {
+                #[cfg(not(debug_assertions))]
+                interactive_session(con, cli.file, false, &port).await?;
+                #[cfg(debug_assertions)]
                 interactive_session(con, cli.file, cli.debug, &port).await?;
             }
         }
@@ -577,6 +506,79 @@ async fn run_file_output(mut file_rx: tokio::sync::broadcast::Receiver<SerialEve
     let _ = write_handle.await;
 }
 
+#[cfg(debug_assertions)]
+async fn run_debug_output(mut rx: tokio::sync::broadcast::Receiver<SerialEvent>) {
+    let (write_tx, write_rx) = std::sync::mpsc::channel::<Vec<u8>>();
+    let write_handle = tokio::task::spawn_blocking(move || {
+        let file = match File::create("debug.txt") {
+            Ok(f) => f,
+            Err(e) => {
+                eprintln!("Failed to create file: {e}");
+                return;
+            }
+        };
+        let mut writer = BufWriter::with_capacity(48 * 1024, file);
+        let mut last_flush = std::time::Instant::now();
+
+        writeln!(writer, "Session started at: {}", chrono::Utc::now()).ok();
+        while let Ok(data) = write_rx.recv() {
+            writeln!(writer,
+                "[{}] RX {} bytes: {:02X?}{} UTF8: {}",
+                chrono::Utc::now().format("%H:%M:%S%.3f"),
+                data.len(),
+                &data[..std::cmp::min(8, data.len())],
+                if data.len() > 8 { "..." } else { "" },
+                String::from_utf8_lossy(&data)
+            ).ok();
+
+            let now = std::time::Instant::now();
+            if now.duration_since(last_flush) > std::time::Duration::from_millis(100)
+                || writer.buffer().len() > 32 * 1024 {
+                    let _ = writer.flush();
+                    last_flush = now;
+            }
+        }
+        let _ = writer.flush();
+    });
+
+
+    let data_streamer = tokio::spawn(async move {
+        let mut write_buf = Vec::with_capacity(4096);
+        let mut batch_timer = tokio::time::interval(tokio::time::Duration::from_millis(200));
+
+        loop {
+            tokio::select! {
+                event = rx.recv() => {
+                    match event {
+                        Ok(SerialEvent::Data(data)) => {
+                            write_buf.extend_from_slice(&data);
+                            if write_buf.len() >= 4096 && write_tx.send(std::mem::take(&mut write_buf)).is_err() {
+                                    break;
+                            }
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                            eprintln!("File writer lagged, skipped {skipped} messages");
+                            continue; // Don't break on lag
+                        }
+                        _ => break,
+                    }
+                }
+                _ = batch_timer.tick() => {
+                    if !write_buf.is_empty() && write_tx.send(std::mem::take(&mut write_buf)).is_err() {
+                            break;
+                    }
+                }
+            }
+        }
+        if !write_buf.is_empty() { let _ = write_tx.send(std::mem::take(&mut write_buf));
+        }
+        drop(write_tx);
+    });
+
+    let _ = data_streamer.await;
+    let _ = write_handle.await;
+}
+
 async fn interactive_session(connection: SerialPort, file: Option<String>, debug: bool, port_name: &str) -> io::Result<()> {
     // Setup terminal
     let mut stdout = io::stdout();
@@ -605,7 +607,9 @@ async fn interactive_session(connection: SerialPort, file: Option<String>, debug
     }
 
     if debug {
+        #[cfg(debug_assertions)]
         let debug_rx = broadcast_event_tx.subscribe();
+        #[cfg(debug_assertions)]
         tasks.spawn(run_debug_output(debug_rx));
     }
 
