@@ -15,3 +15,7 @@ tokio = { version = "1.47.0", features = ["full"] }
 
 [profile.release]
 # debug = true
+
+[profile.dbg-release]
+inherits = "release"
+debug-assertions = true
