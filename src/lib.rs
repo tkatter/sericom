@@ -7,6 +7,7 @@ pub mod screen_buffer {
     /// `EscapeState` holds stateful information about the incoming
     /// data to allow for proper processing of ansii escape codes/characters.
     enum EscapeState {
+        /// Has not received ansii escape characters
         Normal,
         /// Just received an ESC (0x1B)
         Esc,
@@ -22,7 +23,6 @@ pub mod screen_buffer {
         StartSelection(u16, u16),
         UpdateSelection(u16, u16),
         CopySelection,
-        ClearSelection,
         ClearBuffer,
     }
 
@@ -48,6 +48,40 @@ pub mod screen_buffer {
         }
     }
 
+    /// Represent's the cursor's position within the `ScreenBuffer`.
+    #[derive(Clone, Copy, Debug)]
+    struct Position {
+        /// The x position of a line within `ScreenBuffer`'s scrollback buffer.
+        /// This translates to the `Cell` within a line (`Vec`).
+        x: u16,
+        /// `y` is the line number within `ScreenBuffer`'s scrollback buffer.
+        y: usize,
+    }
+
+    impl From<(u16, usize)> for Position {
+        fn from((x, y): (u16, usize)) -> Self {
+            Self { x, y }
+        }
+    }
+
+    impl From<(u16, u16)> for Position {
+        fn from((x, y): (u16, u16)) -> Self {
+            Self { x, y: y as usize }
+        }
+    }
+
+    impl From<Position> for (u16, usize) {
+        fn from(position: Position) -> Self {
+            (position.x, position.y)
+        }
+    }
+
+    impl From<Position> for (u16, u16) {
+        fn from(position: Position) -> Self {
+            (position.x, position.y as u16)
+        }
+    }
+
     /// The `ScreenBuffer` holds rendering state for the entire terminal's window/frame.
     /// It mainly serves to allow for user-interactions that require a history and location
     /// of the data displayed within the terminal i.e. copy/paste, scrolling, & highlighting.
@@ -62,14 +96,16 @@ pub mod screen_buffer {
         /// Current view into the buffer.
         /// Denotes which line is at the top of the screen.
         view_start: usize,
-        cursor_x: u16,
-        cursor_y: usize,
+        /// Position of the cursor within the `ScreenBuffer`.
+        cursor_pos: Position,
         /// Start of text selection. Used for highlighting and copying to clipboard.
         selection_start: Option<(u16, usize)>,
         /// End of text selection. Used for highlighting and copying to clipboard.
         selection_end: Option<(u16, usize)>,
         /// Configuration for the maximum amount of lines to keep in memory.
         max_scrollback: usize,
+        /// Represents the current state for handling ansii escape sequences
+        /// as incoming data is being processed.
         escape_state: EscapeState,
         last_render: Option<tokio::time::Instant>,
         needs_render: bool,
@@ -84,8 +120,7 @@ pub mod screen_buffer {
                 height,
                 lines: VecDeque::new(),
                 view_start: 0,
-                cursor_x: 0,
-                cursor_y: 0,
+                cursor_pos: Position { x: 0, y: 0 },
                 selection_start: None,
                 selection_end: None,
                 max_scrollback,
@@ -98,6 +133,18 @@ pub mod screen_buffer {
             buffer
         }
 
+        fn set_cursor_pos<P: Into<Position>>(&mut self, position: P) {
+            self.cursor_pos = position.into();
+        }
+
+        fn move_cursor_left(&mut self) {
+            self.cursor_pos.x = self.cursor_pos.x.saturating_sub(1);
+        }
+
+        fn move_cursor_right(&mut self) {
+            self.cursor_pos.x = self.cursor_pos.x.saturating_add(1);
+        }
+
         pub fn add_data(&mut self, data: &[u8]) {
             let text = String::from_utf8_lossy(data);
             let mut chars = text.chars().peekable();
@@ -107,7 +154,7 @@ pub mod screen_buffer {
                     EscapeState::Normal => {
                         match ch {
                             '\r' => {
-                                self.cursor_x = 0;
+                                self.cursor_pos.x = 0;
                                 if chars.peek() == Some(&'\n') {
                                     chars.next();
                                     self.new_line();
@@ -124,12 +171,12 @@ pub mod screen_buffer {
                                     // Consume them - to remove from further processing
                                     chars.next();
                                     chars.next();
-                                    self.cursor_x = self.cursor_x.saturating_sub(1);
+                                    self.move_cursor_left();
                                     self.set_char_at_cursor(' ');
                                 } else {
                                     // If not the deletion sequence, move cursor left
                                     // when receiving a single '\x08'
-                                    self.cursor_x = self.cursor_x.saturating_sub(1);
+                                    self.move_cursor_left();
                                 }
                             }
                             '\x1B' => {
@@ -138,9 +185,8 @@ pub mod screen_buffer {
                             c => {
                                 let mut batch = vec![c];
                                 while let Some(&next_ch) = chars.peek() {
-                                    if next_ch.is_control() || next_ch == '\x1B' || self.cursor_x + batch.len() as u16 >= self.width {
-                                    // if self.cursor_x + batch.len() as u16 >= self.width {
-                                    break;
+                                    if next_ch.is_control() || next_ch == '\x1B' || self.cursor_pos.x + batch.len() as u16 >= self.width {
+                                        break;
                                     }
                                     batch.push(chars.next().unwrap());
                                 }
@@ -170,11 +216,11 @@ pub mod screen_buffer {
                                 self.escape_state = EscapeState::Normal;
                             }
                             'C' => {
-                                self.cursor_x = self.cursor_x.saturating_add(1);
+                                self.move_cursor_left();
                                 self.escape_state = EscapeState::Normal;
                             }
                             'D' => {
-                                self.cursor_x = self.cursor_x.saturating_sub(1);
+                                self.move_cursor_right();
                                 self.escape_state = EscapeState::Normal;
                             }
                             _ => {
@@ -189,16 +235,16 @@ pub mod screen_buffer {
         }
 
         fn add_char_batch(&mut self, chars: &[char]) {
-            while self.cursor_y >= self.lines.len() {
+            while self.cursor_pos.y >= self.lines.len() {
                 self.lines.push_back(vec![Cell::default(); self.width as usize]);
             }
 
-            if let Some(line) = self.lines.get_mut(self.cursor_y) {
+            if let Some(line) = self.lines.get_mut(self.cursor_pos.y) {
                 for &ch in chars {
-                    if (self.cursor_x as usize) < line.len() {
-                        line[self.cursor_x as usize].character = ch;
-                        self.cursor_x += 1;
-                        if self.cursor_x >= self.width {
+                    if (self.cursor_pos.x as usize) < line.len() {
+                        line[self.cursor_pos.x as usize].character = ch;
+                        self.cursor_pos.x += 1;
+                        if self.cursor_pos.x >= self.width {
                             self.new_line();
                             break;
                         }
@@ -222,30 +268,30 @@ pub mod screen_buffer {
         }
 
         fn set_char_at_cursor(&mut self, ch: char) {
-            while self.cursor_y >= self.lines.len() {
+            while self.cursor_pos.y >= self.lines.len() {
                 self.lines.push_back(vec![Cell::default(); self.width as usize]);
             }
         
-            if let Some(line) = self.lines.get_mut(self.cursor_y) {
-                if (self.cursor_x as usize) < line.len() {
-                    line[self.cursor_x as usize].character = ch;
+            if let Some(line) = self.lines.get_mut(self.cursor_pos.y) {
+                if (self.cursor_pos.x as usize) < line.len() {
+                    line[self.cursor_pos.x as usize].character = ch;
                 }
             }
         }
 
+        #[allow(clippy::needless_range_loop)]
         fn clear_from_cursor_to_eol(&mut self) {
-            if let Some(line) = self.lines.get_mut(self.cursor_y) {
-                for x in (self.cursor_x as usize)..line.len() {
+            if let Some(line) = self.lines.get_mut(self.cursor_pos.y) {
+                for x in (self.cursor_pos.x as usize)..line.len() {
                     line[x] = Cell::default();
                 }
             }
         }
 
         fn new_line(&mut self) {
-            self.cursor_y += 1;
-            self.cursor_x = 0;
+            self.set_cursor_pos((0, self.cursor_pos.y + 1));
 
-            if self.cursor_y >= self.lines.len() {
+            if self.cursor_pos.y >= self.lines.len() {
                 self.lines.push_back(vec![Cell::default(); self.width as usize]);
             }
 
@@ -253,8 +299,8 @@ pub mod screen_buffer {
             while self.lines.len() > self.max_scrollback {
                 self.lines.pop_front();
                 // Update the view position
-                if self.cursor_y > 0 {
-                    self.cursor_y -= 1;
+                if self.cursor_pos.y > 0 {
+                    self.cursor_pos.y -= 1;
                 }
                 if self.view_start > 0 {
                     self.view_start -= 1;
@@ -398,7 +444,7 @@ pub mod screen_buffer {
                 total_lines,
                 view_start: self.view_start,
                 view_end: (self.view_start + self.height as usize).min(total_lines),
-                cursor_line: self.cursor_y,
+                cursor_line: self.cursor_pos.y,
                 has_selection: self.selection_start.is_some() && self.selection_end.is_some(),
             }
         }
@@ -406,8 +452,7 @@ pub mod screen_buffer {
         pub fn clear_buffer(&mut self) {
             self.lines.clear();
             self.view_start = 0;
-            self.cursor_x = 0;
-            self.cursor_y = 0;
+            self.set_cursor_pos((0_u16, 0_usize));
             self.lines.push_back(vec![Cell::default(); self.width as usize]);
             self.needs_render = true;
         }
@@ -453,14 +498,14 @@ pub mod screen_buffer {
                 }
             }
 
-            let screen_cursor_y = if self.cursor_y >= self.view_start &&
-                self.cursor_y < self.view_start + self.height as usize {
-                    (self.cursor_y - self.view_start) as u16
+            let screen_cursor_y = if self.cursor_pos.y >= self.view_start &&
+                self.cursor_pos.y < self.view_start + self.height as usize {
+                    (self.cursor_pos.y - self.view_start) as u16
             } else {
                 self.height - 1
             };
 
-            queue!(writer, cursor::MoveTo(self.cursor_x, screen_cursor_y), cursor::Show)?;
+            queue!(writer, cursor::MoveTo(self.cursor_pos.x, screen_cursor_y), cursor::Show)?;
             writer.flush()?;
             self.last_render = Some(Instant::now());
             self.needs_render = false;

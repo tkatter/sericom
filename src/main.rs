@@ -280,7 +280,7 @@ async fn main() -> io::Result<()> {
 async fn run_stdout_output(mut con_rx: tokio::sync::broadcast::Receiver<SerialEvent>, mut ui_rx: tokio::sync::mpsc::Receiver<UICommand>) {
     let (width, height) = terminal::size().unwrap_or((80, 24));
     let mut screen_buffer = ScreenBuffer::new(width, height, 10000);
-    let mut data_buffer = Vec::new();
+    let mut data_buffer = Vec::with_capacity(2048);
     let mut render_timer: Option<tokio::time::Interval> = None;
 
     loop {
@@ -326,30 +326,32 @@ async fn run_stdout_output(mut con_rx: tokio::sync::broadcast::Receiver<SerialEv
                     Some(UICommand::ScrollUp(lines)) => {
                         screen_buffer.scroll_up(lines);
                         screen_buffer.render().ok();
+                        render_timer = None;
                     }
                     Some(UICommand::ScrollDown(lines)) => {
                         screen_buffer.scroll_down(lines);
                         screen_buffer.render().ok();
+                        render_timer = None;
                     }
                     Some(UICommand::StartSelection(x, y)) => {
                         screen_buffer.start_selection(x, y);
                         screen_buffer.render().ok();
+                        render_timer = None;
                     }
                     Some(UICommand::UpdateSelection(x, y)) => {
                         screen_buffer.update_selection(x, y);
                         screen_buffer.render().ok();
+                        render_timer = None;
                     }
                     Some(UICommand::CopySelection) => {
                         screen_buffer.copy_to_clipboard().ok();
                         screen_buffer.render().ok();
-                    }
-                    Some(UICommand::ClearSelection) => {
-                        screen_buffer.clear_selection();
-                        screen_buffer.render().ok();
+                        render_timer = None;
                     }
                     Some(UICommand::ClearBuffer) => {
                         screen_buffer.clear_buffer();
                         screen_buffer.render().ok();
+                        render_timer = None;
                     }
                     None => break,
                 }
@@ -497,7 +499,7 @@ async fn run_file_output(mut file_rx: tokio::sync::broadcast::Receiver<SerialEve
                 return;
             }
         };
-        let mut writer = BufWriter::with_capacity(48 * 1024, file);
+        let mut writer = BufWriter::with_capacity(8 * 1024, file);
         let mut last_flush = std::time::Instant::now();
 
         writeln!(writer, "SERIAL: ").ok();
@@ -506,8 +508,8 @@ async fn run_file_output(mut file_rx: tokio::sync::broadcast::Receiver<SerialEve
             writer.write_all(&data).ok();
 
             let now = std::time::Instant::now();
-            if now.duration_since(last_flush) > std::time::Duration::from_millis(100)
-                || writer.buffer().len() > 32 * 1024 {
+            if now.duration_since(last_flush) > std::time::Duration::from_millis(200)
+                || writer.buffer().len() > 4 * 1024 {
                     let _ = writer.flush();
                     last_flush = now;
             }
@@ -531,29 +533,31 @@ async fn run_file_output(mut file_rx: tokio::sync::broadcast::Receiver<SerialEve
                                     break;
                             }
                         }
+                        Ok(SerialEvent::Error(e)) => {
+                            if !write_buf.is_empty() {
+                                if write_tx.send(std::mem::take(&mut write_buf)).is_err() {
+                                    break;
+                                }
+                                write_buf.clear();
+                            }
+                            let error_msg = format!("\r\n[ERROR {}] {e}\r\n", chrono::Utc::now());
+                            let _ = write_tx.send(error_msg.into_bytes());
+                        }
+                        Ok(SerialEvent::ConnectionClosed) => {
+                            if !write_buf.is_empty() {
+                                if write_tx.send(std::mem::take(&mut write_buf)).is_err() {
+                                    break;
+                                }
+                                write_buf.clear();
+                            }
+                            let close_msg = format!("\r\n[CLOSED {}] Connection closed.\r\n", chrono::Utc::now());
+                            let _ = write_tx.send(close_msg.into_bytes());
+                            break;
+                        }
                         Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
                             eprintln!("File writer lagged, skipped {skipped} messages");
                             continue; // Don't break on lag
                         }
-                        // Ok(SerialEvent::Error(e)) => {
-                        //     if !write_buf.is_empty() {
-                        //         if write_tx.send(write_buf.clone()).is_err() {
-                        //             break;
-                        //         }
-                        //         write_buf.clear();
-                        //     }
-                        //     let error_msg = format!("\r\n[ERROR {}] {e}\r\n", chrono::Utc::now());
-                        //     let _ = write_tx.send(error_msg.into_bytes()).await;
-                        //     flush_deadline = None;
-                        // }
-                        // Ok(SerialEvent::ConnectionClosed) => {
-                        //     if !write_buf.is_empty() {
-                        //         let _ = write_tx.send(write_buf.clone()).await;
-                        //     }
-                        //     let close_msg = format!("\r\n[CLOSED {}] Connection closed.\r\n", chrono::Utc::now());
-                        //     let _ = write_tx.send(close_msg.into_bytes()).await;
-                        //     break;
-                        // }
                         _ => break,
                     }
                 }
