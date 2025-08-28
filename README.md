@@ -45,7 +45,7 @@ Supplied path to serial port is invalid/doesn't exist.
 
 ## Licensing
 
-This program, Sericom, is licensed under the [GNU GPL v3.0]().
+This program, Sericom, is licensed under the [GNU GPL v3.0](https://github.com/tkatter/sericom/blob/main/LICENSE).
 
 This program, Sericom, is free software: you can redistribute it and/or modify
 it under the terms of the **GNU General Public License as published by
