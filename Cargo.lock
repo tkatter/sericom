@@ -417,17 +417,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "netcon"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "clap",
- "crossterm",
- "serial2-tokio",
- "tokio",
-]
-
-[[package]]
 name = "num-traits"
 version = "0.2.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -565,6 +554,17 @@ dependencies = [
  "serial2",
  "tokio",
  "winapi",
+]
+
+[[package]]
+name = "sericom"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "clap",
+ "crossterm",
+ "serial2-tokio",
+ "tokio",
 ]
 
 [[package]]

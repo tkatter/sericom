@@ -49,14 +49,15 @@ This program, Sericom, is licensed under the [GNU GPL v3.0](https://github.com/t
 
 This program, Sericom, is free software: you can redistribute it and/or modify
 it under the terms of the **GNU General Public License as published by
-the Free Software Foundation.**
+the Free Software Foundation, or (at your option) any later version.**
 
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 GNU General Public License for more details.
 
 ---
+
 **Note:** The author reserves the right to offer this software under a separate
 commercial license at a future date for those who wish to use it outside
 the terms of the GPLv3.

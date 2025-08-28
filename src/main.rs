@@ -1,15 +1,28 @@
+//! Sericom is a CLI tool for communicating with devices over a serial connection.
+//!
+//! Sericom runs on Linux and Windows (untested on Mac). This crate is not intended
+//! to be used by other crates - its intention is to be ran as an executable.
+//! That being said, if there is interest in using Sericom within other crates, or maybe
+//! certain functionality of Sericom within other crates, feel free to open a Github Issue.
+//!
+//! Currently, Sericom runs similarily to another CLI tool called 'screen'. In the future,
+//! Sericom plans to allow for users to create config files for customizing appearances
+//! and defaults. Sericom also plans to allow the writing of custom scripts (similar to
+//! expect scripts) that can be parsed and executed by Sericom. The intention of these
+//! scripts is to be able to automate tasks that take place over a serial connection i.e.
+//! configuration, resetting, getting statistics, etc.
 use std::{
     fs::File, io::{self, BufWriter, Write}
 };
 use clap::{CommandFactory, Parser, Subcommand};
 use crossterm::{cursor, event::{self, Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent}, execute, terminal::{self, ClearType} };
 use serial2_tokio::SerialPort;
-use netcon::{
+use sericom::{
     screen_buffer::{ScreenBuffer, UICommand},
     serial_actor::{SerialEvent, SerialMessage, SerialActor}
 };
 #[cfg(debug_assertions)]
-use netcon::debug::run_debug_output;
+use sericom::debug::run_debug_output;
 
 const UTF_TAB: &str = "\u{0009}";
 const UTF_BKSP: &str = "\u{0008}";
@@ -22,18 +35,18 @@ const UTF_LEFT_KEY: &str = "\u{001B}\u{005B}\u{0044}";
 const UTF_RIGHT_KEY: &str = "\u{001B}\u{005B}\u{0043}";
 
 #[derive(Parser)]
-#[command(name = "netcon", version, about, long_about = None)]
+#[command(name = "sericom", version, about, long_about = None)]
 #[command(next_line_help = true)]
 #[command(propagate_version = true)]
 struct Cli {
     /// The path to a serial port.
     ///
     /// For Linux/MacOS something like `/dev/tty1`, Windows `COM1`.
-    /// To see available ports, use `netcon list-ports`.
+    /// To see available ports, use `sericom list-ports`.
     port: Option<String>,
     /// Baud rate for the serial connection.
     ///
-    /// To see a list of valid baud rates, use `netcon list-bauds`.
+    /// To see a list of valid baud rates, use `sericom list-bauds`.
     #[arg(short, long, value_parser = valid_baud_rate, default_value_t = 9600)]
     baud: u32,
     /// Path to a file for the output.
@@ -92,7 +105,7 @@ async fn main() -> io::Result<()> {
                         let mut cmd = Cli::command();
                         cmd.error(
                             clap::error::ErrorKind::InvalidValue,
-                            "The specified PORT is invalid. Use `netcon list-ports` to see a list of valid ports."
+                            "The specified PORT is invalid. Use `sericom list-ports` to see a list of valid ports."
                         ).exit();
                     }
                     #[cfg(target_os = "windows")]
@@ -100,7 +113,7 @@ async fn main() -> io::Result<()> {
                         let mut cmd = Cli::command();
                         cmd.error(
                             clap::error::ErrorKind::InvalidValue,
-                            "The specified PORT is either invalid, or in use. Use `netcon list-ports` to see a list of valid ports."
+                            "The specified PORT is either invalid, or in use. Use `sericom list-ports` to see a list of valid ports."
                         ).exit();
                     }
                     e => {
@@ -196,6 +209,16 @@ async fn run_stdout_output(mut con_rx: tokio::sync::broadcast::Receiver<SerialEv
                         screen_buffer.render().ok();
                         render_timer = None;
                     }
+                    Some(UICommand::ScrollTop) => {
+                        screen_buffer.scroll_to_top();
+                        screen_buffer.render().ok();
+                        render_timer = None;
+                    }
+                    Some(UICommand::ScrollBottom) => {
+                        screen_buffer.scroll_to_bottom();
+                        screen_buffer.render().ok();
+                        render_timer = None;
+                    }
                     Some(UICommand::StartSelection(x, y)) => {
                         screen_buffer.start_selection(x, y);
                         screen_buffer.render().ok();
@@ -217,6 +240,7 @@ async fn run_stdout_output(mut con_rx: tokio::sync::broadcast::Receiver<SerialEv
                         render_timer = None;
                     }
                     None => break,
+                    _ => break,
                 }
             }
             _ = async {
@@ -260,24 +284,12 @@ fn stdin_input_loop(stdin_tx: tokio::sync::mpsc::Sender<String>, command_tx: tok
                 }
                 match f_code {
                     1 => {
-                        let term_len = "terminal length 0\r".to_string();
-                        if stdin_tx.blocking_send(term_len).is_err() {
-                            break;
-                        }
-                        let test_report = "show inventory\rshow version\rshow license summary\rshow license usage\rshow environment all\rshow power inline\rshow interface status\rshow diagnostic post\rshow diagnostic result switch all\r".to_string();
-                        if stdin_tx.blocking_send(test_report).is_err() {
-                            break;
-                        }
+                        let _ = ui_tx.blocking_send(UICommand::ScrollTop);
+                        continue;
                     },
                     2 => {
-                        let term_len = "terminal length 0\r".to_string();
-                        if stdin_tx.blocking_send(term_len).is_err() {
-                            break;
-                        }
-                        let test_report = "show inventory\rshow version\rshow license\rshow license usage\rshow environment\rshow startup-config\rshow interface status\rshow boot\rshow diagnostic result all\r".to_string();
-                        if stdin_tx.blocking_send(test_report).is_err() {
-                            break;
-                        }
+                        let _ = ui_tx.blocking_send(UICommand::ScrollBottom);
+                        continue;
                     },
                     _ => continue,
                 };

@@ -1,4 +1,22 @@
 pub mod screen_buffer {
+    //! This module contains the code needed for the implementation of a
+    //! stateful buffer that holds a history of the lines/data received
+    //! from the serial connection and the rendering/updating of the buffer
+    //! to the terminal screen (stdout).
+    //!
+    //! Simply writing the data received from the serial connection directly
+    //! to stdout creates one main issue: there is no history of previous lines
+    //! that were received from the serial connection. Without a screen buffer,
+    //! lines would simply be wiped from existence as they exit the terminal's screen.
+    //!
+    //! As a result, there would be no way to implement features like scrolling,
+    //! highlighting text (for UI purposes), and getting characters at specific
+    //! locations within the screen for things like copying to a clipboard.
+    //!
+    //! The screen buffer solves these issues by storing each line received from the
+    //! connection in a `std::collections::VecDeque`. It is important to note that
+    //! currently, the **capacity of the `VecDeque` is not hardcoded and is theoretically
+    //! allowed to grow forever**, limited by memory.
     use std::{collections::VecDeque, io::BufWriter};
     use crossterm::style::Color;
 
@@ -16,10 +34,13 @@ pub mod screen_buffer {
     }
 
     /// `UICommand` is used for communication between stdin and the `ScreenBuffer`.
+    #[non_exhaustive]
     #[derive(Clone, Debug)]
     pub enum UICommand {
         ScrollUp(usize),
         ScrollDown(usize),
+        ScrollBottom,
+        ScrollTop,
         StartSelection(u16, u16),
         UpdateSelection(u16, u16),
         CopySelection,
@@ -145,6 +166,9 @@ pub mod screen_buffer {
             self.cursor_pos.x = self.cursor_pos.x.saturating_add(1);
         }
 
+        /// Takes incoming data (bytes (`u8`) from a serial connection) and
+        /// processes them accordingly, handling ascii escape sequences, to
+        /// render as characters/strings in the terminal.
         pub fn add_data(&mut self, data: &[u8]) {
             let text = String::from_utf8_lossy(data);
             let mut chars = text.chars().peekable();
@@ -253,6 +277,7 @@ pub mod screen_buffer {
             }
         }
 
+        /// A helper function to check whether the terminal's screen should be rendered.
         pub fn should_render_now(&self) -> bool {
             use tokio::time::Instant;
 
@@ -308,6 +333,7 @@ pub mod screen_buffer {
             }
         }
 
+        /// Called to scroll the terminal up by `lines`.
         pub fn scroll_up(&mut self, lines: usize) {
             if self.view_start >= lines {
                 self.view_start -= lines;
@@ -318,6 +344,7 @@ pub mod screen_buffer {
             self.needs_render = true;
         }
 
+        /// Called to scroll the terminal down by `lines`.
         pub fn scroll_down(&mut self, lines: usize) {
             let max_view_start = self.lines.len().saturating_sub(self.height as usize);
             self.view_start = (self.view_start + lines).min(max_view_start);
@@ -325,16 +352,22 @@ pub mod screen_buffer {
             self.needs_render = true;
         }
 
+        /// Scrolls to the bottom of the screen. The bottom of the screen is
+        /// the same as the most recent lines received from the serial connection
         pub fn scroll_to_bottom(&mut self) {
             self.view_start = self.lines.len().saturating_sub(self.height as usize);
             self.needs_render = true;
         }
 
+        /// Scrolls to the top of the serial connection's history.
         pub fn scroll_to_top(&mut self) {
             self.view_start = 0;
             self.needs_render = true;
         }
 
+        /// Sets the position within the screen for the start of a selection.
+        /// Where `screen_x` is the x-position of the start of the selection,
+        /// and `screen_y` is the y-position (line) of the start of the selection.
         pub fn start_selection(&mut self, screen_x: u16, screen_y: u16) {
             let absolute_line = self.view_start + screen_y as usize;
             self.clear_selection();
@@ -342,6 +375,8 @@ pub mod screen_buffer {
             self.needs_render = true;
         }
 
+        /// Update's a selection to include the position passed to it.
+        /// Where `screen_x` is the x-position and `screen_y` is the y-position (line).
         pub fn update_selection(&mut self, screen_x: u16, screen_y: u16) {
             let absolute_line = self.view_start + screen_y as usize;
             self.selection_end = Some((screen_x, absolute_line));
@@ -349,6 +384,7 @@ pub mod screen_buffer {
             self.needs_render = true;
         }
 
+        /// Clears the selection state.
         pub fn clear_selection(&mut self) {
             for line in &mut self.lines {
                 for cell in line {
@@ -391,7 +427,7 @@ pub mod screen_buffer {
             }
         }
 
-        pub fn get_selected_text(&self) -> String {
+        fn get_selected_text(&self) -> String {
             if let (Some((start_x, start_line)), Some((end_x, end_line))) =
                 (self.selection_start, self.selection_end) {
                     let (start_line, start_x, end_line, end_x) = if start_line < end_line ||
@@ -426,6 +462,7 @@ pub mod screen_buffer {
             }
         }
 
+        /// Copy's the currently selected text to the user's clipboard.
         pub fn copy_to_clipboard(&mut self) -> std::io::Result<()> {
             use crossterm::{ clipboard, execute};
 
@@ -449,6 +486,9 @@ pub mod screen_buffer {
             }
         }
 
+        /// Clears the entire serial connection's history and reset's the screen.
+        /// Similar to `<Ctrl + l>` in a terminal, except this will reset the
+        /// connection's message history (on the user's side).
         pub fn clear_buffer(&mut self) {
             self.lines.clear();
             self.view_start = 0;
@@ -457,6 +497,15 @@ pub mod screen_buffer {
             self.needs_render = true;
         }
 
+        /// Writes the lines/characters received from `add_data` to the terminal's screen.
+        /// As of now, `render` does not involve any diff-ing of previous renders.
+        /// 
+        /// The nature of communicating to devices over a serial connection is similar
+        /// that of a terminal; lines get printed to a screen and with each new line,
+        /// all of the previously rendered characters must be re-rendered one cell higher.
+        ///
+        /// Because of this, the only diff-ing that would make sense would be 
+        /// that of the cells within the screen that are simply blank.
         pub fn render(&mut self) -> std::io::Result<()> {
             use std::io::{self, Write};
             use crossterm::{ queue, cursor, style };
@@ -513,8 +562,9 @@ pub mod screen_buffer {
         }
     }
 
+    #[allow(dead_code)]
     #[derive(Debug)]
-    pub struct BufferStats {
+    struct BufferStats {
         pub total_lines: usize,
         pub view_start: usize,
         pub view_end: usize,
@@ -524,12 +574,19 @@ pub mod screen_buffer {
 }
 
 pub mod serial_actor {
+    //! This module holds all of the code directly responsible for interacting
+    //! with the serial connection and tasks within the program.
+
+    /// Represents messages/commands that are sent from worker tasks
+    /// to the `SerialActor` to process.
     #[derive(Debug)]
     pub enum SerialMessage {
         Write(Vec<u8>),
         Shutdown,
     }
 
+    /// Represents events from the `SerialActor` that will be
+    /// received and processed by worker tasks accordingly.
     #[derive(Clone, Debug)]
     pub enum SerialEvent {
         Data(std::sync::Arc<[u8]>),
@@ -537,6 +594,14 @@ pub mod serial_actor {
         ConnectionClosed,
     }
 
+    /// The `SerialActor` is responsible for passing data and messages between
+    /// the serial connection and tasks. It uses the Actor model to maintain a
+    /// single source for communicating between the serial connection and tasks
+    /// within the program.
+    ///
+    /// It broadcasts `SerialEvent`s to worker tasks via a `tokio::sync::broadcast`
+    /// channel, and receives `SerialMessage`s from worker tasks via a `tokio::sync::mpsc`
+    /// channel. 
     pub struct SerialActor {
         connection: serial2_tokio::SerialPort,
         command_rx: tokio::sync::mpsc::Receiver<SerialMessage>,
@@ -544,6 +609,8 @@ pub mod serial_actor {
     }
 
     impl SerialActor {
+        /// Constructs a `SerialActor`. Takes a serial port connection,
+        /// receiver to a command channel, and a sender to a broadcast channel.
         pub fn new (
             connection: serial2_tokio::SerialPort,
             command_rx: tokio::sync::mpsc::Receiver<SerialMessage>,
@@ -556,6 +623,15 @@ pub mod serial_actor {
             }
         }
 
+        /// This is the heart and soul of the `SerialActor`.
+        /// `sericom` uses the Actor model to receive data from a serial connection
+        /// and forward to other tasks for them to process. It also receives `SerialEvent`'s
+        /// from tasks and handels them accordingly; writes/sends data to the device 
+        /// over the serial connection and closes the connection when receiving 
+        /// `SerialEvent::Shutdown`, ultimately causing the other tasks to shutdown.
+        /// 
+        /// Since data is sent byte-by-byte over a serial connection, `run` will
+        /// batch the data before sending it to other tasks to reduce the number of syscalls.
         pub async fn run(mut self) {
             let mut buffer = vec![0u8; 4096];
             loop {
@@ -600,9 +676,33 @@ pub mod serial_actor {
 
 #[cfg(debug_assertions)]
 pub mod debug {
+    //! This module is only meant to be used for development.
+    //!
+    //! As of now, there is only one function, `run_debug_output`, which is meant
+    //! to debug the data being received over the serial connection. In future
+    //! updates, this module is intended to be used for running tracing events with
+    //! the `tracing` crate. 
+    //!
+    //! **Note**
+    //! This module will only be compiled when `debug_assertions` is set to true
+    //! (building and running either the `debug` profile or the `dbg-release` profile).
     use crate::*;
     use serial_actor::SerialEvent;
 
+    /// This function is used for debugging the data that is sent from a device.
+    /// It will create a file "debug.txt" and print the data received from the device
+    /// as the actual bytes received along with the corresponding ascii characters.
+    ///
+    /// Data is sent from the `SerialActor` to this function in batches,
+    /// therefore a line written to "debug.txt" may look like this:
+    ///
+    /// "\[04:41:27.550\] RX 9 bytes: \[0D, 0A, 53, 77, 69, 74, 63, 68\]... UTF8: ^M Switch#"
+    ///
+    /// Each line will only print a maximum of 8 bytes, after 8 it will simply write "...".
+    ///
+    /// **Note**
+    /// Can only be used when `debug_assertions` is set to true (building and running
+    /// either the `debug` profile or the `dbg-release` profile).
     pub async fn run_debug_output(mut rx: tokio::sync::broadcast::Receiver<SerialEvent>) {
         use std::io::{Write, BufWriter};
         use std::path::Path;

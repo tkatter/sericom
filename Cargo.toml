@@ -1,8 +1,13 @@
 [package]
-name = "netcon"
+name = "sericom"
 version = "0.1.0"
 edition = "2024"
-description = "CLI tool for issuing commands to network switches and routers over their serial connections."
+description = "CLI tool for communicating with devices over a serial connection."
+license = "GPL-3.0-or-later"
+readme = "README.md"
+repository = "https://github.com/tkatter/sericom"
+keywords = ["serial", "console"]
+categories = ["command-line-utilities"]
 
 [dependencies]
 chrono = "0.4.41"
@@ -12,9 +17,6 @@ serial2-tokio = { version = "0.1.15", features = ["windows"] }
 tokio = { version = "1.47.0", features = ["full"] }
 # tracing = "0.1"
 # console-subscriber = "0.4.1"
-
-[profile.release]
-# debug = true
 
 [profile.dbg-release]
 inherits = "release"
