@@ -301,10 +301,9 @@ pub mod screen_buffer {
                     .push_back(vec![Cell::default(); self.width as usize]);
             }
 
-            if let Some(line) = self.lines.get_mut(self.cursor_pos.y) {
-                if (self.cursor_pos.x as usize) < line.len() {
+            if let Some(line) = self.lines.get_mut(self.cursor_pos.y)
+                && (self.cursor_pos.x as usize) < line.len() {
                     line[self.cursor_pos.x as usize].character = ch;
-                }
             }
         }
 
