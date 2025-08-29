@@ -23,12 +23,12 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-      - run: cargo clippy
+      - run: cargo clippy -- -D warnings
       - name: Beta clippy
         uses: dtolnay/rust-toolchain@beta
         with:
           components: clippy
-      - run: cargo clippy
+      - run: cargo clippy -- -D warnings
   doc:
     runs-on: ubuntu-latest
     name: nightly / doc
