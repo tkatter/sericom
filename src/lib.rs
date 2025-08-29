@@ -302,8 +302,9 @@ pub mod screen_buffer {
             }
 
             if let Some(line) = self.lines.get_mut(self.cursor_pos.y)
-                && (self.cursor_pos.x as usize) < line.len() {
-                    line[self.cursor_pos.x as usize].character = ch;
+                && (self.cursor_pos.x as usize) < line.len()
+            {
+                line[self.cursor_pos.x as usize].character = ch;
             }
         }
 
