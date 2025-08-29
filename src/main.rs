@@ -11,6 +11,7 @@
 //! expect scripts) that can be parsed and executed by Sericom. The intention of these
 //! scripts is to be able to automate tasks that take place over a serial connection i.e.
 //! configuration, resetting, getting statistics, etc.
+
 use clap::{CommandFactory, Parser, Subcommand};
 use crossterm::{
     cursor,
@@ -22,8 +23,7 @@ use serial2_tokio::SerialPort;
 #[cfg(debug_assertions)]
 use sericom::debug::run_debug_output;
 use sericom::{
-    screen_buffer::{ScreenBuffer, UICommand},
-    serial_actor::{SerialActor, SerialEvent, SerialMessage},
+    configs, screen_buffer::{ScreenBuffer, UICommand}, serial_actor::{SerialActor, SerialEvent, SerialMessage}
 };
 use std::{
     fs::File,
@@ -85,6 +85,16 @@ enum Commands {
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
+    match configs::initialize_config() {
+        Ok(_) => {},
+        Err(e) => {
+            let mut cmd = Cli::command();
+            cmd.error(
+                clap::error::ErrorKind::MissingRequiredArgument,
+            )
+            .exit();
+        }
+    };
     let cli = Cli::parse();
 
     if cli.port.is_none() && cli.command.is_none() {
