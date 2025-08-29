@@ -1,3 +1,10 @@
+[![Crates.io Version](https://img.shields.io/crates/v/sericom?style=for-the-badge&color=green)](https://crates.io/crates/sericom)
+
+- [Installation](#installation)
+- [Usage](#usage)
+- [Keymaps](#keymaps)
+- [Roadmap](#roadmap)
+
 # Sericom
 
 Sericom is a CLI tool for communicating with devices over a serial connection.
