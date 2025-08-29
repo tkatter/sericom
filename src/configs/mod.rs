@@ -1,6 +1,35 @@
 use serde::Deserialize;
 use std::{io::Read, sync::OnceLock};
 
+#[derive(Debug)]
+pub enum ConfigError {
+    IoError(std::io::Error),
+    TomlError(toml::de::Error),
+    AlreadyInitialized,
+}
+
+impl std::fmt::Display for ConfigError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::AlreadyInitialized => write!(f, "Config is already initialized"),
+            Self::IoError(e) => write!(f, "{e}"),
+            Self::TomlError(e) => write!(f, "{e}"),
+        }
+    }
+}
+
+impl From<toml::de::Error> for ConfigError {
+    fn from(value: toml::de::Error) -> Self {
+        Self::TomlError(value)
+    }
+}
+
+impl From<std::io::Error> for ConfigError {
+    fn from(value: std::io::Error) -> Self {
+        Self::IoError(value)
+    }
+}
+
 #[derive(Debug, Deserialize, PartialEq)]
 pub struct Appearance {
     pub text_fg: Option<String>,
@@ -34,7 +63,7 @@ impl Default for Config {
     }
 }
 
-pub fn initialize_config() -> Result<(), Box<dyn std::error::Error>> {
+pub fn initialize_config() -> Result<(), ConfigError> {
     let config: Config = if let Ok(config_file) = get_config_file() {
         let mut file = std::fs::File::open(config_file).expect("File should exist");
         let mut contents = String::new();
@@ -46,7 +75,7 @@ pub fn initialize_config() -> Result<(), Box<dyn std::error::Error>> {
 
     CONFIG
         .set(config)
-        .map_err(|_| "Config already initialized")?;
+        .map_err(|_| ConfigError::AlreadyInitialized)?;
     Ok(())
 }
 
@@ -54,7 +83,8 @@ pub fn get_config() -> &'static Config {
     CONFIG.get().expect("Config not initialized")
 }
 
-fn get_conf_dir() -> std::io::Result<std::path::PathBuf> {
+#[cfg(target_family = "unix")]
+fn get_conf_dir_unix() -> std::io::Result<std::path::PathBuf> {
     let mut user_home_dir = std::env::home_dir().expect("Failed to get home directory");
     user_home_dir.push(".config/sericom");
     let user_conf_dir = user_home_dir;
@@ -68,10 +98,30 @@ fn get_conf_dir() -> std::io::Result<std::path::PathBuf> {
     Ok(user_conf_dir)
 }
 
+#[cfg(target_family = "windows")]
+fn get_conf_dir_win() -> std::io::Result<std::path::PathBuf> {
+    let mut user_home_dir = std::env::home_dir().expect("Failed to get home directory");
+    user_home_dir.push(".config\\sericom");
+    let user_conf_dir = user_home_dir;
+
+    if !user_conf_dir.is_dir() {
+        let mut builder = std::fs::DirBuilder::new();
+        builder.recursive(true);
+        builder.create(&user_conf_dir)?;
+    }
+
+    Ok(user_conf_dir)
+}
+
 fn get_config_file() -> std::io::Result<std::path::PathBuf> {
-    let mut conf_dir = get_conf_dir()?;
+    #[cfg(target_family = "unix")]
+    let mut conf_dir = get_conf_dir_unix()?;
+    #[cfg(target_family = "windows")]
+    let mut conf_dir = get_conf_dir_win()?;
+
     conf_dir.push("config.toml");
     let conf_file = conf_dir;
+
     if conf_file.exists() && conf_file.is_file() {
         Ok(conf_file)
     } else {
@@ -83,7 +133,7 @@ fn get_config_file() -> std::io::Result<std::path::PathBuf> {
 }
 
 #[test]
-fn parse_file() {
+fn parse_test_config() {
     let file: Config = toml::from_str(
         r#"
             [appearance]
@@ -110,24 +160,21 @@ fn parse_file() {
 
 #[test]
 fn check_conf_dir_is_ok() {
-    let check = get_conf_dir();
+    #[cfg(target_family = "unix")]
+    let check = get_conf_dir_unix();
+    #[cfg(target_family = "windows")]
+    let check = get_conf_dir_win();
     assert!(check.is_ok())
 }
 
 #[test]
 fn check_conf_dir_is_dir() {
-    let dir = get_conf_dir().unwrap();
+    #[cfg(target_family = "unix")]
+    let dir = get_conf_dir_unix().unwrap();
+    #[cfg(target_family = "windows")]
+    let dir = get_conf_dir_win().unwrap();
 
     assert!(std::fs::metadata(dir).unwrap().is_dir())
-}
-
-#[test]
-fn verify_conf_dir() {
-    let dir = get_conf_dir().unwrap();
-    assert_eq!(
-        dir.as_path(),
-        std::path::Path::new("/home/thomas/.config/sericom")
-    )
 }
 
 #[test]

@@ -23,7 +23,9 @@ use serial2_tokio::SerialPort;
 #[cfg(debug_assertions)]
 use sericom::debug::run_debug_output;
 use sericom::{
-    configs, screen_buffer::{ScreenBuffer, UICommand}, serial_actor::{SerialActor, SerialEvent, SerialMessage}
+    configs,
+    screen_buffer::{ScreenBuffer, UICommand},
+    serial_actor::{SerialActor, SerialEvent, SerialMessage},
 };
 use std::{
     fs::File,
@@ -85,16 +87,6 @@ enum Commands {
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
-    match configs::initialize_config() {
-        Ok(_) => {},
-        Err(e) => {
-            let mut cmd = Cli::command();
-            cmd.error(
-                clap::error::ErrorKind::MissingRequiredArgument,
-            )
-            .exit();
-        }
-    };
     let cli = Cli::parse();
 
     if cli.port.is_none() && cli.command.is_none() {
@@ -141,6 +133,10 @@ async fn main() -> io::Result<()> {
                 }
             },
             Ok(con) => {
+                configs::initialize_config().unwrap_or_else(|e| {
+                    let mut cmd = Cli::command();
+                    cmd.error(clap::error::ErrorKind::ValueValidation, e).exit();
+                });
                 #[cfg(not(debug_assertions))]
                 interactive_session(con, cli.file, false, &port).await?;
                 #[cfg(debug_assertions)]
@@ -410,13 +406,12 @@ async fn run_file_output(
     filename: String,
 ) {
     let (write_tx, write_rx) = std::sync::mpsc::channel::<Vec<u8>>();
-    let filename_clone = filename.clone();
 
     let write_handle = tokio::task::spawn_blocking(move || {
-        let file = match File::create(&filename_clone) {
+        let file = match File::create(&filename) {
             Ok(f) => f,
             Err(e) => {
-                eprintln!("Failed to create file '{filename_clone}': {e}");
+                eprintln!("Failed to create file '{filename}': {e}");
                 return;
             }
         };
@@ -449,7 +444,6 @@ async fn run_file_output(
                     match event {
                         Ok(SerialEvent::Data(data)) => {
                             write_buf.extend_from_slice(&data);
-
                             if write_buf.len() >= 4096 && write_tx.send(std::mem::take(&mut write_buf)).is_err() {
                                     break;
                             }
