@@ -11,18 +11,24 @@
 //! expect scripts) that can be parsed and executed by Sericom. The intention of these
 //! scripts is to be able to automate tasks that take place over a serial connection i.e.
 //! configuration, resetting, getting statistics, etc.
-use std::{
-    fs::File, io::{self, BufWriter, Write}
-};
 use clap::{CommandFactory, Parser, Subcommand};
-use crossterm::{cursor, event::{self, Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent}, execute, terminal::{self, ClearType} };
-use serial2_tokio::SerialPort;
-use sericom::{
-    screen_buffer::{ScreenBuffer, UICommand},
-    serial_actor::{SerialEvent, SerialMessage, SerialActor}
+use crossterm::{
+    cursor,
+    event::{self, Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent},
+    execute,
+    terminal::{self, ClearType},
 };
+use serial2_tokio::SerialPort;
 #[cfg(debug_assertions)]
 use sericom::debug::run_debug_output;
+use sericom::{
+    screen_buffer::{ScreenBuffer, UICommand},
+    serial_actor::{SerialActor, SerialEvent, SerialMessage},
+};
+use std::{
+    fs::File,
+    io::{self, BufWriter, Write},
+};
 
 const UTF_TAB: &str = "\u{0009}";
 const UTF_BKSP: &str = "\u{0008}";
@@ -82,50 +88,48 @@ async fn main() -> io::Result<()> {
     let cli = Cli::parse();
 
     if cli.port.is_none() && cli.command.is_none() {
-            let mut cmd = Cli::command();
-            cmd.error(
-                clap::error::ErrorKind::MissingRequiredArgument,
-                "Missing either PORT or COMMAND."
-            ).exit();
+        let mut cmd = Cli::command();
+        cmd.error(
+            clap::error::ErrorKind::MissingRequiredArgument,
+            "Missing either PORT or COMMAND.",
+        )
+        .exit();
     }
 
     if cli.port.is_some() && cli.command.is_some() {
-            let mut cmd = Cli::command();
-            cmd.error(
-                clap::error::ErrorKind::ArgumentConflict,
-                "Must specify either PORT or SUBCOMMAND, not both."
-            ).exit();
+        let mut cmd = Cli::command();
+        cmd.error(
+            clap::error::ErrorKind::ArgumentConflict,
+            "Must specify either PORT or SUBCOMMAND, not both.",
+        )
+        .exit();
     }
 
     if let Some(port) = cli.port {
         match open_connection(cli.baud, &port) {
-            Err(e) => {
-                match e.kind() {
-                    io::ErrorKind::NotFound => {
-                        let mut cmd = Cli::command();
-                        cmd.error(
+            Err(e) => match e.kind() {
+                io::ErrorKind::NotFound => {
+                    let mut cmd = Cli::command();
+                    cmd.error(
                             clap::error::ErrorKind::InvalidValue,
                             "The specified PORT is invalid. Use `sericom list-ports` to see a list of valid ports."
                         ).exit();
-                    }
-                    #[cfg(target_os = "windows")]
-                    io::ErrorKind::PermissionDenied => {
-                        let mut cmd = Cli::command();
-                        cmd.error(
+                }
+                #[cfg(target_os = "windows")]
+                io::ErrorKind::PermissionDenied => {
+                    let mut cmd = Cli::command();
+                    cmd.error(
                             clap::error::ErrorKind::InvalidValue,
                             "The specified PORT is either invalid, or in use. Use `sericom list-ports` to see a list of valid ports."
                         ).exit();
-                    }
-                    e => {
-                        let mut cmd = Cli::command();
-                        let message = format!("{e}");
-                        cmd.error(
-                            clap::error::ErrorKind::InvalidValue,
-                            message
-                        ).exit();
-                    }
                 }
-            }
+                e => {
+                    let mut cmd = Cli::command();
+                    let message = format!("{e}");
+                    cmd.error(clap::error::ErrorKind::InvalidValue, message)
+                        .exit();
+                }
+            },
             Ok(con) => {
                 #[cfg(not(debug_assertions))]
                 interactive_session(con, cli.file, false, &port).await?;
@@ -153,14 +157,17 @@ async fn main() -> io::Result<()> {
     Ok(())
 }
 
-async fn run_stdout_output(mut con_rx: tokio::sync::broadcast::Receiver<SerialEvent>, mut ui_rx: tokio::sync::mpsc::Receiver<UICommand>) {
+async fn run_stdout_output(
+    mut con_rx: tokio::sync::broadcast::Receiver<SerialEvent>,
+    mut ui_rx: tokio::sync::mpsc::Receiver<UICommand>,
+) {
     let (width, height) = terminal::size().unwrap_or((80, 24));
     let mut screen_buffer = ScreenBuffer::new(width, height, 10000);
     let mut data_buffer = Vec::with_capacity(2048);
     let mut render_timer: Option<tokio::time::Interval> = None;
 
     loop {
-        tokio::select!{
+        tokio::select! {
             serial_event = con_rx.recv() => {
                 match serial_event {
                     Ok(SerialEvent::Data(data)) => {
@@ -259,26 +266,40 @@ async fn run_stdout_output(mut con_rx: tokio::sync::broadcast::Receiver<SerialEv
     }
 }
 
-async fn run_stdin_input(command_tx: tokio::sync::mpsc::Sender<SerialMessage>, ui_tx: tokio::sync::mpsc::Sender<UICommand>) {
+async fn run_stdin_input(
+    command_tx: tokio::sync::mpsc::Sender<SerialMessage>,
+    ui_tx: tokio::sync::mpsc::Sender<UICommand>,
+) {
     let (stdin_tx, mut stdin_rx) = tokio::sync::mpsc::channel::<String>(10);
     let command_tx_clone = command_tx.clone();
 
-    tokio::task::spawn_blocking(move || {
-        stdin_input_loop(stdin_tx, command_tx_clone, ui_tx)
-    });
+    tokio::task::spawn_blocking(move || stdin_input_loop(stdin_tx, command_tx_clone, ui_tx));
 
     while let Some(data) = stdin_rx.recv().await {
-        if command_tx.send(SerialMessage::Write(data.into_bytes())).await.is_err() {
+        if command_tx
+            .send(SerialMessage::Write(data.into_bytes()))
+            .await
+            .is_err()
+        {
             break;
         }
     }
 }
 
-fn stdin_input_loop(stdin_tx: tokio::sync::mpsc::Sender<String>, command_tx: tokio::sync::mpsc::Sender<SerialMessage>, ui_tx: tokio::sync::mpsc::Sender<UICommand>) {
+fn stdin_input_loop(
+    stdin_tx: tokio::sync::mpsc::Sender<String>,
+    command_tx: tokio::sync::mpsc::Sender<SerialMessage>,
+    ui_tx: tokio::sync::mpsc::Sender<UICommand>,
+) {
     loop {
         match event::read() {
             // Match function keys
-            Ok(Event::Key(KeyEvent { code: KeyCode::F(f_code), modifiers: _modifiers, kind, .. })) => {
+            Ok(Event::Key(KeyEvent {
+                code: KeyCode::F(f_code),
+                modifiers: _modifiers,
+                kind,
+                ..
+            })) => {
                 if kind != crossterm::event::KeyEventKind::Press {
                     continue;
                 }
@@ -286,16 +307,21 @@ fn stdin_input_loop(stdin_tx: tokio::sync::mpsc::Sender<String>, command_tx: tok
                     1 => {
                         let _ = ui_tx.blocking_send(UICommand::ScrollTop);
                         continue;
-                    },
+                    }
                     2 => {
                         let _ = ui_tx.blocking_send(UICommand::ScrollBottom);
                         continue;
-                    },
+                    }
                     _ => continue,
                 };
             }
             // Match Control + Code
-            Ok(Event::Key(KeyEvent { code, modifiers: KeyModifiers::CONTROL, kind, .. })) => {
+            Ok(Event::Key(KeyEvent {
+                code,
+                modifiers: KeyModifiers::CONTROL,
+                kind,
+                ..
+            })) => {
                 if kind != crossterm::event::KeyEventKind::Press {
                     continue;
                 }
@@ -316,7 +342,12 @@ fn stdin_input_loop(stdin_tx: tokio::sync::mpsc::Sender<String>, command_tx: tok
                 };
             }
             // Match every other key
-            Ok(Event::Key(KeyEvent { code, modifiers: _, kind, .. })) => {
+            Ok(Event::Key(KeyEvent {
+                code,
+                modifiers: _,
+                kind,
+                ..
+            })) => {
                 if kind != crossterm::event::KeyEventKind::Press {
                     continue;
                 }
@@ -338,7 +369,9 @@ fn stdin_input_loop(stdin_tx: tokio::sync::mpsc::Sender<String>, command_tx: tok
                     break;
                 }
             }
-            Ok(Event::Mouse(MouseEvent { kind, column, row, .. })) => {
+            Ok(Event::Mouse(MouseEvent {
+                kind, column, row, ..
+            })) => {
                 let ui_command = match kind {
                     event::MouseEventKind::ScrollUp => UICommand::ScrollUp(1),
                     event::MouseEventKind::ScrollDown => UICommand::ScrollDown(1),
@@ -362,7 +395,10 @@ fn stdin_input_loop(stdin_tx: tokio::sync::mpsc::Sender<String>, command_tx: tok
     }
 }
 
-async fn run_file_output(mut file_rx: tokio::sync::broadcast::Receiver<SerialEvent>, filename: String) {
+async fn run_file_output(
+    mut file_rx: tokio::sync::broadcast::Receiver<SerialEvent>,
+    filename: String,
+) {
     let (write_tx, write_rx) = std::sync::mpsc::channel::<Vec<u8>>();
     let filename_clone = filename.clone();
 
@@ -384,14 +420,14 @@ async fn run_file_output(mut file_rx: tokio::sync::broadcast::Receiver<SerialEve
 
             let now = std::time::Instant::now();
             if now.duration_since(last_flush) > std::time::Duration::from_millis(200)
-                || writer.buffer().len() > 4 * 1024 {
-                    let _ = writer.flush();
-                    last_flush = now;
+                || writer.buffer().len() > 4 * 1024
+            {
+                let _ = writer.flush();
+                last_flush = now;
             }
         }
         let _ = writer.flush();
     });
-
 
     let data_streamer = tokio::spawn(async move {
         let mut write_buf = Vec::with_capacity(4096);
@@ -443,7 +479,8 @@ async fn run_file_output(mut file_rx: tokio::sync::broadcast::Receiver<SerialEve
                 }
             }
         }
-        if !write_buf.is_empty() { let _ = write_tx.send(std::mem::take(&mut write_buf));
+        if !write_buf.is_empty() {
+            let _ = write_tx.send(std::mem::take(&mut write_buf));
         }
         drop(write_tx);
     });
@@ -452,19 +489,23 @@ async fn run_file_output(mut file_rx: tokio::sync::broadcast::Receiver<SerialEve
     let _ = write_handle.await;
 }
 
-
-
-async fn interactive_session(connection: SerialPort, file: Option<String>, debug: bool, port_name: &str) -> io::Result<()> {
+async fn interactive_session(
+    connection: SerialPort,
+    file: Option<String>,
+    debug: bool,
+    port_name: &str,
+) -> io::Result<()> {
     // Setup terminal
     let mut stdout = io::stdout();
     terminal::enable_raw_mode()?;
-    execute!(stdout,
+    execute!(
+        stdout,
         terminal::EnterAlternateScreen,
         terminal::SetTitle(port_name),
         terminal::Clear(ClearType::All),
         event::EnableBracketedPaste,
         event::EnableMouseCapture,
-        cursor::MoveTo(0,0)
+        cursor::MoveTo(0, 0)
     )?;
 
     // Create channels
@@ -573,8 +614,18 @@ fn valid_baud_rate(s: &str) -> Result<u32, String> {
 }
 
 fn ensure_terminal_cleanup(mut stdout: io::Stdout) {
-    use crossterm::{cursor::Show, execute, terminal::{disable_raw_mode, LeaveAlternateScreen}};
-    let _ = execute!(stdout, event::DisableMouseCapture, event::DisableBracketedPaste, LeaveAlternateScreen, Show);
+    use crossterm::{
+        cursor::Show,
+        execute,
+        terminal::{LeaveAlternateScreen, disable_raw_mode},
+    };
+    let _ = execute!(
+        stdout,
+        event::DisableMouseCapture,
+        event::DisableBracketedPaste,
+        LeaveAlternateScreen,
+        Show
+    );
     let _ = disable_raw_mode();
     let _ = stdout.flush();
 }

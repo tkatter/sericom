@@ -17,8 +17,8 @@ pub mod screen_buffer {
     //! connection in a `std::collections::VecDeque`. It is important to note that
     //! currently, the **capacity of the `VecDeque` is not hardcoded and is theoretically
     //! allowed to grow forever**, limited by memory.
-    use std::{collections::VecDeque, io::BufWriter};
     use crossterm::style::Color;
+    use std::{collections::VecDeque, io::BufWriter};
 
     const MIN_RENDER_INTERVAL: tokio::time::Duration = tokio::time::Duration::from_millis(33);
 
@@ -150,7 +150,9 @@ pub mod screen_buffer {
                 escape_state: EscapeState::Normal,
             };
             // Start with an empty line
-            buffer.lines.push_back(vec![Cell::default(); width as usize]);
+            buffer
+                .lines
+                .push_back(vec![Cell::default(); width as usize]);
             buffer
         }
 
@@ -191,7 +193,9 @@ pub mod screen_buffer {
                             '\x08' => {
                                 let mut temp_chars = chars.clone();
                                 // Matches the `\x08 ' ' \x08` deletion sequence
-                                if let (Some(' '), Some('\x08')) = (temp_chars.next(), temp_chars.next()) {
+                                if let (Some(' '), Some('\x08')) =
+                                    (temp_chars.next(), temp_chars.next())
+                                {
                                     // Consume them - to remove from further processing
                                     chars.next();
                                     chars.next();
@@ -209,7 +213,10 @@ pub mod screen_buffer {
                             c => {
                                 let mut batch = vec![c];
                                 while let Some(&next_ch) = chars.peek() {
-                                    if next_ch.is_control() || next_ch == '\x1B' || self.cursor_pos.x + batch.len() as u16 >= self.width {
+                                    if next_ch.is_control()
+                                        || next_ch == '\x1B'
+                                        || self.cursor_pos.x + batch.len() as u16 >= self.width
+                                    {
                                         break;
                                     }
                                     batch.push(chars.next().unwrap());
@@ -218,40 +225,35 @@ pub mod screen_buffer {
                             }
                         }
                     }
-                    EscapeState::Esc => {
-                        match ch {
-                            '[' => {
-                                self.escape_state = EscapeState::Csi;
-
-                            }
-                            _ => {
-                                self.escape_state = EscapeState::Normal;
-                            }
+                    EscapeState::Esc => match ch {
+                        '[' => {
+                            self.escape_state = EscapeState::Csi;
                         }
-                    }
-                    EscapeState::Csi => {
-                        match ch {
-                            'J' => {
-                                self.clear_from_cursor_to_eol();
-                                self.escape_state = EscapeState::Normal;
-                            }
-                            'K' => {
-                                self.clear_from_cursor_to_eol();
-                                self.escape_state = EscapeState::Normal;
-                            }
-                            'C' => {
-                                self.move_cursor_left();
-                                self.escape_state = EscapeState::Normal;
-                            }
-                            'D' => {
-                                self.move_cursor_right();
-                                self.escape_state = EscapeState::Normal;
-                            }
-                            _ => {
-                                self.escape_state = EscapeState::Normal;
-                            }
+                        _ => {
+                            self.escape_state = EscapeState::Normal;
                         }
-                    }
+                    },
+                    EscapeState::Csi => match ch {
+                        'J' => {
+                            self.clear_from_cursor_to_eol();
+                            self.escape_state = EscapeState::Normal;
+                        }
+                        'K' => {
+                            self.clear_from_cursor_to_eol();
+                            self.escape_state = EscapeState::Normal;
+                        }
+                        'C' => {
+                            self.move_cursor_left();
+                            self.escape_state = EscapeState::Normal;
+                        }
+                        'D' => {
+                            self.move_cursor_right();
+                            self.escape_state = EscapeState::Normal;
+                        }
+                        _ => {
+                            self.escape_state = EscapeState::Normal;
+                        }
+                    },
                 }
             }
             self.scroll_to_bottom();
@@ -260,7 +262,8 @@ pub mod screen_buffer {
 
         fn add_char_batch(&mut self, chars: &[char]) {
             while self.cursor_pos.y >= self.lines.len() {
-                self.lines.push_back(vec![Cell::default(); self.width as usize]);
+                self.lines
+                    .push_back(vec![Cell::default(); self.width as usize]);
             }
 
             if let Some(line) = self.lines.get_mut(self.cursor_pos.y) {
@@ -294,9 +297,10 @@ pub mod screen_buffer {
 
         fn set_char_at_cursor(&mut self, ch: char) {
             while self.cursor_pos.y >= self.lines.len() {
-                self.lines.push_back(vec![Cell::default(); self.width as usize]);
+                self.lines
+                    .push_back(vec![Cell::default(); self.width as usize]);
             }
-        
+
             if let Some(line) = self.lines.get_mut(self.cursor_pos.y) {
                 if (self.cursor_pos.x as usize) < line.len() {
                     line[self.cursor_pos.x as usize].character = ch;
@@ -317,7 +321,8 @@ pub mod screen_buffer {
             self.set_cursor_pos((0, self.cursor_pos.y + 1));
 
             if self.cursor_pos.y >= self.lines.len() {
-                self.lines.push_back(vec![Cell::default(); self.width as usize]);
+                self.lines
+                    .push_back(vec![Cell::default(); self.width as usize]);
             }
 
             // Remove old lines if exceeding `ScreenBuffer.max_scrollback`
@@ -404,59 +409,69 @@ pub mod screen_buffer {
             }
 
             if let (Some((start_x, start_line)), Some((end_x, end_line))) =
-                (self.selection_start, self.selection_end) {
-                    let (start_line, start_x, end_line, end_x) = if start_line < end_line ||
-                        (start_line == end_line && start_x <= end_x) {
-                            (start_line, start_x, end_line, end_x)
+                (self.selection_start, self.selection_end)
+            {
+                let (start_line, start_x, end_line, end_x) =
+                    if start_line < end_line || (start_line == end_line && start_x <= end_x) {
+                        (start_line, start_x, end_line, end_x)
                     } else {
                         (end_line, end_x, start_line, start_x)
                     };
 
-                    for line_idx in start_line..=end_line {
-                        if let Some(line) = self.lines.get_mut(line_idx) {
-                            let line_start_x = if line_idx == start_line { start_x } else { 0 };
-                            let line_end_x = if line_idx == end_line { end_x } else { self.width - 1 };
+                for line_idx in start_line..=end_line {
+                    if let Some(line) = self.lines.get_mut(line_idx) {
+                        let line_start_x = if line_idx == start_line { start_x } else { 0 };
+                        let line_end_x = if line_idx == end_line {
+                            end_x
+                        } else {
+                            self.width - 1
+                        };
 
-                            for x in line_start_x..=line_end_x.min(self.width - 1) {
-                                if let Some(cell) = line.get_mut(x as usize) {
-                                    cell.is_selected = true;
-                                }
+                        for x in line_start_x..=line_end_x.min(self.width - 1) {
+                            if let Some(cell) = line.get_mut(x as usize) {
+                                cell.is_selected = true;
                             }
                         }
                     }
+                }
             }
         }
 
         fn get_selected_text(&self) -> String {
             if let (Some((start_x, start_line)), Some((end_x, end_line))) =
-                (self.selection_start, self.selection_end) {
-                    let (start_line, start_x, end_line, end_x) = if start_line < end_line ||
-                        (start_line == end_line && start_x <= end_x) {
-                            (start_line, start_x, end_line, end_x)
+                (self.selection_start, self.selection_end)
+            {
+                let (start_line, start_x, end_line, end_x) =
+                    if start_line < end_line || (start_line == end_line && start_x <= end_x) {
+                        (start_line, start_x, end_line, end_x)
                     } else {
                         (end_line, end_x, start_line, start_x)
                     };
 
-                    let mut result = String::new();
+                let mut result = String::new();
 
-                    for line_idx in start_line..=end_line {
-                        if let Some(line) = self.lines.get(line_idx) {
-                            let line_start_x = if line_idx == start_line { start_x } else { 0 };
-                            let line_end_x = if line_idx == end_line { end_x } else { self.width - 1 };
+                for line_idx in start_line..=end_line {
+                    if let Some(line) = self.lines.get(line_idx) {
+                        let line_start_x = if line_idx == start_line { start_x } else { 0 };
+                        let line_end_x = if line_idx == end_line {
+                            end_x
+                        } else {
+                            self.width - 1
+                        };
 
-                            for x in line_start_x..=line_end_x.min(self.width - 1) {
-                                if let Some(cell) = line.get(x as usize) {
-                                    result.push(cell.character);
-                                }
-                            }
-
-                            if line_idx < end_line {
-                                result.push('\n');
+                        for x in line_start_x..=line_end_x.min(self.width - 1) {
+                            if let Some(cell) = line.get(x as usize) {
+                                result.push(cell.character);
                             }
                         }
-                    }
 
-                    result.trim_end().to_string()
+                        if line_idx < end_line {
+                            result.push('\n');
+                        }
+                    }
+                }
+
+                result.trim_end().to_string()
             } else {
                 String::new()
             }
@@ -464,11 +479,14 @@ pub mod screen_buffer {
 
         /// Copy's the currently selected text to the user's clipboard.
         pub fn copy_to_clipboard(&mut self) -> std::io::Result<()> {
-            use crossterm::{ clipboard, execute};
+            use crossterm::{clipboard, execute};
 
             let selected_text = self.get_selected_text();
             if !selected_text.is_empty() {
-                execute!(std::io::stdout(), clipboard::CopyToClipboard::to_clipboard_from(selected_text))?;
+                execute!(
+                    std::io::stdout(),
+                    clipboard::CopyToClipboard::to_clipboard_from(selected_text)
+                )?;
             }
             self.clear_selection();
             Ok(())
@@ -493,22 +511,23 @@ pub mod screen_buffer {
             self.lines.clear();
             self.view_start = 0;
             self.set_cursor_pos((0_u16, 0_usize));
-            self.lines.push_back(vec![Cell::default(); self.width as usize]);
+            self.lines
+                .push_back(vec![Cell::default(); self.width as usize]);
             self.needs_render = true;
         }
 
         /// Writes the lines/characters received from `add_data` to the terminal's screen.
         /// As of now, `render` does not involve any diff-ing of previous renders.
-        /// 
+        ///
         /// The nature of communicating to devices over a serial connection is similar
         /// that of a terminal; lines get printed to a screen and with each new line,
         /// all of the previously rendered characters must be re-rendered one cell higher.
         ///
-        /// Because of this, the only diff-ing that would make sense would be 
+        /// Because of this, the only diff-ing that would make sense would be
         /// that of the cells within the screen that are simply blank.
         pub fn render(&mut self) -> std::io::Result<()> {
+            use crossterm::{cursor, queue, style};
             use std::io::{self, Write};
-            use crossterm::{ queue, cursor, style };
             use tokio::time::Instant;
 
             if !self.needs_render {
@@ -517,11 +536,11 @@ pub mod screen_buffer {
 
             let mut writer = BufWriter::new(io::stdout());
             queue!(writer, cursor::Hide)?;
-            
+
             for screen_y in 0..self.height {
                 let line_idx = self.view_start + screen_y as usize;
                 queue!(writer, cursor::MoveTo(0, screen_y))?;
-                
+
                 if let Some(line) = self.lines.get(line_idx) {
                     let mut current_fg = Color::Green;
                     let mut current_bg = Color::Reset;
@@ -529,8 +548,16 @@ pub mod screen_buffer {
                     queue!(writer, style::SetBackgroundColor(current_bg))?;
 
                     for cell in line {
-                        let fg = if cell.is_selected { Color::Black } else { cell.fg_color };
-                        let bg = if cell.is_selected { Color::White } else { cell.bg_color };
+                        let fg = if cell.is_selected {
+                            Color::Black
+                        } else {
+                            cell.fg_color
+                        };
+                        let bg = if cell.is_selected {
+                            Color::White
+                        } else {
+                            cell.bg_color
+                        };
                         if fg != current_fg {
                             queue!(writer, style::SetForegroundColor(fg))?;
                             current_fg = fg;
@@ -547,14 +574,19 @@ pub mod screen_buffer {
                 }
             }
 
-            let screen_cursor_y = if self.cursor_pos.y >= self.view_start &&
-                self.cursor_pos.y < self.view_start + self.height as usize {
-                    (self.cursor_pos.y - self.view_start) as u16
+            let screen_cursor_y = if self.cursor_pos.y >= self.view_start
+                && self.cursor_pos.y < self.view_start + self.height as usize
+            {
+                (self.cursor_pos.y - self.view_start) as u16
             } else {
                 self.height - 1
             };
 
-            queue!(writer, cursor::MoveTo(self.cursor_pos.x, screen_cursor_y), cursor::Show)?;
+            queue!(
+                writer,
+                cursor::MoveTo(self.cursor_pos.x, screen_cursor_y),
+                cursor::Show
+            )?;
             writer.flush()?;
             self.last_render = Some(Instant::now());
             self.needs_render = false;
@@ -601,7 +633,7 @@ pub mod serial_actor {
     ///
     /// It broadcasts `SerialEvent`s to worker tasks via a `tokio::sync::broadcast`
     /// channel, and receives `SerialMessage`s from worker tasks via a `tokio::sync::mpsc`
-    /// channel. 
+    /// channel.
     pub struct SerialActor {
         connection: serial2_tokio::SerialPort,
         command_rx: tokio::sync::mpsc::Receiver<SerialMessage>,
@@ -611,10 +643,10 @@ pub mod serial_actor {
     impl SerialActor {
         /// Constructs a `SerialActor`. Takes a serial port connection,
         /// receiver to a command channel, and a sender to a broadcast channel.
-        pub fn new (
+        pub fn new(
             connection: serial2_tokio::SerialPort,
             command_rx: tokio::sync::mpsc::Receiver<SerialMessage>,
-            broadcast_channel: tokio::sync::broadcast::Sender<SerialEvent>
+            broadcast_channel: tokio::sync::broadcast::Sender<SerialEvent>,
         ) -> Self {
             Self {
                 connection,
@@ -626,10 +658,10 @@ pub mod serial_actor {
         /// This is the heart and soul of the `SerialActor`.
         /// `sericom` uses the Actor model to receive data from a serial connection
         /// and forward to other tasks for them to process. It also receives `SerialEvent`'s
-        /// from tasks and handels them accordingly; writes/sends data to the device 
-        /// over the serial connection and closes the connection when receiving 
+        /// from tasks and handels them accordingly; writes/sends data to the device
+        /// over the serial connection and closes the connection when receiving
         /// `SerialEvent::Shutdown`, ultimately causing the other tasks to shutdown.
-        /// 
+        ///
         /// Since data is sent byte-by-byte over a serial connection, `run` will
         /// batch the data before sending it to other tasks to reduce the number of syscalls.
         pub async fn run(mut self) {
@@ -671,7 +703,6 @@ pub mod serial_actor {
             }
         }
     }
-
 }
 
 #[cfg(debug_assertions)]
@@ -681,7 +712,7 @@ pub mod debug {
     //! As of now, there is only one function, `run_debug_output`, which is meant
     //! to debug the data being received over the serial connection. In future
     //! updates, this module is intended to be used for running tracing events with
-    //! the `tracing` crate. 
+    //! the `tracing` crate.
     //!
     //! **Note**
     //! This module will only be compiled when `debug_assertions` is set to true
@@ -704,7 +735,7 @@ pub mod debug {
     /// Can only be used when `debug_assertions` is set to true (building and running
     /// either the `debug` profile or the `dbg-release` profile).
     pub async fn run_debug_output(mut rx: tokio::sync::broadcast::Receiver<SerialEvent>) {
-        use std::io::{Write, BufWriter};
+        use std::io::{BufWriter, Write};
         use std::path::Path;
 
         let (write_tx, write_rx) = std::sync::mpsc::channel::<Vec<u8>>();
@@ -722,25 +753,27 @@ pub mod debug {
 
             writeln!(writer, "Session started at: {}", chrono::Utc::now()).ok();
             while let Ok(data) = write_rx.recv() {
-                writeln!(writer,
+                writeln!(
+                    writer,
                     "[{}] RX {} bytes: {:02X?}{} UTF8: {}",
                     chrono::Utc::now().format("%H:%M:%S%.3f"),
                     data.len(),
                     &data[..std::cmp::min(8, data.len())],
                     if data.len() > 8 { "..." } else { "" },
                     String::from_utf8_lossy(&data)
-                ).ok();
+                )
+                .ok();
 
                 let now = std::time::Instant::now();
                 if now.duration_since(last_flush) > std::time::Duration::from_millis(100)
-                    || writer.buffer().len() > 32 * 1024 {
-                        let _ = writer.flush();
-                        last_flush = now;
+                    || writer.buffer().len() > 32 * 1024
+                {
+                    let _ = writer.flush();
+                    last_flush = now;
                 }
             }
             let _ = writer.flush();
         });
-
 
         let data_streamer = tokio::spawn(async move {
             let mut write_buf = Vec::with_capacity(4096);
@@ -770,7 +803,8 @@ pub mod debug {
                     }
                 }
             }
-            if !write_buf.is_empty() { let _ = write_tx.send(std::mem::take(&mut write_buf));
+            if !write_buf.is_empty() {
+                let _ = write_tx.send(std::mem::take(&mut write_buf));
             }
             drop(write_tx);
         });
@@ -778,5 +812,4 @@ pub mod debug {
         let _ = data_streamer.await;
         let _ = write_handle.await;
     }
-
 }
