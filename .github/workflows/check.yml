@@ -1,0 +1,41 @@
+on:
+  push:
+    branches: [main]
+  pull_request:
+name: check
+jobs:
+  fmt:
+    runs-on: ubuntu-latest
+    name: stable / fmt
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+        run: cargo fmt --check
+  clippy:
+    runs-on: ubuntu-latest
+    name: stable + beta / clippy
+    steps:
+      - uses: actions/checkout@v5
+      - name: Stable clippy
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+        run: cargo clippy
+      - name: Beta clippy
+        uses: dtolnay/rust-toolchain@beta
+        with:
+          components: clippy
+        run: cargo clippy
+  doc:
+    runs-on: ubuntu-latest
+    name: nightly / doc
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install nightly
+        uses: dtolnay/rust-toolchain@nightly
+        run: cargo doc --no-deps --all-features
+        env:
+          RUSTDOCFLAGS: --cfg docsrs
