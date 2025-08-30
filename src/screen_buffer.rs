@@ -13,7 +13,7 @@
 //! locations within the screen for things like copying to a clipboard.
 //!
 //! The screen buffer solves these issues by storing each line received from the
-//! connection in a `std::collections::VecDeque`. It is important to note that
+//! connection in a [`VecDeque`]. It is important to note that
 //! currently, the **capacity of the `VecDeque` is not hardcoded and is theoretically
 //! allowed to grow forever**, limited by memory.
 use crate::configs::get_config;
@@ -33,7 +33,7 @@ enum EscapeState {
     Csi,
 }
 
-/// `UICommand` is used for communication between stdin and the `ScreenBuffer`.
+/// `UICommand` is used for communication between stdin and the [`ScreenBuffer`].
 #[non_exhaustive]
 #[derive(Clone, Debug)]
 pub enum UICommand {
@@ -48,7 +48,7 @@ pub enum UICommand {
 }
 
 /// `Cell` represents a cell within the terminal's window/frame.
-/// Used to hold rendering state for all the cells within the `ScreenBuffer`.
+/// Used to hold rendering state for all the cells within the [`ScreenBuffer`].
 /// Each line within `ScreenBuffer` is represented by a `Vec<Cell>`.
 #[derive(Clone, Debug)]
 struct Cell {
@@ -70,7 +70,7 @@ impl Default for Cell {
     }
 }
 
-/// Represent's the cursor's position within the `ScreenBuffer`.
+/// Represent's the cursor's position within the [`ScreenBuffer`].
 #[derive(Clone, Copy, Debug)]
 struct Position {
     /// The x position of a line within `ScreenBuffer`'s scrollback buffer.
@@ -506,7 +506,7 @@ impl ScreenBuffer {
     }
 
     /// Clears the entire serial connection's history and reset's the screen.
-    /// Similar to `<Ctrl + l>` in a terminal, except this will reset the
+    /// Similar to <kbd>Ctrl</kbd> + <kbd>l</kbd> in a terminal, except this will reset the
     /// connection's message history (on the user's side).
     pub fn clear_buffer(&mut self) {
         self.lines.clear();

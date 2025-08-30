@@ -1,30 +1,19 @@
-//! This module is only meant to be used for development.
-//!
-//! As of now, there is only one function, `run_debug_output`, which is meant
+//! As of now, there is only one function, [`run_debug_output`], which is meant
 //! to debug the data being received over the serial connection. In future
 //! updates, this module is intended to be used for running tracing events with
-//! the `tracing` crate.
-//!
-//! **Note**
-//! This module will only be compiled when `debug_assertions` is set to true
-//! (building and running either the `debug` profile or the `dbg-release` profile).
-use crate::*;
-use serial_actor::SerialEvent;
+//! the [`tracing`](https://docs.rs/tracing/latest/tracing/) crate.
+use crate::serial_actor::SerialEvent;
 
 /// This function is used for debugging the data that is sent from a device.
 /// It will create a file "debug.txt" and print the data received from the device
 /// as the actual bytes received along with the corresponding ascii characters.
 ///
-/// Data is sent from the `SerialActor` to this function in batches,
+/// Data is sent from the [`SerialActor`][crate::serial_actor::SerialActor] to this function in batches,
 /// therefore a line written to "debug.txt" may look like this:
 ///
 /// "\[04:41:27.550\] RX 9 bytes: \[0D, 0A, 53, 77, 69, 74, 63, 68\]... UTF8: ^M Switch#"
 ///
 /// Each line will only print a maximum of 8 bytes, after 8 it will simply write "...".
-///
-/// **Note**
-/// Can only be used when `debug_assertions` is set to true (building and running
-/// either the `debug` profile or the `dbg-release` profile).
 pub async fn run_debug_output(mut rx: tokio::sync::broadcast::Receiver<SerialEvent>) {
     use std::io::{BufWriter, Write};
     use std::path::Path;

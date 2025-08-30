@@ -1,8 +1,20 @@
+//! This module handles the structuring, valid options, and parsing of user config
+//! files. User config files must be `config.toml` and are parsed with [`serde`] and
+//! respectively serde's [`toml`] crate.
+
 use serde::Deserialize;
 use std::{io::Read, sync::OnceLock};
 
 use crate::create_recursive;
 
+/// A wrapper around error types that may arise from attempting to parse a config
+/// file.
+///
+/// Used to allow better, more specific, handling of errors that may arise
+/// from parsing the file. [`ConfigError::AlreadyInitialized`] should theorhetically
+/// never arise; however, in the situation where [`initialize_config()`] were
+/// called and `static CONFIG` is already constructed - [`ConfigError::AlreadyInitialized`]
+/// would be the error.
 #[derive(Debug)]
 pub enum ConfigError {
     IoError(std::io::Error),
@@ -32,6 +44,8 @@ impl From<std::io::Error> for ConfigError {
     }
 }
 
+/// A wrapper around [`crossterm::style::Color`] to allow for implementing serde's
+/// `deserialize()` beyond the default implementation from `#[derive(Deserialize)]`
 #[derive(Debug, PartialEq)]
 pub enum SeriColor {
     DarkGrey,
@@ -129,6 +143,18 @@ impl From<&SeriColor> for crossterm::style::Color {
     }
 }
 
+/// Represents the `[appearance]` table of the `config.toml` file.
+///
+/// The `[appearance]` table holds configuration values for sericom's appearance.
+///
+/// The default values (if no config exists) is the current directory:
+/// ```toml
+/// [appearance]
+/// fg = "green"
+/// bg = "none"
+/// hl_fg = "black"
+/// hl_bg = "white"
+/// ```
 #[derive(Debug, Deserialize, PartialEq)]
 pub struct Appearance {
     #[serde(default = "default_fg")]
@@ -167,6 +193,17 @@ impl Default for Appearance {
     }
 }
 
+/// Represents the `[defaults]` table of the `config.toml` file.
+///
+/// The `[defaults]` table holds configuration values for how sericom
+/// should behave. Currently the user may only specify a default `out_dir`,
+/// where files will be created when running `sericom -f path/to/file [PORT]`.
+///
+/// The default values (if no config exists) is the current directory:
+/// ```toml
+/// [defaults]
+/// out_dir = "./"
+/// ```
 #[derive(Debug, Deserialize, PartialEq)]
 pub struct Defaults {
     #[serde(default = "default_out_dir")]
@@ -185,6 +222,9 @@ fn default_out_dir() -> String {
     "./".to_string()
 }
 
+/// Represents the entire `config.toml` configuration file.
+///
+/// See [`Appearance`] and [`Defaults`]
 #[derive(Default, Debug, Deserialize, PartialEq)]
 pub struct Config {
     #[serde(default)]
@@ -195,6 +235,13 @@ pub struct Config {
 
 static CONFIG: OnceLock<Config> = OnceLock::new();
 
+/// This function constructs a `static CONFIG` for the rest of sericom to get a
+/// reference to throughout the remainder of the program.
+///
+/// It checks for the user's config file and if it doesn't exist, it will use
+/// [`Config::default()`]. If the user's config does exist but does not set values
+/// for every field, the global `static CONFIG` will be initialized with the user's
+/// values and fill in the unspecified fields with their default values.
 pub fn initialize_config() -> Result<(), ConfigError> {
     let config: Config = if let Ok(config_file) = get_config_file() {
         let mut file = std::fs::File::open(config_file).expect("File should exist");
@@ -211,6 +258,10 @@ pub fn initialize_config() -> Result<(), ConfigError> {
     Ok(())
 }
 
+/// When called, `get_config()` returns a reference to the global `static CONFIG`
+/// that was initialized at the start of the program.
+///
+/// See [`Config`].
 pub fn get_config() -> &'static Config {
     CONFIG.get().expect("Config not initialized")
 }

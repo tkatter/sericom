@@ -2,14 +2,14 @@
 //! with the serial connection and tasks within the program.
 
 /// Represents messages/commands that are sent from worker tasks
-/// to the `SerialActor` to process.
+/// to the [`SerialActor`] to process.
 #[derive(Debug)]
 pub enum SerialMessage {
     Write(Vec<u8>),
     Shutdown,
 }
 
-/// Represents events from the `SerialActor` that will be
+/// Represents events from the [`SerialActor`] that will be
 /// received and processed by worker tasks accordingly.
 #[derive(Clone, Debug)]
 pub enum SerialEvent {
@@ -23,8 +23,8 @@ pub enum SerialEvent {
 /// single source for communicating between the serial connection and tasks
 /// within the program.
 ///
-/// It broadcasts `SerialEvent`s to worker tasks via a `tokio::sync::broadcast`
-/// channel, and receives `SerialMessage`s from worker tasks via a `tokio::sync::mpsc`
+/// It broadcasts [`SerialEvent`]s to worker tasks via a [`tokio::sync::broadcast`]
+/// channel, and receives [`SerialMessage`]s from worker tasks via a [`tokio::sync::mpsc`]
 /// channel.
 pub struct SerialActor {
     connection: serial2_tokio::SerialPort,
@@ -33,7 +33,7 @@ pub struct SerialActor {
 }
 
 impl SerialActor {
-    /// Constructs a `SerialActor`. Takes a serial port connection,
+    /// Constructs a [`SerialActor`] Takes a serial port connection,
     /// receiver to a command channel, and a sender to a broadcast channel.
     pub fn new(
         connection: serial2_tokio::SerialPort,
@@ -47,9 +47,9 @@ impl SerialActor {
         }
     }
 
-    /// This is the heart and soul of the `SerialActor`.
+    /// This is the heart and soul of the [`SerialActor`].
     /// `sericom` uses the Actor model to receive data from a serial connection
-    /// and forward to other tasks for them to process. It also receives `SerialEvent`'s
+    /// and forward to other tasks for them to process. It also receives [`SerialEvent`]s
     /// from tasks and handels them accordingly; writes/sends data to the device
     /// over the serial connection and closes the connection when receiving
     /// `SerialEvent::Shutdown`, ultimately causing the other tasks to shutdown.
