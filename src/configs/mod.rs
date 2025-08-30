@@ -1,6 +1,8 @@
 use serde::Deserialize;
 use std::{io::Read, sync::OnceLock};
 
+use crate::create_recursive;
+
 #[derive(Debug)]
 pub enum ConfigError {
     IoError(std::io::Error),
@@ -223,12 +225,7 @@ fn get_conf_dir() -> std::io::Result<std::path::PathBuf> {
     }
 
     let user_conf_dir = user_home_dir;
-
-    if !user_conf_dir.is_dir() {
-        let mut builder = std::fs::DirBuilder::new();
-        builder.recursive(true);
-        builder.create(&user_conf_dir)?;
-    }
+    create_recursive!(user_conf_dir.as_path());
 
     Ok(user_conf_dir)
 }
