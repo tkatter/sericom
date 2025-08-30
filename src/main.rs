@@ -11,6 +11,7 @@
 //! expect scripts) that can be parsed and executed by Sericom. The intention of these
 //! scripts is to be able to automate tasks that take place over a serial connection i.e.
 //! configuration, resetting, getting statistics, etc.
+
 use clap::{CommandFactory, Parser, Subcommand};
 use crossterm::{
     cursor,
@@ -19,15 +20,17 @@ use crossterm::{
     terminal::{self, ClearType},
 };
 use serial2_tokio::SerialPort;
-#[cfg(debug_assertions)]
-use sericom::debug::run_debug_output;
 use sericom::{
+    configs::{get_config, initialize_config},
+    create_recursive,
+    debug::run_debug_output,
     screen_buffer::{ScreenBuffer, UICommand},
     serial_actor::{SerialActor, SerialEvent, SerialMessage},
 };
 use std::{
     fs::File,
     io::{self, BufWriter, Write},
+    path::PathBuf,
 };
 
 const UTF_TAB: &str = "\u{0009}";
@@ -59,7 +62,6 @@ struct Cli {
     #[arg(short, long)]
     file: Option<String>,
     /// Display debug output
-    #[cfg(debug_assertions)]
     #[arg(short, long)]
     debug: bool,
     #[command(subcommand)]
@@ -131,9 +133,10 @@ async fn main() -> io::Result<()> {
                 }
             },
             Ok(con) => {
-                #[cfg(not(debug_assertions))]
-                interactive_session(con, cli.file, false, &port).await?;
-                #[cfg(debug_assertions)]
+                initialize_config().unwrap_or_else(|e| {
+                    let mut cmd = Cli::command();
+                    cmd.error(clap::error::ErrorKind::ValueValidation, e).exit();
+                });
                 interactive_session(con, cli.file, cli.debug, &port).await?;
             }
         }
@@ -397,16 +400,18 @@ fn stdin_input_loop(
 
 async fn run_file_output(
     mut file_rx: tokio::sync::broadcast::Receiver<SerialEvent>,
-    filename: String,
+    file_path: PathBuf,
 ) {
     let (write_tx, write_rx) = std::sync::mpsc::channel::<Vec<u8>>();
-    let filename_clone = filename.clone();
 
     let write_handle = tokio::task::spawn_blocking(move || {
-        let file = match File::create(&filename_clone) {
+        let file = match File::create(&file_path) {
             Ok(f) => f,
             Err(e) => {
-                eprintln!("Failed to create file '{filename_clone}': {e}");
+                eprintln!(
+                    "Failed to create file '{}': {e}",
+                    file_path.to_string_lossy()
+                );
                 return;
             }
         };
@@ -439,7 +444,6 @@ async fn run_file_output(
                     match event {
                         Ok(SerialEvent::Data(data)) => {
                             write_buf.extend_from_slice(&data);
-
                             if write_buf.len() >= 4096 && write_tx.send(std::mem::take(&mut write_buf)).is_err() {
                                     break;
                             }
@@ -517,15 +521,28 @@ async fn interactive_session(
     // Create tasks
     let mut tasks = tokio::task::JoinSet::new();
 
-    if let Some(filename) = file {
+    if let Some(path) = file {
+        let config = get_config();
+        let default_out_dir = PathBuf::from(&config.defaults.out_dir);
+        let input_path = PathBuf::from(path);
+
+        let file_path = if input_path.is_absolute() {
+            let parent = input_path.parent().unwrap_or(&default_out_dir);
+            create_recursive!(parent);
+            input_path
+        } else {
+            let joined_path = default_out_dir.join(input_path);
+            let parent_path = joined_path.parent().expect("Does not have root");
+            create_recursive!(parent_path);
+            joined_path
+        };
+
         let file_rx = broadcast_event_tx.subscribe();
-        tasks.spawn(run_file_output(file_rx, filename));
+        tasks.spawn(run_file_output(file_rx, file_path));
     }
 
     if debug {
-        #[cfg(debug_assertions)]
         let debug_rx = broadcast_event_tx.subscribe();
-        #[cfg(debug_assertions)]
         tasks.spawn(run_debug_output(debug_rx));
     }
 
