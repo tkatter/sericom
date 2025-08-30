@@ -16,6 +16,7 @@
 //! connection in a `std::collections::VecDeque`. It is important to note that
 //! currently, the **capacity of the `VecDeque` is not hardcoded and is theoretically
 //! allowed to grow forever**, limited by memory.
+use crate::configs::get_config;
 use crossterm::style::Color;
 use std::{collections::VecDeque, io::BufWriter};
 
@@ -59,10 +60,11 @@ struct Cell {
 
 impl Default for Cell {
     fn default() -> Self {
+        let config = get_config();
         Self {
             character: ' ',
-            fg_color: Color::Green,
-            bg_color: Color::Reset,
+            fg_color: Color::from(&config.appearance.fg),
+            bg_color: Color::from(&config.appearance.bg),
             is_selected: false,
         }
     }
@@ -541,19 +543,20 @@ impl ScreenBuffer {
             queue!(writer, cursor::MoveTo(0, screen_y))?;
 
             if let Some(line) = self.lines.get(line_idx) {
-                let mut current_fg = Color::Green;
-                let mut current_bg = Color::Reset;
+                let config = get_config();
+                let mut current_fg = Color::from(&config.appearance.fg);
+                let mut current_bg = Color::from(&config.appearance.bg);
                 queue!(writer, style::SetForegroundColor(current_fg))?;
                 queue!(writer, style::SetBackgroundColor(current_bg))?;
 
                 for cell in line {
                     let fg = if cell.is_selected {
-                        Color::Black
+                        Color::from(&config.appearance.hl_fg)
                     } else {
                         cell.fg_color
                     };
                     let bg = if cell.is_selected {
-                        Color::White
+                        Color::from(&config.appearance.hl_bg)
                     } else {
                         cell.bg_color
                     };

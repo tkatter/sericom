@@ -30,38 +30,168 @@ impl From<std::io::Error> for ConfigError {
     }
 }
 
+#[derive(Debug, PartialEq)]
+pub enum SeriColor {
+    DarkGrey,
+    Red,
+    Green,
+    Yellow,
+    Blue,
+    Magenta,
+    Cyan,
+    White,
+    Black,
+    DarkRed,
+    DarkGreen,
+    DarkYellow,
+    DarkBlue,
+    DarkMagenta,
+    DarkCyan,
+    Grey,
+    None,
+}
+
+impl<'de> Deserialize<'de> for SeriColor {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let normalizer = |s: &str| -> String { s.to_lowercase().replace(['-', '_', ' '], "") };
+        let s = String::deserialize(deserializer)?;
+        let normalized = normalizer(&s);
+        match normalized.as_str() {
+            "darkgrey" | "darkgray" => Ok(SeriColor::DarkGrey),
+            "red" => Ok(SeriColor::Red),
+            "green" => Ok(SeriColor::Green),
+            "yellow" => Ok(SeriColor::Yellow),
+            "blue" => Ok(SeriColor::Blue),
+            "magenta" => Ok(SeriColor::Magenta),
+            "cyan" => Ok(SeriColor::Cyan),
+            "white" => Ok(SeriColor::White),
+            "black" => Ok(SeriColor::Black),
+            "darkred" => Ok(SeriColor::DarkRed),
+            "darkgreen" => Ok(SeriColor::DarkGreen),
+            "darkyellow" => Ok(SeriColor::DarkYellow),
+            "darkblue" => Ok(SeriColor::DarkBlue),
+            "darkmagenta" => Ok(SeriColor::DarkMagenta),
+            "darkcyan" => Ok(SeriColor::DarkCyan),
+            "grey" | "gray" => Ok(SeriColor::Grey),
+            "default" => Ok(SeriColor::None),
+            _ => Err(serde::de::Error::unknown_variant(
+                &s,
+                &[
+                    "grey",
+                    "dark-cyan",
+                    "dark-magenta",
+                    "dark-blue",
+                    "dark-yellow",
+                    "dark-green",
+                    "dark-red",
+                    "black",
+                    "white",
+                    "cyan",
+                    "magenta",
+                    "blue",
+                    "yellow",
+                    "green",
+                    "red",
+                    "dark-grey",
+                    "default",
+                ],
+            )),
+        }
+    }
+}
+
+impl From<&SeriColor> for crossterm::style::Color {
+    fn from(value: &SeriColor) -> crossterm::style::Color {
+        match value {
+            SeriColor::DarkGrey => crossterm::style::Color::DarkGrey,
+            SeriColor::Red => crossterm::style::Color::Red,
+            SeriColor::Green => crossterm::style::Color::Green,
+            SeriColor::Yellow => crossterm::style::Color::Yellow,
+            SeriColor::Blue => crossterm::style::Color::Blue,
+            SeriColor::Magenta => crossterm::style::Color::Magenta,
+            SeriColor::Cyan => crossterm::style::Color::Cyan,
+            SeriColor::White => crossterm::style::Color::White,
+            SeriColor::Black => crossterm::style::Color::Black,
+            SeriColor::DarkRed => crossterm::style::Color::DarkRed,
+            SeriColor::DarkGreen => crossterm::style::Color::DarkGreen,
+            SeriColor::DarkYellow => crossterm::style::Color::DarkYellow,
+            SeriColor::DarkBlue => crossterm::style::Color::DarkBlue,
+            SeriColor::DarkMagenta => crossterm::style::Color::DarkMagenta,
+            SeriColor::DarkCyan => crossterm::style::Color::DarkCyan,
+            SeriColor::Grey => crossterm::style::Color::Grey,
+            SeriColor::None => crossterm::style::Color::Reset,
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, PartialEq)]
 pub struct Appearance {
-    pub text_fg: Option<String>,
-    pub text_bg: Option<String>,
+    #[serde(default = "default_fg")]
+    pub fg: SeriColor,
+    #[serde(default = "default_bg")]
+    pub bg: SeriColor,
+    #[serde(default = "default_hl_fg")]
+    pub hl_fg: SeriColor,
+    #[serde(default = "default_hl_bg")]
+    pub hl_bg: SeriColor,
+}
+
+fn default_hl_fg() -> SeriColor {
+    SeriColor::Black
+}
+
+fn default_hl_bg() -> SeriColor {
+    SeriColor::White
+}
+
+fn default_fg() -> SeriColor {
+    SeriColor::Green
+}
+fn default_bg() -> SeriColor {
+    SeriColor::None
+}
+
+impl Default for Appearance {
+    fn default() -> Self {
+        Self {
+            fg: SeriColor::Green,
+            bg: SeriColor::None,
+            hl_fg: SeriColor::Black,
+            hl_bg: SeriColor::White,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
 pub struct Defaults {
+    #[serde(default = "default_out_dir")]
     pub out_dir: String,
 }
 
-#[derive(Debug, Deserialize, PartialEq)]
+impl Default for Defaults {
+    fn default() -> Self {
+        Self {
+            out_dir: "./".to_string(),
+        }
+    }
+}
+
+fn default_out_dir() -> String {
+    "./".to_string()
+}
+
+#[derive(Default, Debug, Deserialize, PartialEq)]
 pub struct Config {
+    #[serde(default)]
     pub appearance: Appearance,
+    #[serde(default)]
     pub defaults: Defaults,
 }
 
 static CONFIG: OnceLock<Config> = OnceLock::new();
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            appearance: Appearance {
-                text_fg: Some("green".to_string()),
-                text_bg: None,
-            },
-            defaults: Defaults {
-                out_dir: "./".to_string(),
-            },
-        }
-    }
-}
 
 pub fn initialize_config() -> Result<(), ConfigError> {
     let config: Config = if let Ok(config_file) = get_config_file() {
@@ -83,25 +213,15 @@ pub fn get_config() -> &'static Config {
     CONFIG.get().expect("Config not initialized")
 }
 
-#[cfg(target_family = "unix")]
-fn get_conf_dir_unix() -> std::io::Result<std::path::PathBuf> {
+fn get_conf_dir() -> std::io::Result<std::path::PathBuf> {
     let mut user_home_dir = std::env::home_dir().expect("Failed to get home directory");
-    user_home_dir.push(".config/sericom");
-    let user_conf_dir = user_home_dir;
 
-    if !user_conf_dir.is_dir() {
-        let mut builder = std::fs::DirBuilder::new();
-        builder.recursive(true);
-        builder.create(&user_conf_dir)?;
+    if cfg!(target_os = "windows") {
+        user_home_dir.push(".config\\sericom");
+    } else {
+        user_home_dir.push(".config/sericom");
     }
 
-    Ok(user_conf_dir)
-}
-
-#[cfg(target_family = "windows")]
-fn get_conf_dir_win() -> std::io::Result<std::path::PathBuf> {
-    let mut user_home_dir = std::env::home_dir().expect("Failed to get home directory");
-    user_home_dir.push(".config\\sericom");
     let user_conf_dir = user_home_dir;
 
     if !user_conf_dir.is_dir() {
@@ -114,11 +234,7 @@ fn get_conf_dir_win() -> std::io::Result<std::path::PathBuf> {
 }
 
 fn get_config_file() -> std::io::Result<std::path::PathBuf> {
-    #[cfg(target_family = "unix")]
-    let mut conf_dir = get_conf_dir_unix()?;
-    #[cfg(target_family = "windows")]
-    let mut conf_dir = get_conf_dir_win()?;
-
+    let mut conf_dir = get_conf_dir()?;
     conf_dir.push("config.toml");
     let conf_file = conf_dir;
 
@@ -137,7 +253,10 @@ fn parse_test_config() {
     let file: Config = toml::from_str(
         r#"
             [appearance]
-            text_fg = "green"
+            fg = "dark-grey"
+            bg = "red"
+            hl_fg = "white"
+            hl_bg = "blue"
 
             [defaults]
             out_dir = "$HOME/.configs"
@@ -147,8 +266,10 @@ fn parse_test_config() {
 
     let parsed_conf = Config {
         appearance: Appearance {
-            text_fg: Some("green".to_string()),
-            text_bg: None,
+            fg: SeriColor::DarkGrey,
+            bg: SeriColor::Red,
+            hl_fg: SeriColor::White,
+            hl_bg: SeriColor::Blue,
         },
         defaults: Defaults {
             out_dir: "$HOME/.configs".to_string(),
@@ -160,27 +281,29 @@ fn parse_test_config() {
 
 #[test]
 fn check_conf_dir_is_ok() {
-    #[cfg(target_family = "unix")]
-    let check = get_conf_dir_unix();
-    #[cfg(target_family = "windows")]
-    let check = get_conf_dir_win();
+    let check = get_conf_dir();
     assert!(check.is_ok())
 }
 
 #[test]
 fn check_conf_dir_is_dir() {
-    #[cfg(target_family = "unix")]
-    let dir = get_conf_dir_unix().unwrap();
-    #[cfg(target_family = "windows")]
-    let dir = get_conf_dir_win().unwrap();
-
+    let dir = get_conf_dir().unwrap();
     assert!(std::fs::metadata(dir).unwrap().is_dir())
+}
+
+#[test]
+fn valid_conf_dir() {
+    let dir = get_conf_dir().unwrap();
+    if cfg!(target_family = "windows") {
+        assert_eq!(dir.to_str().unwrap(), "C:\\Users\\Thomas\\.config\\sericom")
+    } else {
+        assert_eq!(dir.to_str().unwrap(), "/home/thomas/.config/sericom")
+    }
 }
 
 #[test]
 fn initialize_conf() {
     initialize_config().unwrap();
     let config = get_config();
-
     assert_eq!(config, &Config::default())
 }
