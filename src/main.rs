@@ -20,7 +20,7 @@ pub use crossterm::{
 };
 use miette::{Context, IntoDiagnostic};
 use serial2_tokio::SerialPort;
-use sericom::{
+use sericom_core::{
     configs::{get_config, initialize_config},
     create_recursive,
     debug::run_debug_output,
