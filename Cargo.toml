@@ -2,16 +2,10 @@
 members = ["sericom-core"]
 
 [workspace.dependencies]
-chrono = "0.4.41"
-clap = { version = "4.5.41", features = ["derive"] }
 crossterm = { version = "0.29.0", features = ["osc52", "event-stream"] }
 miette = { version = "7.6.0", features = ["fancy"] }
-serde = { version = "1.0.219", features = ["derive"] }
 serial2-tokio = { version = "0.1.15", features = ["windows"] }
-thiserror = "2.0.16"
 tokio = { version = "1.47.0", features = ["full"] }
-toml = "0.9.5"
-
 
 [workspace.package]
 edition = "2024"
@@ -19,7 +13,6 @@ license = "GPL-3.0-or-later"
 readme = "README.md"
 repository = "https://github.com/tkatter/sericom"
 exclude = ["configuration/*", ".github/*"]
-
 
 [package]
 name = "sericom"
@@ -39,11 +32,9 @@ copyright = "2025, Thomas Katter <tjkatter@gmail.com>"
 license-file = ["LICENSE", "14"]
 
 [dependencies]
-sericom-core = { path = "./sericom-core" }
+clap = { version = "4.5.41", features = ["derive"] }
+sericom-core = { path = "./sericom-core", version = "0.1.0" }
 tokio.workspace = true
-clap.workspace = true
 serial2-tokio.workspace = true
 miette.workspace = true
 crossterm.workspace = true
-# tracing = "0.1"
-# console-subscriber = "0.4.1"
