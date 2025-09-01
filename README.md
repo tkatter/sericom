@@ -63,13 +63,19 @@ using a binary `.deb` file provided in [Sericom's releases](https://github.com/t
 Either navigate to the [release](https://github.com/tkatter/sericom/releases/) page and download the appropiate file or run:
 
 ```
-curl -LO https://github.com/tkatter/sericom/releases/download/v0.1.0/sericom_0.1.0-1_amd64.deb
+curl -LO https://github.com/tkatter/sericom/releases/download/v0.2.0/sericom_0.2.0-1_amd64.deb
 
 # Once downloaded, install with the apt package manager
 sudo apt install ./<path_to_downloaded_release>.deb
 
 # Verify installation
 sericom --version
+
+# Check the sha256 checksum
+curl -LO https://github.com/tkatter/sericom/releases/download/v0.2.0/sericom_0.2.0-1_amd64.deb
+curl -LO https://github.com/tkatter/sericom/releases/download/v0.2.0/sericom_0.2.0-1_amd64.deb.sha256
+
+sha256sum -c sericom_0.2.0-1_amd64.deb.sha256
 ```
 
 ### Build From Source
