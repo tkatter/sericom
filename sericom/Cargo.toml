@@ -1,0 +1,24 @@
+[package]
+name = "sericom"
+version = "0.2.0"
+description = "CLI tool for communicating with devices over a serial connection."
+keywords = ["serial", "console"]
+categories = ["command-line-utilities"]
+edition.workspace = true
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+exclude.workspace = true
+
+[package.metadata.deb]
+maintainer = "Thomas Katter <tjkatter@gmail.com>"
+copyright = "2025, Thomas Katter <tjkatter@gmail.com>"
+license-file = ["LICENSE", "14"]
+
+[dependencies]
+clap = { version = "4.5.41", features = ["derive"] }
+sericom-core = { path = "../sericom-core", version = "0.1.0" }
+tokio.workspace = true
+serial2-tokio.workspace = true
+miette.workspace = true
+crossterm.workspace = true
