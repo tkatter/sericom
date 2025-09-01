@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+### Changed
+
+### Removed
+
+### Fixed
+
+### Deprecated
+
+### Security
+
+## [0.2.0](https://github.com/tkatter/sericom/releases/tag/v0.2.0) - 2025-09-01
+
+### Added
+
 - User config file for sericom ([#1](https://github.com/tkatter/sericom/pull/1))
 - Better printing of errors with miette and thiserror ([#2](https://github.com/tkatter/sericom/pull/2))
 - Added CHANGELOG for documenting changes
@@ -19,14 +33,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Debug output now a public facing feature ([#1](https://github.com/tkatter/sericom/pull/1))
 - Updated README to reflect new changes/functionality
-
-### Removed
-
-### Fixed
-
-### Deprecated
-
-### Security
 
 ## [0.1.0](https://github.com/tkatter/sericom/releases/tag/v0.1.0) - 2025-08-28
 
@@ -39,5 +45,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Copy/paste
 - Open connection, list available ports, list settings for a port, list valid baud rates
 
-[unreleased]: https://github.com/tkatter/sericom/compare/v0.1.0...HEAD
+[unreleased]: https://github.com/tkatter/sericom/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/tkatter/sericom/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/tkatter/sericom/releases/tag/v0.1.0
