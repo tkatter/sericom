@@ -23,4 +23,40 @@ mod macros {
             create_recursive_dir($path)
         };
     }
+
+    #[macro_export]
+    macro_rules! map_miette {
+        // Additional "help" message
+        ($expr:expr, $wrap_msg:expr, $usage:expr, help = $add_help:expr) => {
+            $expr.map_err(|e| {
+                use crossterm::style::Stylize;
+                let usage = format!(
+                    "{} {} {}",
+                    "USAGE:".bold().underlined(),
+                    "sericom".bold(),
+                    $usage
+                );
+                miette::miette!(
+                    help = format!("{}\nFor more information, try `sericom --help`.", $add_help),
+                    "{e}"
+                )
+                .wrap_err(format!("{}\n\n{}\n", $wrap_msg, usage).red())
+            })
+        };
+
+        // Default "help" message
+        ($expr:expr, $wrap_msg:expr, $usage:expr) => {
+            $expr.map_err(|e| {
+                use crossterm::style::Stylize;
+                let usage = format!(
+                    "{} {} {}",
+                    "USAGE:".bold().underlined(),
+                    "sericom".bold(),
+                    $usage
+                );
+                miette::miette!(help = "For more information, try `sericom --help`.", "{e}")
+                    .wrap_err(format!("{}\n\n{}\n", $wrap_msg, usage).red())
+            })
+        };
+    }
 }
