@@ -29,6 +29,7 @@ pub enum ConfigError {
 
 /// A wrapper around [`toml::de::Error`] to print custom error messages with [`miette`].
 #[derive(thiserror::Error, miette::Diagnostic, Debug)]
+// TODO: Add a link to valid configuration options
 #[error("{}", "Error reading config file".red())]
 #[diagnostic(
     help("{}", self.msg.split_once(',').unwrap_or(("", self.msg.as_str())).1.trim())
