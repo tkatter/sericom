@@ -1,6 +1,8 @@
 //! This module holds all of the code directly responsible for interacting
 //! with the serial connection and tasks within the program.
 
+pub mod tasks;
+
 /// Represents messages/commands that are sent from worker tasks
 /// to the [`SerialActor`] to process.
 #[derive(Debug)]
@@ -18,10 +20,9 @@ pub enum SerialEvent {
     ConnectionClosed,
 }
 
-/// The `SerialActor` is responsible for passing data and messages between
-/// the serial connection and tasks. It uses the Actor model to maintain a
-/// single source for communicating between the serial connection and tasks
-/// within the program.
+/// Responsible for passing data and messages between the serial connection and tasks.
+/// It uses the Actor model to maintain a single source for communicating between the
+/// serial connection and tasks within the program.
 ///
 /// It broadcasts [`SerialEvent`]s to worker tasks via a [`tokio::sync::broadcast`]
 /// channel, and receives [`SerialMessage`]s from worker tasks via a [`tokio::sync::mpsc`]
@@ -50,9 +51,9 @@ impl SerialActor {
     /// This is the heart and soul of the [`SerialActor`].
     /// `sericom` uses the Actor model to receive data from a serial connection
     /// and forward to other tasks for them to process. It also receives [`SerialEvent`]s
-    /// from tasks and handels them accordingly; writes/sends data to the device
+    /// from tasks and handles them accordingly; writes/sends data to the device
     /// over the serial connection and closes the connection when receiving
-    /// `SerialEvent::Shutdown`, ultimately causing the other tasks to shutdown.
+    /// [`SerialMessage::Shutdown`], ultimately causing the other tasks to shutdown.
     ///
     /// Since data is sent byte-by-byte over a serial connection, `run` will
     /// batch the data before sending it to other tasks to reduce the number of syscalls.

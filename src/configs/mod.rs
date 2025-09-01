@@ -3,49 +3,17 @@
 //! respectively serde's [`toml`] crate.
 
 use serde::Deserialize;
-use std::{io::Read, sync::OnceLock};
+use std::{io::Read, ops::Range, sync::OnceLock};
 
-use crate::create_recursive;
+pub mod errors;
 
-/// A wrapper around error types that may arise from attempting to parse a config
-/// file.
-///
-/// Used to allow better, more specific, handling of errors that may arise
-/// from parsing the file. [`ConfigError::AlreadyInitialized`] should theorhetically
-/// never arise; however, in the situation where [`initialize_config()`] were
-/// called and `static CONFIG` is already constructed - [`ConfigError::AlreadyInitialized`]
-/// would be the error.
-#[derive(Debug)]
-pub enum ConfigError {
-    IoError(std::io::Error),
-    TomlError(toml::de::Error),
-    AlreadyInitialized,
-}
-
-impl std::fmt::Display for ConfigError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::AlreadyInitialized => write!(f, "Config is already initialized"),
-            Self::IoError(e) => write!(f, "{e}"),
-            Self::TomlError(e) => write!(f, "{e}"),
-        }
-    }
-}
-
-impl From<toml::de::Error> for ConfigError {
-    fn from(value: toml::de::Error) -> Self {
-        Self::TomlError(value)
-    }
-}
-
-impl From<std::io::Error> for ConfigError {
-    fn from(value: std::io::Error) -> Self {
-        Self::IoError(value)
-    }
-}
+use crate::{
+    configs::errors::{ConfigError, TomlError},
+    create_recursive,
+};
 
 /// A wrapper around [`crossterm::style::Color`] to allow for implementing serde's
-/// `deserialize()` beyond the default implementation from `#[derive(Deserialize)]`
+/// [`Deserialize`] beyond the default implementation from `#[derive(Deserialize)]`
 #[derive(Debug, PartialEq)]
 pub enum SeriColor {
     DarkGrey,
@@ -242,12 +210,18 @@ static CONFIG: OnceLock<Config> = OnceLock::new();
 /// [`Config::default()`]. If the user's config does exist but does not set values
 /// for every field, the global `static CONFIG` will be initialized with the user's
 /// values and fill in the unspecified fields with their default values.
-pub fn initialize_config() -> Result<(), ConfigError> {
+pub fn initialize_config() -> miette::Result<(), ConfigError> {
     let config: Config = if let Ok(config_file) = get_config_file() {
         let mut file = std::fs::File::open(config_file).expect("File should exist");
         let mut contents = String::new();
         file.read_to_string(&mut contents)?;
-        toml::from_str(&contents)?
+        toml::from_str(&contents).map_err(|e| {
+            TomlError::new(
+                e.span().unwrap_or(Range { start: 0, end: 0 }),
+                contents,
+                e.message().to_string(),
+            )
+        })?
     } else {
         Config::default()
     };
@@ -266,7 +240,7 @@ pub fn get_config() -> &'static Config {
     CONFIG.get().expect("Config not initialized")
 }
 
-fn get_conf_dir() -> std::io::Result<std::path::PathBuf> {
+fn get_conf_dir() -> std::path::PathBuf {
     let mut user_home_dir = std::env::home_dir().expect("Failed to get home directory");
 
     if cfg!(target_os = "windows") {
@@ -278,21 +252,18 @@ fn get_conf_dir() -> std::io::Result<std::path::PathBuf> {
     let user_conf_dir = user_home_dir;
     create_recursive!(user_conf_dir.as_path());
 
-    Ok(user_conf_dir)
+    user_conf_dir
 }
 
-fn get_config_file() -> std::io::Result<std::path::PathBuf> {
-    let mut conf_dir = get_conf_dir()?;
+fn get_config_file() -> miette::Result<std::path::PathBuf, ConfigError> {
+    let mut conf_dir = get_conf_dir();
     conf_dir.push("config.toml");
     let conf_file = conf_dir;
 
     if conf_file.exists() && conf_file.is_file() {
         Ok(conf_file)
     } else {
-        Err(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            "Could not find config file.",
-        ))
+        Err(std::io::Error::new(std::io::ErrorKind::NotFound, "Could not find config file.").into())
     }
 }
 
@@ -328,20 +299,14 @@ fn parse_test_config() {
 }
 
 #[test]
-fn check_conf_dir_is_ok() {
-    let check = get_conf_dir();
-    assert!(check.is_ok())
-}
-
-#[test]
 fn check_conf_dir_is_dir() {
-    let dir = get_conf_dir().unwrap();
+    let dir = get_conf_dir();
     assert!(std::fs::metadata(dir).unwrap().is_dir())
 }
 
 #[test]
 fn valid_conf_dir() {
-    let dir = get_conf_dir().unwrap();
+    let dir = get_conf_dir();
     if cfg!(target_family = "windows") {
         assert_eq!(dir.to_str().unwrap(), "C:\\Users\\Thomas\\.config\\sericom")
     } else {
