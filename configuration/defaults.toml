@@ -1,0 +1,8 @@
+[appearance]
+fg = "green"
+bg = "none"
+hl_fg = "black"
+hl_bg = "white"
+
+[defaults]
+out_dir = "./"

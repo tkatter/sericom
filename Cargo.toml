@@ -8,7 +8,7 @@ readme = "README.md"
 repository = "https://github.com/tkatter/sericom"
 keywords = ["serial", "console"]
 categories = ["command-line-utilities"]
-exclude = [".github/*"]
+exclude = ["configuration/*", ".github/*"]
 
 [package.metadata.deb]
 maintainer = "Thomas Katter <tjkatter@gmail.com>"

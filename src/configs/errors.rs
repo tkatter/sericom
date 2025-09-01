@@ -40,10 +40,8 @@ pub enum ConfigError {
 pub struct TomlError {
     #[label("{}", self.msg.split_once(',').unwrap_or((self.msg.as_str(), "")).0.trim())]
     at: SourceSpan,
-
     #[source_code]
     src: NamedSource<String>,
-
     msg: String,
 }
 

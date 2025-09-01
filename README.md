@@ -1,10 +1,5 @@
 [![Crates.io Version](https://img.shields.io/crates/v/sericom?style=for-the-badge&color=green)](https://crates.io/crates/sericom)
 
-- [Installation](#installation)
-- [Usage](#usage)
-- [Keymaps](#keymaps)
-- [Roadmap](#roadmap)
-
 # Sericom
 
 Sericom is a CLI tool for communicating with devices over a serial connection.
@@ -29,6 +24,12 @@ performing a configuration reset, configuring a device, etc. Even though Sericom
 initially developed to be used with networking devices, the intention going forward is to
 be compatible (from an automation standpoint) with most devices. On that note, if you encounter
 an issue or problem, please open a Github issue.
+
+- [Installation](#installation)
+- [Usage](#usage)
+- [Configuration](#configuration)
+- [Keymaps](#keymaps)
+- [Roadmap](#roadmap)
 
 ## Installation
 
@@ -131,17 +132,72 @@ sericom list-ports
 - Clear the screen and clear the session's history: <kbd>Ctrl</kbd> + <kbd>l</kbd>
 - Quit: <kbd>Ctrl</kbd> + <kbd>q</kbd>
 
+### Configuration
+
+Sericom can be configured via a `config.toml` file. Sericom looks for this file
+in the `$HOME/.config/sericom/` directory. You may specify as little or as many
+configurations as you'd like, for any that are not defined in your config, Sericom
+will fall back to its [defaults](https://github.com/tkatter/sericom/blob/main/configuration/defaults.toml).
+
+Currently the available configuration options are as follows:
+
+```toml
+[appearance]
+# Control the foreground and background colors
+fg = "green"
+bg = "none"
+
+# Control the foreground and background colors of highlighted text
+# (text that is highlighted as it is selected via the mouse)
+hl_fg = "black"
+hl_bg = "white"
+
+[defaults]
+# The default directory where files will be written to when running `sericom -f <FILE>`
+out_dir = "./"
+```
+
+> [!NOTE] Behavior of the `out_dir` configuration
+> When using a _relative path_ with the `-f` flag, Sericom will recursively create
+> the file within whatever is set as the `out_dir` (by default it is the current directory
+> where sericom was run (`"./"`)).
+>
+> When using an _absolute path_ with the `-f` flag, Sericom will ignore the `out_dir` config
+> value and recursively create the file at the location of the absolute path.
+>
+> **Examples**
+>
+> ```bash
+> # Using the default value of `out_dir`, which is ./ (current directory)
+> $ pwd
+> # /home/thomas/device_files
+> $ sericom -f c2960.txt
+> # file is created at /home/thomas/device_files/c2960.txt
+> $ sericom -f tests/c2960.txt
+> # file is created at /home/thomas/device_files/tests/c2960.txt
+> $ sericom -f ../c2960.txt
+> # file is created at /home/thomas/c2960.txt
+> $ sericom -f /home/thomas/other_tests/c2960.txt
+> # file is created at /home/thomas/other_tests/c2960.txt
+> $ sericom -f $HOME/c2960.txt
+> # file is created at /home/thomas/c2960.txt
+> ```
+
+A list of all the available options can be found [here](https://github.com/tkatter/sericom/blob/main/configuration/values.md).
+
+If there are additional configuration options you would like to see added, please open an issue!
+
 ## Roadmap
 
-- Allow users to write a TOML configuration file. The file should allow the configuration of the following:
-  - Appearance settings (color of text/background)
-  - The maximum number of lines that are stored in the program's history
-  - Default directory for files to be written to
-  - Keymaps
-- Create a simple scripting language for users to write scripts (similar to expect scripts). Purposes of the scripts:
-  - Send commands to the device
-  - Scan for specific information to use elsewhere.
-  - Expect some output, and based on the output do something (send command, close connection, write ouput to file, etc.)
+- [x] Allow users to write a TOML configuration file. The file should allow the configuration of the following:
+  - [x] Appearance settings (color of text/background)
+  - [ ] The maximum number of lines that are stored in the program's history
+  - [x] Default directory for files to be written to
+  - [ ] Keymaps
+- [ ] Create a simple scripting language for users to write scripts (similar to expect scripts). Purposes of the scripts:
+  - [ ] Send commands to the device
+  - [ ] Scan for specific information to use elsewhere.
+  - [ ] Expect some output, and based on the output do something (send command, close connection, write ouput to file, etc.)
   - Pseudo-example:
   ```
   send! "show inventory"
@@ -150,11 +206,11 @@ sericom list-ports
     |> set! SN=$1
     |> writef_ln! "Serial number: '$SN'"
   ```
-- Allow users to create config files that describe specific devices/software/operating systems. Purposes of the config files:
-  - Define a device (name, model, brand, operating system)
-  - Define a software version (Cisco IOS, NX-OS, Dell OS9, etc.)
-  - Definitions of devices/software versions would include lines/identifiers that Sericom can scan for as lines are received from the serial connection.
-  - These definitions would serve to identify a device and then perform user-defined tasks/scripts. Examples could be to configure a switch, reset a device, run tests and write the results to a file.
+- [ ] Allow users to create config files that describe specific devices/software/operating systems. Purposes of the config files:
+  - [ ] Define a device (name, model, brand, operating system)
+  - [ ] Define a software version (Cisco IOS, NX-OS, Dell OS9, etc.)
+  - [ ] Definitions of devices/software versions would include lines/identifiers that Sericom can scan for as lines are received from the serial connection.
+  - [ ] These definitions would serve to identify a device and then perform user-defined tasks/scripts. Examples could be to configure a switch, reset a device, run tests and write the results to a file.
 
 ## Linux Setup
 
