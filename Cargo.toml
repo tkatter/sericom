@@ -1,6 +1,6 @@
 [package]
 name = "sericom"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "CLI tool for communicating with devices over a serial connection."
 license = "GPL-3.0-or-later"
@@ -27,7 +27,3 @@ tokio = { version = "1.47.0", features = ["full"] }
 toml = "0.9.5"
 # tracing = "0.1"
 # console-subscriber = "0.4.1"
-
-[profile.dbg-release]
-inherits = "release"
-debug-assertions = true
