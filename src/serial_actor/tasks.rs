@@ -21,6 +21,8 @@ const UTF_DOWN_KEY: &str = "\u{001B}\u{005B}\u{0042}";
 const UTF_LEFT_KEY: &str = "\u{001B}\u{005B}\u{0044}";
 const UTF_RIGHT_KEY: &str = "\u{001B}\u{005B}\u{0043}";
 
+/// Responsible for receiving incoming data from the [`SerialActor`] and
+/// rendering terminal output via the [`ScreenBuffer`].
 pub async fn run_stdout_output(
     mut con_rx: tokio::sync::broadcast::Receiver<SerialEvent>,
     mut ui_rx: tokio::sync::mpsc::Receiver<UICommand>,
@@ -129,6 +131,12 @@ pub async fn run_stdout_output(
     }
 }
 
+/// Responsible for spawning a blocking task with [`tokio::task::spawn_blocking()`]
+/// and processing user input from stdin.
+///
+/// Sends data via [`SerialMessage`] to the serial connection and
+/// [`UICommand`]s to the [`ScreenBuffer`] for processing user actions like
+/// scrolling, copying, clearing the screen, etc.
 pub async fn run_stdin_input(
     command_tx: tokio::sync::mpsc::Sender<SerialMessage>,
     ui_tx: tokio::sync::mpsc::Sender<UICommand>,
@@ -149,7 +157,7 @@ pub async fn run_stdin_input(
     }
 }
 
-pub fn stdin_input_loop(
+fn stdin_input_loop(
     stdin_tx: tokio::sync::mpsc::Sender<String>,
     command_tx: tokio::sync::mpsc::Sender<SerialMessage>,
     ui_tx: tokio::sync::mpsc::Sender<UICommand>,
@@ -258,6 +266,9 @@ pub fn stdin_input_loop(
     }
 }
 
+/// Responsible for spawning a blocking task with [`tokio::task::spawn_blocking()`]
+/// and forwarding the incoming data received from the [`SerialActor`] to the blocking
+/// task to write to a file.
 pub async fn run_file_output(
     mut file_rx: tokio::sync::broadcast::Receiver<SerialEvent>,
     file_path: PathBuf,

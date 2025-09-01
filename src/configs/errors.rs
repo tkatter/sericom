@@ -1,3 +1,6 @@
+//! This module contains custom errors to provide useful feedback to the user
+//! for errors that occur when attempting to parse their `config.toml` file.
+
 use std::ops::Range;
 
 use crossterm::style::Stylize;
