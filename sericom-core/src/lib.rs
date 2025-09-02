@@ -1,3 +1,4 @@
+pub mod cli;
 pub mod configs;
 pub mod debug;
 pub mod screen_buffer;
