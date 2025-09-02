@@ -1,5 +1,6 @@
 [package]
 name = "sericom"
+authors = ["Thomas Katter <tjkatter@gmail.com"]
 version = "0.3.0"
 description = "CLI tool for communicating with devices over a serial connection."
 documentation = "https://github.com/tkatter/sericom"
@@ -10,11 +11,17 @@ edition.workspace = true
 exclude.workspace = true
 readme.workspace = true
 repository.workspace = true
+# Change license field to this to have 'cargo-wix' automatically generate the 'License.rtf' file
+# license = "GPL-3.0"
 
 [package.metadata.deb]
 maintainer = "Thomas Katter <tjkatter@gmail.com>"
 copyright = "2025, Thomas Katter <tjkatter@gmail.com>"
 license-file = ["LICENSE", "14"]
+
+# When building with 'cargo-wix', statically include c lib in build
+# [target.x86_64-pc-windows-msvc]
+# rustflags = ["-C", "target-feature=+crt-static"]
 
 [dependencies]
 clap = { version = "4.5.41", features = ["derive"] }
