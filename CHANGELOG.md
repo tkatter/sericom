@@ -9,8 +9,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- seriom-core: Added keybinding for the standard 'break' command over serial connections
-
 ### Changed
 
 ### Removed
@@ -20,6 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Deprecated
 
 ### Security
+
+## sericom/[0.3.1](https://github.com/tkatter/sericom/releases/tag/sericom/v0.3.1) - 2025-09-02
+
+## sericom-core/[0.2.0](https://github.com/tkatter/sericom/releases/tag/sericom-core/v0.2.0) - 2025-09-02
+
+### Added
+
+- Added keybinding for sending 'break' commands ([#4](https://github.com/tkatter/sericom/pull/4))
 
 ## sericom/[0.3.0](https://github.com/tkatter/sericom/releases/tag/sericom/v0.3.0) - 2025-09-01
 
@@ -67,9 +73,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Diffs
 
-sericom/[unreleased]: https://github.com/tkatter/sericom/compare/sericom/v0.3.0...HEAD  
-sericom-core/[unreleased]: https://github.com/tkatter/sericom/compare/sericom-core/v0.1.0...HEAD
+sericom/[unreleased]: https://github.com/tkatter/sericom/compare/sericom/v0.3.1...HEAD  
+sericom-core/[unreleased]: https://github.com/tkatter/sericom/compare/sericom-core/v0.2.0...HEAD
 
+sericom/[0.3.1]: https://github.com/tkatter/sericom/compare/v0.3.0...sericom/v0.3.1  
+sericom-core/[0.2.0]: https://github.com/tkatter/sericom/releases/tag/sericom-core/v0.1.0...sericom-core/v0.2.0  
 sericom/[0.3.0]: https://github.com/tkatter/sericom/compare/v0.2.0...sericom/v0.3.0  
 sericom-core/[0.1.0]: https://github.com/tkatter/sericom/releases/tag/sericom-core/v0.1.0  
 [0.2.0]: https://github.com/tkatter/sericom/compare/v0.1.0...v0.2.0  

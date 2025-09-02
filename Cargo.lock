@@ -667,19 +667,35 @@ dependencies = [
 
 [[package]]
 name = "sericom"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "clap",
  "crossterm",
  "miette",
  "serial2-tokio",
- "sericom-core",
+ "sericom-core 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "tokio",
 ]
 
 [[package]]
 name = "sericom-core"
-version = "0.1.0"
+version = "0.2.0"
+dependencies = [
+ "chrono",
+ "crossterm",
+ "miette",
+ "serde",
+ "serial2-tokio",
+ "thiserror",
+ "tokio",
+ "toml",
+]
+
+[[package]]
+name = "sericom-core"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ad9af1dd56a7c6b8d3c14b0b46d07b5badb5c12f20f4720f5860cd9ba379f95a"
 dependencies = [
  "chrono",
  "crossterm",
