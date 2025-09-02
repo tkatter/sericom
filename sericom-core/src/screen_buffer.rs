@@ -16,6 +16,7 @@
 //! connection in a [`VecDeque`]. It is important to note that
 //! currently, the **capacity of the `VecDeque` is not hardcoded and is theoretically
 //! allowed to grow forever**, limited by memory.
+
 use crate::configs::get_config;
 use crossterm::style::Color;
 use std::{collections::VecDeque, io::BufWriter};

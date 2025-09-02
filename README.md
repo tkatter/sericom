@@ -2,6 +2,18 @@
 
 # Sericom
 
+This repository houses the **Sericom CLI application**, a tool for communicating
+with devices over serial connection, and its underlying library [**Sericom-core**](https://github.com/tkatter/sericom/blob/main/sericom-core/README.md).
+
+- [Installation](#installation)
+- [Usage](#usage)
+- [Configuration](#configuration)
+- [Keymaps](#keymaps)
+- [Roadmap](#roadmap)
+- [License](#license)
+
+## What is Sericom?
+
 Sericom is a CLI tool for communicating with devices over a serial connection.
 
 Currently, it functions similar to the `screen` CLI tool (when used to communicate
@@ -24,12 +36,6 @@ performing a configuration reset, configuring a device, etc. Even though Sericom
 initially developed to be used with networking devices, the intention going forward is to
 be compatible (from an automation standpoint) with most devices. On that note, if you encounter
 an issue or problem, please open a Github issue.
-
-- [Installation](#installation)
-- [Usage](#usage)
-- [Configuration](#configuration)
-- [Keymaps](#keymaps)
-- [Roadmap](#roadmap)
 
 ## Installation
 
@@ -226,7 +232,7 @@ Add user to the `dialout` group with `sudo usermod -a -G dialout $USER`.
 
 ## License
 
-This program, Sericom, is licensed under the [GNU GPL v3.0](https://github.com/tkatter/sericom/blob/main/LICENSE).
+This program, Sericom, is licensed under the [GNU GPL v3.0](https://github.com/tkatter/sericom/blob/main/sericom/LICENSE).
 
 This program, Sericom, is free software: you can redistribute it and/or modify
 it under the terms of the **GNU General Public License as published by
@@ -242,3 +248,7 @@ GNU General Public License for more details.
 **Note:** The author reserves the right to offer this software under a separate
 commercial license at a future date for those who wish to use it outside
 the terms of the GPLv3.
+
+---
+
+The `sericom-core` library is released under a [MIT license](https://github.com/tkatter/sericom/blob/main/sericom-core/LICENSE).

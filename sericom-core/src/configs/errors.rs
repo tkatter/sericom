@@ -1,10 +1,9 @@
 //! This module contains custom errors to provide useful feedback to the user
 //! for errors that occur when attempting to parse their `config.toml` file.
 
-use std::ops::Range;
-
 use crossterm::style::Stylize;
 use miette::{NamedSource, SourceSpan};
+use std::ops::Range;
 
 /// A wrapper around error types that may arise from attempting to parse a config
 /// file.

@@ -1,27 +1,8 @@
-//! Sericom is a CLI tool for communicating with devices over a serial connection.
-//!
-//! Sericom runs on Linux and Windows (untested on Mac). This crate is not intended
-//! to be used by other crates - its intention is to be ran as an executable.
-//! That being said, if there is interest in using Sericom within other crates, or maybe
-//! certain functionality of Sericom within other crates, feel free to open a Github Issue.
-//!
-//! Currently, Sericom runs similarily to another CLI tool called 'screen'. In the future,
-//! Sericom plans to allow for users to create config files for customizing appearances
-//! and defaults. Sericom also plans to allow the writing of custom scripts (similar to
-//! expect scripts) that can be parsed and executed by Sericom. The intention of these
-//! scripts is to be able to automate tasks that take place over a serial connection i.e.
-//! configuration, resetting, getting statistics, etc.
+//! This module holds the functions that are called from `sericom` when receiving
+//! CLI commands/arguments.
 
-pub use clap::{CommandFactory, Parser, Subcommand};
-pub use crossterm::{
-    cursor, event, execute,
-    style::Stylize,
-    terminal::{self, ClearType},
-};
-use miette::{Context, IntoDiagnostic};
-use serial2_tokio::SerialPort;
-use sericom::{
-    configs::{get_config, initialize_config},
+use crate::{
+    configs::get_config,
     create_recursive,
     debug::run_debug_output,
     map_miette,
@@ -31,104 +12,20 @@ use sericom::{
         tasks::{run_file_output, run_stdin_input, run_stdout_output},
     },
 };
+use crossterm::{
+    cursor, event, execute,
+    style::Stylize,
+    terminal::{self, ClearType},
+};
+use miette::{Context, IntoDiagnostic};
+use serial2_tokio::SerialPort;
 use std::{
     io::{self, Write},
     path::PathBuf,
 };
 
-#[derive(Parser)]
-#[command(name = "sericom", version, about, long_about = None)]
-#[command(next_line_help = true)]
-#[command(propagate_version = true)]
-struct Cli {
-    /// The path to a serial port.
-    ///
-    /// For Linux/MacOS something like `/dev/tty1`, Windows `COM1`.
-    /// To see available ports, use `sericom list-ports`.
-    port: Option<String>,
-    /// Baud rate for the serial connection.
-    ///
-    /// To see a list of valid baud rates, use `sericom list-bauds`.
-    #[arg(short, long, value_parser = valid_baud_rate, default_value_t = 9600)]
-    baud: u32,
-    /// Path to a file for the output.
-    #[arg(short, long)]
-    file: Option<String>,
-    /// Display debug output
-    #[arg(short, long)]
-    debug: bool,
-    #[command(subcommand)]
-    command: Option<Commands>,
-}
-
-#[allow(clippy::enum_variant_names)]
-#[derive(Subcommand)]
-enum Commands {
-    /// Lists all valid baud rates
-    ListBauds,
-    /// Lists all available serial ports
-    ListPorts,
-    /// Gets the settings for a serial port
-    ListSettings {
-        #[arg(short, long, value_parser = valid_baud_rate, default_value_t = 9600)]
-        baud: u32,
-        /// Path to the port to open
-        #[arg(short, long)]
-        port: String,
-    },
-}
-
-#[tokio::main]
-async fn main() -> miette::Result<()> {
-    let cli = Cli::parse();
-
-    if cli.port.is_none() && cli.command.is_none() {
-        let mut cmd = Cli::command();
-        cmd.error(
-            clap::error::ErrorKind::MissingRequiredArgument,
-            "Missing either PORT or COMMAND.",
-        )
-        .exit();
-    }
-
-    if cli.port.is_some() && cli.command.is_some() {
-        let mut cmd = Cli::command();
-        cmd.error(
-            clap::error::ErrorKind::ArgumentConflict,
-            "Must specify either PORT or SUBCOMMAND, not both.",
-        )
-        .exit();
-    }
-
-    if let Some(port) = cli.port {
-        let connection = open_connection(cli.baud, &port)?;
-        initialize_config()?;
-        interactive_session(connection, cli.file, cli.debug, &port).await?;
-    } else if let Some(cmd) = cli.command {
-        match cmd {
-            Commands::ListBauds => {
-                let mut stdout = io::stdout();
-                write!(stdout, "Valid baud rates:\r\n")
-                    .into_diagnostic()
-                    .wrap_err("Failed to write to stdout.".red())?;
-                for baud in serial2_tokio::COMMON_BAUD_RATES {
-                    write!(stdout, "{baud}\r\n")
-                        .into_diagnostic()
-                        .wrap_err("Failed to write to stdout.".red())?;
-                }
-            }
-            Commands::ListPorts => {
-                list_serial_ports()?;
-            }
-            Commands::ListSettings { baud, port } => {
-                get_settings(baud, &port)?;
-            }
-        }
-    }
-    Ok(())
-}
-
-async fn interactive_session(
+/// Spawns all of the tasks responsible for maintaining an interactive terminal session.
+pub async fn interactive_session(
     connection: SerialPort,
     file: Option<String>,
     debug: bool,
@@ -196,7 +93,10 @@ async fn interactive_session(
     Ok(())
 }
 
-fn open_connection(baud: u32, port: &str) -> miette::Result<SerialPort> {
+/// Opens a serial `port` for communication with the specified `baud`.
+///
+/// Returns `Ok(SerialPort)` or errors if unable to set the baud rate or open the `port`.
+pub fn open_connection(baud: u32, port: &str) -> miette::Result<SerialPort> {
     let settings = |mut s: serial2_tokio::Settings| -> std::io::Result<serial2_tokio::Settings> {
         s.set_raw();
         s.set_baud_rate(baud)?;
@@ -209,7 +109,11 @@ fn open_connection(baud: u32, port: &str) -> miette::Result<SerialPort> {
     let con = map_miette!(
         SerialPort::open(port, settings),
         format!("Failed to open port '{}'", port),
-        "[OPTIONS] [PORT] [COMMAND]",
+        format!(
+            "{} {} [OPTIONS] [PORT] [COMMAND]",
+            "USAGE:".bold().underlined(),
+            "sericom".bold()
+        ),
         help = format!(
             "To see available ports, try `{}`.",
             "sericom list-ports".bold().cyan()
@@ -218,7 +122,8 @@ fn open_connection(baud: u32, port: &str) -> miette::Result<SerialPort> {
     Ok(con)
 }
 
-fn get_settings(baud: u32, port: &str) -> miette::Result<()> {
+/// Gets the settings for the `port` with the specified `baud`.
+pub fn get_settings(baud: u32, port: &str) -> miette::Result<()> {
     // https://www.contec.com/support/basic-knowledge/daq-control/serial-communicatin/
     let mut stdout = io::stdout();
     let con = open_connection(baud, port)?;
@@ -226,8 +131,9 @@ fn get_settings(baud: u32, port: &str) -> miette::Result<()> {
         con.get_configuration(),
         format!("Failed to get settings for port '{}'", port),
         format!(
-            "{} [OPTIONS] {} <PORT>",
-            "list-settings".bold(),
+            "{} {} [OPTIONS] {} <PORT>",
+            "USAGE:".bold().underlined(),
+            "sericom list-settings".bold(),
             "--port".bold()
         )
     )?;
@@ -235,8 +141,9 @@ fn get_settings(baud: u32, port: &str) -> miette::Result<()> {
         settings.get_baud_rate(),
         format!("Failed to get the baud rate for port '{}'", port),
         format!(
-            "{} [OPTIONS] {} <PORT>",
-            "list-settings".bold(),
+            "{} {} [OPTIONS] {} <PORT>",
+            "USAGE:".bold().underlined(),
+            "sericom list-settings".bold(),
             "--port".bold()
         )
     )?;
@@ -244,8 +151,9 @@ fn get_settings(baud: u32, port: &str) -> miette::Result<()> {
         settings.get_char_size(),
         format!("Failed to get the char size for port '{}'", port),
         format!(
-            "{} [OPTIONS] {} <PORT>",
-            "list-settings".bold(),
+            "{} {} [OPTIONS] {} <PORT>",
+            "USAGE:".bold().underlined(),
+            "sericom list-settings".bold(),
             "--port".bold()
         )
     )?;
@@ -253,8 +161,9 @@ fn get_settings(baud: u32, port: &str) -> miette::Result<()> {
         settings.get_stop_bits(),
         format!("Failed to get stop bits for port '{}'", port),
         format!(
-            "{} [OPTIONS] {} <PORT>",
-            "list-settings".bold(),
+            "{} {} [OPTIONS] {} <PORT>",
+            "USAGE:".bold().underlined(),
+            "sericom list-settings".bold(),
             "--port".bold()
         )
     )?;
@@ -262,8 +171,9 @@ fn get_settings(baud: u32, port: &str) -> miette::Result<()> {
         settings.get_parity(),
         format!("Failed to get parity for port '{}'", port),
         format!(
-            "{} [OPTIONS] {} <PORT>",
-            "list-settings".bold(),
+            "{} {} [OPTIONS] {} <PORT>",
+            "USAGE:".bold().underlined(),
+            "sericom list-settings".bold(),
             "--port".bold()
         )
     )?;
@@ -271,8 +181,9 @@ fn get_settings(baud: u32, port: &str) -> miette::Result<()> {
         settings.get_flow_control(),
         format!("Failed to get flow control for port '{}'", port),
         format!(
-            "{} [OPTIONS] {} <PORT>",
-            "list-settings".bold(),
+            "{} {} [OPTIONS] {} <PORT>",
+            "USAGE:".bold().underlined(),
+            "sericom list-settings".bold(),
             "--port".bold()
         )
     )?;
@@ -281,8 +192,9 @@ fn get_settings(baud: u32, port: &str) -> miette::Result<()> {
         con.read_cts(),
         format!("Failed to read CTS for port '{}'", port),
         format!(
-            "{} [OPTIONS] {} <PORT>",
-            "list-settings".bold(),
+            "{} {} [OPTIONS] {} <PORT>",
+            "USAGE:".bold().underlined(),
+            "sericom list-settings".bold(),
             "--port".bold()
         )
     )?;
@@ -290,8 +202,9 @@ fn get_settings(baud: u32, port: &str) -> miette::Result<()> {
         con.read_dsr(),
         format!("Failed to read DSR for port '{}'", port),
         format!(
-            "{} [OPTIONS] {} <PORT>",
-            "list-settings".bold(),
+            "{} {} [OPTIONS] {} <PORT>",
+            "USAGE:".bold().underlined(),
+            "sericom list-settings".bold(),
             "--port".bold()
         )
     )?;
@@ -299,8 +212,9 @@ fn get_settings(baud: u32, port: &str) -> miette::Result<()> {
         con.read_ri(),
         format!("Failed to read RI for port '{}'", port),
         format!(
-            "{} [OPTIONS] {} <PORT>",
-            "list-settings".bold(),
+            "{} {} [OPTIONS] {} <PORT>",
+            "USAGE:".bold().underlined(),
+            "sericom list-settings".bold(),
             "--port".bold()
         )
     )?;
@@ -308,8 +222,9 @@ fn get_settings(baud: u32, port: &str) -> miette::Result<()> {
         con.read_cd(),
         format!("Failed to read CD for port '{}'", port),
         format!(
-            "{} [OPTIONS] {} <PORT>",
-            "list-settings".bold(),
+            "{} {} [OPTIONS] {} <PORT>",
+            "USAGE:".bold().underlined(),
+            "sericom list-settings".bold(),
             "--port".bold()
         )
     )?;
@@ -345,12 +260,15 @@ fn get_settings(baud: u32, port: &str) -> miette::Result<()> {
     Ok(())
 }
 
-fn list_serial_ports() -> miette::Result<()> {
+/// Prints a list of available serial ports to stdout.
+///
+/// Ultimately a wrapper around [`SerialPort::available_ports()`] and may error
+/// if it is called on an unsupported platform as per [`SerialPort::available_ports()]s docs
+pub fn list_serial_ports() -> miette::Result<()> {
     let mut stdout = io::stdout();
     let ports = map_miette!(
         SerialPort::available_ports(),
-        "Could not list available ports.",
-        "list-ports".bold()
+        "Could not list available ports."
     )?;
     for path in ports {
         if let Some(path) = path.to_str() {
@@ -366,7 +284,8 @@ fn list_serial_ports() -> miette::Result<()> {
     Ok(())
 }
 
-fn valid_baud_rate(s: &str) -> Result<u32, String> {
+/// Used as a 'value_parser' for sericom's clap CLI struct to validate baud rates
+pub fn valid_baud_rate(s: &str) -> Result<u32, String> {
     let baud: u32 = s
         .parse()
         .map_err(|_| format!("`{s}` isn't a valid baud rate"))?;

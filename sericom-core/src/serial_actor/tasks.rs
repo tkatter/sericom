@@ -1,3 +1,5 @@
+use super::*;
+use crate::screen_buffer::*;
 use crossterm::{
     event::{self, Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent},
     terminal,
@@ -7,9 +9,6 @@ use std::{
     io::{BufWriter, Write},
     path::PathBuf,
 };
-
-use super::*;
-use crate::screen_buffer::*;
 
 const UTF_TAB: &str = "\u{0009}";
 const UTF_BKSP: &str = "\u{0008}";

@@ -1,29 +1,15 @@
-[package]
-name = "sericom"
-version = "0.2.0"
+[workspace]
+members = ["sericom", "sericom-core"]
+resolver = "3"
+
+[workspace.package]
 edition = "2024"
-description = "CLI tool for communicating with devices over a serial connection."
-license = "GPL-3.0-or-later"
+exclude = ["configuration/*", ".github/*"]
 readme = "README.md"
 repository = "https://github.com/tkatter/sericom"
-keywords = ["serial", "console"]
-categories = ["command-line-utilities"]
-exclude = ["configuration/*", ".github/*"]
 
-[package.metadata.deb]
-maintainer = "Thomas Katter <tjkatter@gmail.com>"
-copyright = "2025, Thomas Katter <tjkatter@gmail.com>"
-license-file = ["LICENSE", "14"]
-
-[dependencies]
-chrono = "0.4.41"
-clap = { version = "4.5.41", features = ["derive"] }
+[workspace.dependencies]
 crossterm = { version = "0.29.0", features = ["osc52", "event-stream"] }
 miette = { version = "7.6.0", features = ["fancy"] }
-serde = { version = "1.0.219", features = ["derive"] }
 serial2-tokio = { version = "0.1.15", features = ["windows"] }
-thiserror = "2.0.16"
 tokio = { version = "1.47.0", features = ["full"] }
-toml = "0.9.5"
-# tracing = "0.1"
-# console-subscriber = "0.4.1"
