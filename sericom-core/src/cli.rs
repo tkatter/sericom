@@ -102,7 +102,10 @@ pub fn open_connection(baud: u32, port: &str) -> miette::Result<SerialPort> {
     let con = map_miette!(
         SerialPort::open(port, settings),
         format!("Failed to open port '{}'", port),
-        "[OPTIONS] [PORT] [COMMAND]",
+        format!("{} {} [OPTIONS] [PORT] [COMMAND]",
+            "USAGE:".bold().underlined(),
+            "sericom".bold()
+        ),
         help = format!(
             "To see available ports, try `{}`.",
             "sericom list-ports".bold().cyan()
@@ -119,8 +122,9 @@ pub fn get_settings(baud: u32, port: &str) -> miette::Result<()> {
         con.get_configuration(),
         format!("Failed to get settings for port '{}'", port),
         format!(
-            "{} [OPTIONS] {} <PORT>",
-            "list-settings".bold(),
+            "{} {} [OPTIONS] {} <PORT>",
+            "USAGE:".bold().underlined(),
+            "sericom list-settings".bold(),
             "--port".bold()
         )
     )?;
@@ -128,8 +132,9 @@ pub fn get_settings(baud: u32, port: &str) -> miette::Result<()> {
         settings.get_baud_rate(),
         format!("Failed to get the baud rate for port '{}'", port),
         format!(
-            "{} [OPTIONS] {} <PORT>",
-            "list-settings".bold(),
+            "{} {} [OPTIONS] {} <PORT>",
+            "USAGE:".bold().underlined(),
+            "sericom list-settings".bold(),
             "--port".bold()
         )
     )?;
@@ -137,8 +142,9 @@ pub fn get_settings(baud: u32, port: &str) -> miette::Result<()> {
         settings.get_char_size(),
         format!("Failed to get the char size for port '{}'", port),
         format!(
-            "{} [OPTIONS] {} <PORT>",
-            "list-settings".bold(),
+            "{} {} [OPTIONS] {} <PORT>",
+            "USAGE:".bold().underlined(),
+            "sericom list-settings".bold(),
             "--port".bold()
         )
     )?;
@@ -146,8 +152,9 @@ pub fn get_settings(baud: u32, port: &str) -> miette::Result<()> {
         settings.get_stop_bits(),
         format!("Failed to get stop bits for port '{}'", port),
         format!(
-            "{} [OPTIONS] {} <PORT>",
-            "list-settings".bold(),
+            "{} {} [OPTIONS] {} <PORT>",
+            "USAGE:".bold().underlined(),
+            "sericom list-settings".bold(),
             "--port".bold()
         )
     )?;
@@ -155,8 +162,9 @@ pub fn get_settings(baud: u32, port: &str) -> miette::Result<()> {
         settings.get_parity(),
         format!("Failed to get parity for port '{}'", port),
         format!(
-            "{} [OPTIONS] {} <PORT>",
-            "list-settings".bold(),
+            "{} {} [OPTIONS] {} <PORT>",
+            "USAGE:".bold().underlined(),
+            "sericom list-settings".bold(),
             "--port".bold()
         )
     )?;
@@ -164,8 +172,9 @@ pub fn get_settings(baud: u32, port: &str) -> miette::Result<()> {
         settings.get_flow_control(),
         format!("Failed to get flow control for port '{}'", port),
         format!(
-            "{} [OPTIONS] {} <PORT>",
-            "list-settings".bold(),
+            "{} {} [OPTIONS] {} <PORT>",
+            "USAGE:".bold().underlined(),
+            "sericom list-settings".bold(),
             "--port".bold()
         )
     )?;
@@ -174,8 +183,9 @@ pub fn get_settings(baud: u32, port: &str) -> miette::Result<()> {
         con.read_cts(),
         format!("Failed to read CTS for port '{}'", port),
         format!(
-            "{} [OPTIONS] {} <PORT>",
-            "list-settings".bold(),
+            "{} {} [OPTIONS] {} <PORT>",
+            "USAGE:".bold().underlined(),
+            "sericom list-settings".bold(),
             "--port".bold()
         )
     )?;
@@ -183,8 +193,9 @@ pub fn get_settings(baud: u32, port: &str) -> miette::Result<()> {
         con.read_dsr(),
         format!("Failed to read DSR for port '{}'", port),
         format!(
-            "{} [OPTIONS] {} <PORT>",
-            "list-settings".bold(),
+            "{} {} [OPTIONS] {} <PORT>",
+            "USAGE:".bold().underlined(),
+            "sericom list-settings".bold(),
             "--port".bold()
         )
     )?;
@@ -192,8 +203,9 @@ pub fn get_settings(baud: u32, port: &str) -> miette::Result<()> {
         con.read_ri(),
         format!("Failed to read RI for port '{}'", port),
         format!(
-            "{} [OPTIONS] {} <PORT>",
-            "list-settings".bold(),
+            "{} {} [OPTIONS] {} <PORT>",
+            "USAGE:".bold().underlined(),
+            "sericom list-settings".bold(),
             "--port".bold()
         )
     )?;
@@ -201,8 +213,9 @@ pub fn get_settings(baud: u32, port: &str) -> miette::Result<()> {
         con.read_cd(),
         format!("Failed to read CD for port '{}'", port),
         format!(
-            "{} [OPTIONS] {} <PORT>",
-            "list-settings".bold(),
+            "{} {} [OPTIONS] {} <PORT>",
+            "USAGE:".bold().underlined(),
+            "sericom list-settings".bold(),
             "--port".bold()
         )
     )?;
@@ -243,7 +256,10 @@ pub fn list_serial_ports() -> miette::Result<()> {
     let ports = map_miette!(
         SerialPort::available_ports(),
         "Could not list available ports.",
-        "list-ports".bold()
+        format!("{} {}",
+            "USAGE:".bold().underlined(),
+            "sericom list-ports".bold()
+        )
     )?;
     for path in ports {
         if let Some(path) = path.to_str() {

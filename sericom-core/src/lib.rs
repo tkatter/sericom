@@ -31,7 +31,7 @@ mod macros {
     /// Takes 3 arguements and optionally a fourth:
     /// - The first argument is the expression or function call that would return a `Result<T, E>`
     /// - The second argument is context that better describes the returned error
-    /// - The third argument is the 'USAGE: sericom <ARG>' that would typically be printed by `clap`
+    /// - The third argument is the 'USAGE: sericom ...' that would typically be printed by `clap`
     ///   for the respective command
     /// - The optional fourth argument is an additional "help:" message
     ///
@@ -46,7 +46,10 @@ mod macros {
     ///     let x = map_miette!(
     ///         SerialPort::open(port, baud),
     ///         format!("Failed to open port '{}'", port),
-    ///         "[OPTIONS] [PORT] [COMMAND]",
+    ///         format!("{} {} [OPTIONS] [PORT] [COMMAND]",
+    ///             "USAGE:".bold().underlined(),
+    ///             "sericom".bold()
+    ///         ),
     ///         help = format!(
     ///             "To see available ports, try `{}`.",
     ///             "sericom list-ports".bold().cyan()
@@ -63,17 +66,11 @@ mod macros {
         ($expr:expr, $wrap_msg:expr, $usage:expr, help = $add_help:expr) => {
             $expr.map_err(|e| {
                 use crossterm::style::Stylize;
-                let usage = format!(
-                    "{} {} {}",
-                    "USAGE:".bold().underlined(),
-                    "sericom".bold(),
-                    $usage
-                );
                 miette::miette!(
                     help = format!("{}\nFor more information, try `sericom --help`.", $add_help),
                     "{e}"
                 )
-                .wrap_err(format!("{}\n\n{}\n", $wrap_msg, usage).red())
+                .wrap_err(format!("{}\n\n{}\n", $wrap_msg, $usage).red())
             })
         };
 
@@ -81,14 +78,8 @@ mod macros {
         ($expr:expr, $wrap_msg:expr, $usage:expr) => {
             $expr.map_err(|e| {
                 use crossterm::style::Stylize;
-                let usage = format!(
-                    "{} {} {}",
-                    "USAGE:".bold().underlined(),
-                    "sericom".bold(),
-                    $usage
-                );
                 miette::miette!(help = "For more information, try `sericom --help`.", "{e}")
-                    .wrap_err(format!("{}\n\n{}\n", $wrap_msg, usage).red())
+                    .wrap_err(format!("{}\n\n{}\n", $wrap_msg, $usage).red())
             })
         };
     }
