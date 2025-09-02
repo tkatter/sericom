@@ -65,10 +65,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Diffs
 
-sericom/[unreleased]: https://github.com/tkatter/sericom/compare/sericom/v0.3.0...HEAD
-sericom-core/[unreleased]: https://github.com/tkatter/sericom/compare/sericom-core/v0.1.0...HEAD
+- sericom/[unreleased]: https://github.com/tkatter/sericom/compare/sericom/v0.3.0...HEAD
+- sericom-core/[unreleased]: https://github.com/tkatter/sericom/compare/sericom-core/v0.1.0...HEAD
 
-sericom/[0.3.0]: https://github.com/tkatter/sericom/compare/v0.2.0...sericom/v0.3.0
-sericom-core/[0.1.0]: https://github.com/tkatter/sericom/releases/tag/sericom-core/v0.1.0
-[0.2.0]: https://github.com/tkatter/sericom/compare/v0.1.0...v0.2.0
-[0.1.0]: https://github.com/tkatter/sericom/releases/tag/v0.1.0
+- sericom/[0.3.0]: https://github.com/tkatter/sericom/compare/v0.2.0...sericom/v0.3.0
+- sericom-core/[0.1.0]: https://github.com/tkatter/sericom/releases/tag/sericom-core/v0.1.0
+- [0.2.0]: https://github.com/tkatter/sericom/compare/v0.1.0...v0.2.0
+- [0.1.0]: https://github.com/tkatter/sericom/releases/tag/v0.1.0

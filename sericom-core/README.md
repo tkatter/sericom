@@ -1,3 +1,5 @@
+[![Crates.io Version](https://img.shields.io/crates/v/sericom-core?style=for-the-badge&color=green)](https://crates.io/crates/sericom-core)
+
 # Sericom-core
 
 This is the underlying library for [`sericom`](https://crates.io/crates/sericom).
