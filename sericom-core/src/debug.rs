@@ -2,6 +2,7 @@
 //! to debug the data being received over the serial connection. In future
 //! updates, this module is intended to be used for running tracing events with
 //! the [`tracing`](https://docs.rs/tracing/latest/tracing/) crate.
+
 use crate::serial_actor::SerialEvent;
 
 /// This function is used for debugging the data that is sent from a device.

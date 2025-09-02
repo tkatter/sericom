@@ -2,11 +2,10 @@
 //! files. User config files must be `config.toml` and are parsed with [`serde`] and
 //! respectively serde's [`toml`] crate.
 
-use serde::Deserialize;
-use std::{io::Read, ops::Range, sync::OnceLock};
-
 pub mod errors;
 
+use serde::Deserialize;
+use std::{io::Read, ops::Range, sync::OnceLock};
 use crate::{
     configs::errors::{ConfigError, TomlError},
     create_recursive,

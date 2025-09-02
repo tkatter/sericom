@@ -1,14 +1,6 @@
-use crate::{
-    configs::get_config,
-    create_recursive,
-    debug::run_debug_output,
-    map_miette,
-    screen_buffer::UICommand,
-    serial_actor::{
-        SerialActor, SerialEvent, SerialMessage,
-        tasks::{run_file_output, run_stdin_input, run_stdout_output},
-    },
-};
+//! This module holds the functions that are called from `sericom` when receiving
+//! CLI commands/arguments.
+
 use crossterm::{
     cursor, event, execute,
     style::Stylize,
@@ -20,7 +12,19 @@ use std::{
     io::{self, Write},
     path::PathBuf,
 };
+use crate::{
+    configs::get_config,
+    create_recursive,
+    debug::run_debug_output,
+    map_miette,
+    screen_buffer::UICommand,
+    serial_actor::{
+        SerialActor, SerialEvent, SerialMessage,
+        tasks::{run_file_output, run_stdin_input, run_stdout_output},
+    },
+};
 
+/// Spawns all of the tasks responsible for maintaining an interactive terminal session.
 pub async fn interactive_session(
     connection: SerialPort,
     file: Option<String>,
@@ -89,6 +93,9 @@ pub async fn interactive_session(
     Ok(())
 }
 
+/// Opens a serial `port` for communication with the specified `baud`.
+///
+/// Returns `Ok(SerialPort)` or errors if unable to set the baud rate or open the `port`.
 pub fn open_connection(baud: u32, port: &str) -> miette::Result<SerialPort> {
     let settings = |mut s: serial2_tokio::Settings| -> std::io::Result<serial2_tokio::Settings> {
         s.set_raw();
@@ -114,6 +121,7 @@ pub fn open_connection(baud: u32, port: &str) -> miette::Result<SerialPort> {
     Ok(con)
 }
 
+/// Gets the settings for the `port` with the specified `baud`.
 pub fn get_settings(baud: u32, port: &str) -> miette::Result<()> {
     // https://www.contec.com/support/basic-knowledge/daq-control/serial-communicatin/
     let mut stdout = io::stdout();
@@ -251,15 +259,15 @@ pub fn get_settings(baud: u32, port: &str) -> miette::Result<()> {
     Ok(())
 }
 
+/// Prints a list of available serial ports to stdout.
+///
+/// Ultimately a wrapper around [`SerialPort::available_ports()`] and may error
+/// if it is called on an unsupported platform as per [`SerialPort::available_ports()]s docs
 pub fn list_serial_ports() -> miette::Result<()> {
     let mut stdout = io::stdout();
     let ports = map_miette!(
         SerialPort::available_ports(),
-        "Could not list available ports.",
-        format!("{} {}",
-            "USAGE:".bold().underlined(),
-            "sericom list-ports".bold()
-        )
+        "Could not list available ports."
     )?;
     for path in ports {
         if let Some(path) = path.to_str() {
@@ -275,6 +283,7 @@ pub fn list_serial_ports() -> miette::Result<()> {
     Ok(())
 }
 
+/// Used as a 'value_parser' for sericom's clap CLI struct to validate baud rates
 pub fn valid_baud_rate(s: &str) -> Result<u32, String> {
     let baud: u32 = s
         .parse()
@@ -290,7 +299,7 @@ pub fn valid_baud_rate(s: &str) -> Result<u32, String> {
     }
 }
 
-pub fn ensure_terminal_cleanup(mut stdout: io::Stdout) {
+fn ensure_terminal_cleanup(mut stdout: io::Stdout) {
     use crossterm::{
         cursor::Show,
         execute,

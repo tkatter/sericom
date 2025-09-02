@@ -1,3 +1,13 @@
+//! `sericom-core` is the underlying library for [`sericom`](https://crates.io/crates/sericom)
+//!
+//! As it sits right now, this library is largely meant to be solely used by `sericom`
+//! directly. Therefore, it is not intended to be used within other projects/crates.
+//!
+//! If other projects develop a need to use this library within their projects, please
+//! create an [issue](https://github.com/tkatter/sericom) so I can become aware and work
+//! towards making `sericom-core` a generalized/compatible library that is better suited
+//! for use among other crates.
+
 pub mod cli;
 pub mod configs;
 pub mod debug;
@@ -28,10 +38,10 @@ mod macros {
     /// Used to add a `.map_err()` to function calls that return a `Result<T, E>`
     /// to provide better context for the error and print it nicely to stdout.
     ///
-    /// Takes 3 arguements and optionally a fourth:
+    /// Takes 2 arguements and optionally a third and fourth:
     /// - The first argument is the expression or function call that would return a `Result<T, E>`
     /// - The second argument is context that better describes the returned error
-    /// - The third argument is the 'USAGE: sericom ...' that would typically be printed by `clap`
+    /// - The optional third argument is the 'USAGE: sericom ...' that would typically be printed by `clap`
     ///   for the respective command
     /// - The optional fourth argument is an additional "help:" message
     ///
@@ -62,7 +72,7 @@ mod macros {
     /// ```
     #[macro_export]
     macro_rules! map_miette {
-        // Additional "help" message
+        // Clap-style USAGE: && additional "help" message
         ($expr:expr, $wrap_msg:expr, $usage:expr, help = $add_help:expr) => {
             $expr.map_err(|e| {
                 use crossterm::style::Stylize;
@@ -74,12 +84,33 @@ mod macros {
             })
         };
 
-        // Default "help" message
+        // Clap-style USAGE: && default "help" message
         ($expr:expr, $wrap_msg:expr, $usage:expr) => {
             $expr.map_err(|e| {
                 use crossterm::style::Stylize;
                 miette::miette!(help = "For more information, try `sericom --help`.", "{e}")
                     .wrap_err(format!("{}\n\n{}\n", $wrap_msg, $usage).red())
+            })
+        };
+
+        // Additional "help" message
+        ($expr:expr, $wrap_msg:expr, help = $add_help:expr) => {
+            $expr.map_err(|e| {
+                use crossterm::style::Stylize;
+                miette::miette!(
+                    help = format!("{}\nFor more information, try `sericom --help`.", $add_help),
+                    "{e}"
+                )
+                .wrap_err(format!("{}", $wrap_msg).red())
+            })
+        };
+
+        // Default "help" message
+        ($expr:expr, $wrap_msg:expr) => {
+            $expr.map_err(|e| {
+                use crossterm::style::Stylize;
+                miette::miette!(help = "For more information, try `sericom --help`.", "{e}")
+                    .wrap_err(format!("{}", $wrap_msg).red())
             })
         };
     }

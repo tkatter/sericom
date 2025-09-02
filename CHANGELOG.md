@@ -9,9 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Sericom-core library to house all of the underlying library code for sericom
+- Add MIT license for sericom-core
+
 ### Changed
 
+- Changed sericom to a workspace and dependent on the sericom-core crate
+- GPLv3.0 license specifically applies to the sericom binary
+
 ### Removed
+
+- All sericom's public api - transfered to sericom-core
 
 ### Fixed
 
@@ -44,6 +52,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Scrolling
 - Copy/paste
 - Open connection, list available ports, list settings for a port, list valid baud rates
+
+## Diffs
 
 [unreleased]: https://github.com/tkatter/sericom/compare/v0.2.0...HEAD
 [0.2.0]: https://github.com/tkatter/sericom/compare/v0.1.0...v0.2.0

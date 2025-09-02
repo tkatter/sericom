@@ -7,7 +7,6 @@ use std::{
     io::{BufWriter, Write},
     path::PathBuf,
 };
-
 use super::*;
 use crate::screen_buffer::*;
 

@@ -2,7 +2,6 @@
 //! for errors that occur when attempting to parse their `config.toml` file.
 
 use std::ops::Range;
-
 use crossterm::style::Stylize;
 use miette::{NamedSource, SourceSpan};
 

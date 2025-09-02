@@ -16,9 +16,10 @@
 //! connection in a [`VecDeque`]. It is important to note that
 //! currently, the **capacity of the `VecDeque` is not hardcoded and is theoretically
 //! allowed to grow forever**, limited by memory.
-use crate::configs::get_config;
+
 use crossterm::style::Color;
 use std::{collections::VecDeque, io::BufWriter};
+use crate::configs::get_config;
 
 const MIN_RENDER_INTERVAL: tokio::time::Duration = tokio::time::Duration::from_millis(33);
 
