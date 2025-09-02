@@ -1,17 +1,6 @@
 //! This module holds the functions that are called from `sericom` when receiving
 //! CLI commands/arguments.
 
-use crossterm::{
-    cursor, event, execute,
-    style::Stylize,
-    terminal::{self, ClearType},
-};
-use miette::{Context, IntoDiagnostic};
-use serial2_tokio::SerialPort;
-use std::{
-    io::{self, Write},
-    path::PathBuf,
-};
 use crate::{
     configs::get_config,
     create_recursive,
@@ -22,6 +11,17 @@ use crate::{
         SerialActor, SerialEvent, SerialMessage,
         tasks::{run_file_output, run_stdin_input, run_stdout_output},
     },
+};
+use crossterm::{
+    cursor, event, execute,
+    style::Stylize,
+    terminal::{self, ClearType},
+};
+use miette::{Context, IntoDiagnostic};
+use serial2_tokio::SerialPort;
+use std::{
+    io::{self, Write},
+    path::PathBuf,
 };
 
 /// Spawns all of the tasks responsible for maintaining an interactive terminal session.
@@ -109,7 +109,8 @@ pub fn open_connection(baud: u32, port: &str) -> miette::Result<SerialPort> {
     let con = map_miette!(
         SerialPort::open(port, settings),
         format!("Failed to open port '{}'", port),
-        format!("{} {} [OPTIONS] [PORT] [COMMAND]",
+        format!(
+            "{} {} [OPTIONS] [PORT] [COMMAND]",
             "USAGE:".bold().underlined(),
             "sericom".bold()
         ),

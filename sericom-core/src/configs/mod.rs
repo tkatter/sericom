@@ -4,12 +4,12 @@
 
 pub mod errors;
 
-use serde::Deserialize;
-use std::{io::Read, ops::Range, sync::OnceLock};
 use crate::{
     configs::errors::{ConfigError, TomlError},
     create_recursive,
 };
+use serde::Deserialize;
+use std::{io::Read, ops::Range, sync::OnceLock};
 
 /// A wrapper around [`crossterm::style::Color`] to allow for implementing serde's
 /// [`Deserialize`] beyond the default implementation from `#[derive(Deserialize)]`
