@@ -1,11 +1,11 @@
 [package]
 name = "sericom-core"
 version = "0.1.0"
+license = "MIT"
+readme = "README.md"
 edition.workspace = true
-license.workspace = true
-readme.workspace = true
-repository.workspace = true
 exclude.workspace = true
+repository.workspace = true
 
 [dependencies]
 chrono = "0.4.41"

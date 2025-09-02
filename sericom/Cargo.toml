@@ -2,13 +2,13 @@
 name = "sericom"
 version = "0.2.0"
 description = "CLI tool for communicating with devices over a serial connection."
+license = "GPL-3.0-or-later"
 keywords = ["serial", "console"]
 categories = ["command-line-utilities"]
 edition.workspace = true
-license.workspace = true
+exclude.workspace = true
 readme.workspace = true
 repository.workspace = true
-exclude.workspace = true
 
 [package.metadata.deb]
 maintainer = "Thomas Katter <tjkatter@gmail.com>"
