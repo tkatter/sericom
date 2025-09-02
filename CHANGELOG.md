@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- seriom-core: Added keybinding for the standard 'break' command over serial connections
+
 ### Changed
 
 ### Removed

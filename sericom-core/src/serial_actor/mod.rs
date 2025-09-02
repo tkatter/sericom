@@ -5,18 +5,27 @@ pub mod tasks;
 
 /// Represents messages/commands that are sent from worker tasks
 /// to the [`SerialActor`] to process.
+#[non_exhaustive]
 #[derive(Debug)]
 pub enum SerialMessage {
+    /// Instructs the [`SerialActor`] to write bytes (`Vec<u8>`) to the serial connection.
     Write(Vec<u8>),
+    /// Instructs the [`SerialActor`] to send a 'break' signal over the serial connection.
+    SendBreak,
+    /// Instructs the [`SerialActor`] to shutdown the serial connection.
     Shutdown,
 }
 
 /// Represents events from the [`SerialActor`] that will be
 /// received and processed by worker tasks accordingly.
+#[non_exhaustive]
 #[derive(Clone, Debug)]
 pub enum SerialEvent {
+    /// Sends data received by the [`SerialActor`] to its tasks.
     Data(std::sync::Arc<[u8]>),
+    /// Sends the error message received by the [`SerialActor`] to its tasks to handle.
     Error(String),
+    /// Tells the [`SerialActor`]s tasks that the serial connection has been closed.
     ConnectionClosed,
 }
 
@@ -72,6 +81,9 @@ impl SerialActor {
                         Some(SerialMessage::Shutdown) => {
                             self.broadcast_channel.send(SerialEvent::ConnectionClosed).ok();
                         }
+                        Some(SerialMessage::SendBreak) => {
+                            self.send_break().await;
+                        }
                         None => break,
                     }
                 }
@@ -94,5 +106,12 @@ impl SerialActor {
                 }
             }
         }
+    }
+
+    async fn send_break(&mut self) {
+        use tokio::time::{Duration, sleep};
+        let _ = self.connection.set_break(true);
+        sleep(Duration::from_millis(500)).await;
+        let _ = self.connection.set_break(false);
     }
 }
