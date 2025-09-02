@@ -8,7 +8,7 @@ pub mod tasks;
 #[non_exhaustive]
 #[derive(Debug)]
 pub enum SerialMessage {
-    /// Instructs the [`SerialActor`] to writes bytes (`Vec<u8>`) to the serial connection.
+    /// Instructs the [`SerialActor`] to write bytes (`Vec<u8>`) to the serial connection.
     Write(Vec<u8>),
     /// Instructs the [`SerialActor`] to send a 'break' signal over the serial connection.
     SendBreak,
@@ -107,7 +107,7 @@ impl SerialActor {
             }
         }
     }
-    
+
     async fn send_break(&mut self) {
         use tokio::time::{Duration, sleep};
         let _ = self.connection.set_break(true);
