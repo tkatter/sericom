@@ -185,6 +185,24 @@ fn stdin_input_loop(
                     _ => continue,
                 };
             }
+            // Match Alt + Code
+            Ok(Event::Key(KeyEvent {
+                code,
+                modifiers: KeyModifiers::ALT,
+                kind,
+                ..
+            })) => {
+                if kind != crossterm::event::KeyEventKind::Press {
+                    continue;
+                }
+                match code {
+                    KeyCode::Char('b') => {
+                        let _ = command_tx.blocking_send(SerialMessage::SendBreak);
+                        continue;
+                    }
+                    _ => continue,
+                };
+            }
             // Match Control + Code
             Ok(Event::Key(KeyEvent {
                 code,
