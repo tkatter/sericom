@@ -1,8 +1,25 @@
-use std::{io::{self, Write}, path::PathBuf};
-use crossterm::{cursor, event, execute, style::Stylize, terminal::{self, ClearType}};
+use crate::{
+    configs::get_config,
+    create_recursive,
+    debug::run_debug_output,
+    map_miette,
+    screen_buffer::UICommand,
+    serial_actor::{
+        SerialActor, SerialEvent, SerialMessage,
+        tasks::{run_file_output, run_stdin_input, run_stdout_output},
+    },
+};
+use crossterm::{
+    cursor, event, execute,
+    style::Stylize,
+    terminal::{self, ClearType},
+};
 use miette::{Context, IntoDiagnostic};
 use serial2_tokio::SerialPort;
-use crate::{configs::get_config, create_recursive, debug::run_debug_output, map_miette, screen_buffer::UICommand, serial_actor::{tasks::{run_file_output, run_stdin_input, run_stdout_output}, SerialActor, SerialEvent, SerialMessage}};
+use std::{
+    io::{self, Write},
+    path::PathBuf,
+};
 
 pub async fn interactive_session(
     connection: SerialPort,

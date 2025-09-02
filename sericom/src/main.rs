@@ -7,12 +7,14 @@
 //! scripts is to be able to automate tasks that take place over a serial connection i.e.
 //! configuration, resetting, getting statistics, etc.
 
-use std::io::{self, Write};
 use clap::{CommandFactory, Parser, Subcommand};
 use crossterm::style::Stylize;
 use miette::{Context, IntoDiagnostic};
-use sericom_core::{cli::{get_settings, interactive_session, list_serial_ports, open_connection, valid_baud_rate}, 
-    configs::initialize_config};
+use sericom_core::{
+    cli::{get_settings, interactive_session, list_serial_ports, open_connection, valid_baud_rate},
+    configs::initialize_config,
+};
+use std::io::{self, Write};
 
 #[derive(Parser)]
 #[command(name = "sericom", version, about, long_about = None)]
@@ -105,4 +107,3 @@ async fn main() -> miette::Result<()> {
     }
     Ok(())
 }
-
