@@ -1,6 +1,6 @@
 [package]
 name = "sericom"
-version = "0.2.0"
+version = "0.3.0"
 description = "CLI tool for communicating with devices over a serial connection."
 license = "GPL-3.0-or-later"
 keywords = ["serial", "console"]
@@ -17,7 +17,7 @@ license-file = ["LICENSE", "14"]
 
 [dependencies]
 clap = { version = "4.5.41", features = ["derive"] }
-sericom-core = { path = "../sericom-core", version = "0.1.0" }
+sericom-core = "0.1.0"
 tokio.workspace = true
 serial2-tokio.workspace = true
 miette.workspace = true
