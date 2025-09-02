@@ -2,6 +2,7 @@
 name = "sericom"
 version = "0.3.0"
 description = "CLI tool for communicating with devices over a serial connection."
+documentation = "https://github.com/tkatter/sericom"
 license = "GPL-3.0-or-later"
 keywords = ["serial", "console"]
 categories = ["command-line-utilities"]
