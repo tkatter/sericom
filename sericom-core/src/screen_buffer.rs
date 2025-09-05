@@ -34,6 +34,72 @@ enum EscapeState {
     Csi,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum EscapePart {
+    Empty,
+    Numbers(Vec<u16>),
+    Separator,
+    Action(char),
+}
+
+impl Default for EscapePart {
+    fn default() -> Self {
+        Self::Empty
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct EscapeSequence {
+    sequence: Vec<EscapePart>,
+    part: EscapePart,
+}
+
+impl EscapeSequence {
+    fn new() -> Self {
+        Self {
+            sequence: Vec::new(),
+            part: EscapePart::Empty,
+        }
+    }
+
+    fn reset(&mut self) {
+        // Clear is probably good since it will continue to
+        // fill up to similar sizes throughout the program.
+        self.sequence.clear();
+        self.part = EscapePart::Empty;
+    }
+
+    fn push_part(&mut self) {
+        self.sequence.push(std::mem::take(&mut self.part));
+    }
+
+    fn insert_separator(&mut self) {
+        if self.part != EscapePart::Empty {
+            self.push_part();
+        }
+        self.sequence.push(EscapePart::Separator);
+    }
+
+    /// Adds numbers to the in-progress part of the escape sequence
+    fn push_num(&mut self, num: char) {
+        let num: u16 = num.to_digit(10).expect("Only passing ascii decimal digits (0-9)") as u16;
+        match &mut self.part {
+            EscapePart::Numbers(nums) => nums.push(num),
+            _ => self.part = EscapePart::Numbers(vec![num]),
+        }
+    }
+
+    /// Pushes the action to the escape sequence, signaling the end
+    /// and results in carrying out the action for the escape sequence
+    /// and then resetting its values.
+    fn push_action(&mut self, action: char) {
+        if self.part != EscapePart::Empty {
+            self.push_part();
+        }
+        self.sequence.push(EscapePart::Action(action));
+    }
+}
+
 /// `UICommand` is used for communication between stdin and the [`ScreenBuffer`].
 #[non_exhaustive]
 #[derive(Clone, Debug)]
@@ -130,6 +196,7 @@ pub struct ScreenBuffer {
     /// Represents the current state for handling ansii escape sequences
     /// as incoming data is being processed.
     escape_state: EscapeState,
+    escape_sequence: EscapeSequence,
     last_render: Option<tokio::time::Instant>,
     needs_render: bool,
 }
@@ -150,6 +217,7 @@ impl ScreenBuffer {
             last_render: None,
             needs_render: false,
             escape_state: EscapeState::Normal,
+            escape_sequence: EscapeSequence::new(),
         };
         // Start with an empty line
         buffer
@@ -168,6 +236,53 @@ impl ScreenBuffer {
 
     fn move_cursor_right(&mut self) {
         self.cursor_pos.x = self.cursor_pos.x.saturating_add(1);
+    }
+
+    fn parse_sequence(&mut self) {
+        match &self.escape_sequence.sequence[..] {
+            [
+            EscapePart::Numbers(nums),
+            EscapePart::Separator,
+            EscapePart::Numbers(nums2),
+            EscapePart::Action(action)
+            ] => {}
+            [
+            EscapePart::Separator,
+            EscapePart::Numbers(nums2),
+            EscapePart::Action(action)
+            ] => {}
+            [
+            EscapePart::Numbers(nums2),
+            EscapePart::Action(action)
+            ] => {}
+            [EscapePart::Action(action)] => {
+                match action {
+                    'H' => {
+                        self.set_cursor_pos::<(u16, usize)>((0, 0));
+                        self.escape_state = EscapeState::Normal;
+                    }
+                    'J' => {
+                        self.clear_from_cursor_to_eol();
+                        self.escape_state = EscapeState::Normal;
+                    }
+                    'K' => {
+                        self.clear_from_cursor_to_eol();
+                        self.escape_state = EscapeState::Normal;
+                    }
+                    'C' => {
+                        self.move_cursor_left();
+                        self.escape_state = EscapeState::Normal;
+                    }
+                    'D' => {
+                        self.move_cursor_right();
+                        self.escape_state = EscapeState::Normal;
+                    }
+                    _ => {}
+                }
+            },
+            _ => {}
+
+        }
     }
 
     /// Takes incoming data (bytes (`u8`) from a serial connection) and
@@ -236,24 +351,22 @@ impl ScreenBuffer {
                     }
                 },
                 EscapeState::Csi => match ch {
-                    'J' => {
-                        self.clear_from_cursor_to_eol();
-                        self.escape_state = EscapeState::Normal;
+                    ';' => {
+                        self.escape_sequence.insert_separator();
                     }
-                    'K' => {
-                        self.clear_from_cursor_to_eol();
-                        self.escape_state = EscapeState::Normal;
+                    c if ch.is_ascii_digit() => {
+                        self.escape_sequence.push_num(c);
                     }
-                    'C' => {
-                        self.move_cursor_left();
-                        self.escape_state = EscapeState::Normal;
-                    }
-                    'D' => {
-                        self.move_cursor_right();
-                        self.escape_state = EscapeState::Normal;
+                    c if c.is_ascii_alphabetic() => {
+                        // Reset because actions are the last members of a sequence
+                        self.escape_sequence.push_action(c);
+                        self.parse_sequence();
+                        self.escape_sequence.reset();
+                        break;
+                        // self.escape_state = EscapeState::Normal;
                     }
                     _ => {
-                        self.escape_state = EscapeState::Normal;
+                        // self.escape_state = EscapeState::Normal;
                     }
                 },
             }
