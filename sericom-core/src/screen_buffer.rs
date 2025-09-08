@@ -19,8 +19,8 @@
 
 use crate::configs::get_config;
 use crossterm::style::Color;
-use tracing::{event, Level};
 use std::{collections::VecDeque, io::BufWriter};
+use tracing::{Level, debug};
 
 const MIN_RENDER_INTERVAL: tokio::time::Duration = tokio::time::Duration::from_millis(33);
 
@@ -39,7 +39,7 @@ pub enum EscapeState {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EscapePart {
     Empty,
-    Numbers(Vec<u16>),
+    Numbers(Vec<char>),
     Separator,
     Action(char),
 }
@@ -84,7 +84,6 @@ impl EscapeSequence {
 
     /// Adds numbers to the in-progress part of the escape sequence
     fn push_num(&mut self, num: char) {
-        let num: u16 = num.to_digit(10).expect("Only passing ascii decimal digits (0-9)") as u16;
         match &mut self.part {
             EscapePart::Numbers(nums) => nums.push(num),
             _ => self.part = EscapePart::Numbers(vec![num]),
@@ -199,8 +198,8 @@ pub struct ScreenBuffer {
     max_scrollback: usize,
     /// Represents the current state for handling ansii escape sequences
     /// as incoming data is being processed.
-    pub escape_state: EscapeState,
-    pub escape_sequence: EscapeSequence,
+    escape_state: EscapeState,
+    escape_sequence: EscapeSequence,
     last_render: Option<tokio::time::Instant>,
     needs_render: bool,
 }
@@ -243,49 +242,86 @@ impl ScreenBuffer {
     }
 
     fn parse_sequence(&mut self) {
+        let span = tracing::span!(Level::DEBUG, "Escape sequence");
+        let _enter = span.enter();
         match &self.escape_sequence.sequence[..] {
             [
-            EscapePart::Numbers(_nums),
-            EscapePart::Separator,
-            EscapePart::Numbers(_nums2),
-            EscapePart::Action(_action)
-            ] => {}
-            [
-            EscapePart::Separator,
-            EscapePart::Numbers(_nums2),
-            EscapePart::Action(_action)
-            ] => {}
-            [
-            EscapePart::Numbers(_nums),
-            EscapePart::Action(_action)
-            ] => {}
-            [EscapePart::Action(action)] => {
+                EscapePart::Numbers(line_nums),
+                EscapePart::Separator,
+                EscapePart::Numbers(col_nums),
+                EscapePart::Action(action),
+            ] => {
+                debug!("Got ESC[{:?};{:?}{}", line_nums, col_nums, action);
                 match action {
-                    'H' => {
-                        self.set_cursor_pos::<(u16, usize)>((0, 0));
-                        self.escape_state = EscapeState::Normal;
-                    }
-                    'J' => {
-                        self.clear_from_cursor_to_eol();
-                        self.escape_state = EscapeState::Normal;
-                    }
-                    'K' => {
-                        self.clear_from_cursor_to_eol();
-                        self.escape_state = EscapeState::Normal;
-                    }
-                    'C' => {
-                        self.move_cursor_right();
-                        self.escape_state = EscapeState::Normal;
-                    }
-                    'D' => {
-                        self.move_cursor_left();
-                        self.escape_state = EscapeState::Normal;
+                    'H' | 'f' => {
+                        let line_num: u16 = line_nums.iter().collect::<String>().parse().unwrap();
+                        let col_num: u16 = col_nums.iter().collect::<String>().parse().unwrap();
+                        self.set_cursor_pos((col_num, line_num));
                     }
                     _ => {}
                 }
-            },
-            _ => {}
-
+                self.escape_state = EscapeState::Normal;
+            }
+            [
+                EscapePart::Separator,
+                EscapePart::Numbers(col_nums),
+                EscapePart::Action(action),
+            ] => {
+                debug!("Got ESC[;{:?}{}", col_nums, action);
+                match action {
+                    'H' | 'f' => {
+                        let col_num: u16 = col_nums.iter().collect::<String>().parse().unwrap();
+                        self.cursor_pos.x = col_num;
+                    }
+                    _ => {}
+                }
+                self.escape_state = EscapeState::Normal;
+            }
+            [EscapePart::Numbers(nums), EscapePart::Action(action)] => {
+                debug!("Got ESC[{:?}{}", nums, action);
+                let num: u16 = nums.iter().collect::<String>().parse().unwrap();
+                match (num, action) {
+                    // Erase from cursor until end of screen
+                    (0, 'J') => self.clear_from_cursor_to_eos(),
+                    // Erase from cursor to beginning of screen
+                    (1, 'J') => {} // TODO
+                    // Erase entire screen
+                    (2, 'J') => {
+                        // TODO - use function that doesn't clear
+                        // lines from screen_buffer memory
+                        self.clear_buffer();
+                    }
+                    // Erase from cursor to end of line
+                    (0, 'K') => self.clear_from_cursor_to_eol(),
+                    // Erase start of line to cursor
+                    (1, 'K') => {} // TODO
+                    // Erase entire line
+                    (2, 'K') => {} // TODO
+                    // Move cursor left # of cols
+                    (num, 'D') => self.cursor_pos.x -= num,
+                    // Move cursor right # of cols
+                    (num, 'C') => self.cursor_pos.x += num,
+                    _ => {}
+                }
+                self.escape_state = EscapeState::Normal;
+            }
+            [EscapePart::Action(action)] => {
+                debug!("Got ESC[{}", action);
+                match action {
+                    // Set cursor position to 0, 0
+                    'H' => self.set_cursor_pos::<(u16, usize)>((0, 0)),
+                    // Erase from cursor until end of screen
+                    'J' => self.clear_from_cursor_to_eos(),
+                    // Erase from cursor to end of line
+                    'K' => self.clear_from_cursor_to_eol(),
+                    'C' => self.move_cursor_right(),
+                    'D' => self.move_cursor_left(),
+                    action if action.is_alphabetic() => {}
+                    _ => {}
+                }
+                self.escape_state = EscapeState::Normal;
+            }
+            _ => self.escape_state = EscapeState::Normal,
         }
     }
 
@@ -293,12 +329,12 @@ impl ScreenBuffer {
     /// processes them accordingly, handling ascii escape sequences, to
     /// render as characters/strings in the terminal.
     pub fn add_data(&mut self, data: &[u8]) {
-        let span = tracing::span!(Level::DEBUG, "Add Data");
-        let _enter = span.enter();
+        // let span = tracing::span!(Level::DEBUG, "Add Data");
+        // let _enter = span.enter();
         let text = String::from_utf8_lossy(data);
         let mut chars = text.chars().peekable();
 
-        event!(Level::DEBUG, "Adding data");
+        // event!(Level::DEBUG, "Adding data");
         while let Some(ch) = chars.next() {
             match self.escape_state {
                 EscapeState::Normal => {
@@ -314,10 +350,10 @@ impl ScreenBuffer {
                             self.new_line();
                         }
                         '\x07' => {
-                            event!(Level::DEBUG, "Got the weird byte");
+                            // event!(Level::DEBUG, "Got the weird byte");
                         }
                         '\x08' => {
-                            event!(Level::DEBUG, "Got `\x08`");
+                            // event!(Level::DEBUG, "Got `\x08`");
                             let mut temp_chars = chars.clone();
                             // Matches the `\x08 ' ' \x08` deletion sequence
                             if let (Some(' '), Some('\x08')) =
@@ -335,7 +371,7 @@ impl ScreenBuffer {
                             }
                         }
                         '\x1B' => {
-                            event!(Level::DEBUG, "Got ESC: `\x1B`");
+                            // event!(Level::DEBUG, "Got ESC: `\x1B`");
                             self.escape_state = EscapeState::Esc;
                         }
                         c => {
@@ -355,7 +391,7 @@ impl ScreenBuffer {
                 }
                 EscapeState::Esc => match ch {
                     '[' => {
-                        event!(Level::DEBUG, "Got BRACKET: `[`");
+                        // event!(Level::DEBUG, "Got BRACKET: `[`");
                         self.escape_state = EscapeState::Csi;
                     }
                     _ => {
@@ -364,15 +400,15 @@ impl ScreenBuffer {
                 },
                 EscapeState::Csi => match ch {
                     ';' => {
-                        event!(Level::DEBUG, "DEBUG: ASCII SEPARATOR");
+                        // event!(Level::DEBUG, "DEBUG: ASCII SEPARATOR");
                         self.escape_sequence.insert_separator();
                     }
                     c if ch.is_ascii_digit() => {
-                        event!(Level::DEBUG, "DEBUG: ASCII DIGIT");
+                        // event!(Level::DEBUG, "DEBUG: ASCII DIGIT {c}");
                         self.escape_sequence.push_num(c);
                     }
                     c if c.is_ascii_alphabetic() => {
-                        event!(Level::DEBUG, "DEBUG: ASCII LETTER");
+                        // event!(Level::DEBUG, "DEBUG: ASCII LETTER {c}");
                         // Reset because actions are the last members of a sequence
                         self.escape_sequence.push_action(c);
                         self.parse_sequence();
@@ -380,7 +416,7 @@ impl ScreenBuffer {
                         self.escape_state = EscapeState::Normal;
                     }
                     _ => {
-                        event!(Level::DEBUG, "DEBUG: IGNORED");
+                        // event!(Level::DEBUG, "DEBUG: IGNORED {c}");
                         self.escape_state = EscapeState::Normal;
                     }
                 },
@@ -438,13 +474,27 @@ impl ScreenBuffer {
         }
     }
 
-    #[allow(clippy::needless_range_loop)]
     fn clear_from_cursor_to_eol(&mut self) {
         if let Some(line) = self.lines.get_mut(self.cursor_pos.y) {
-            for x in (self.cursor_pos.x as usize)..line.len() {
-                line[x] = Cell::default();
+            for cell in line.iter_mut().skip(self.cursor_pos.x as usize) {
+                *cell = Cell::default();
             }
         }
+    }
+
+    fn clear_from_cursor_to_eos(&mut self) {
+        // Clear the cells in the current line to eol
+        if let Some(line) = self.lines.get_mut(self.cursor_pos.y) {
+            for cell in line.iter_mut().skip(self.cursor_pos.x as usize) {
+                *cell = Cell::default();
+            }
+        }
+        // Clear rest of lines from cursor_pos.y to the end of screen
+        self.lines
+            .range_mut(self.cursor_pos.y + 1..)
+            .for_each(|line| {
+                line.iter_mut().for_each(|cell| *cell = Cell::default());
+            });
     }
 
     fn new_line(&mut self) {
@@ -660,8 +710,8 @@ impl ScreenBuffer {
         use std::io::{self, Write};
         use tokio::time::Instant;
 
-        let span = tracing::span!(Level::INFO, "Render");
-        let _entered = span.enter();
+        // let span = tracing::span!(Level::INFO, "Render");
+        // let _entered = span.enter();
         if !self.needs_render {
             return Ok(());
         }
@@ -726,10 +776,10 @@ impl ScreenBuffer {
             cursor::Show
         )?;
         writer.flush()?;
-        event!(Level::INFO, "Rendered baby");
+        // event!(Level::INFO, "Rendered baby");
 
-        let sb = self.get_stats();
-        tracing::event!(Level::DEBUG, ?sb);
+        // let sb = self.get_stats();
+        // tracing::event!(Level::DEBUG, ?sb);
 
         self.last_render = Some(Instant::now());
         self.needs_render = false;

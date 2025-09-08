@@ -14,8 +14,8 @@ use sericom_core::{
     cli::{get_settings, interactive_session, list_serial_ports, open_connection, valid_baud_rate},
     configs::initialize_config,
 };
-use tracing::{event, span, Level};
 use std::io::{self, Write};
+use tracing::{Level, event, span};
 
 #[derive(Parser)]
 #[command(name = "sericom", version, about, long_about = None)]
@@ -61,24 +61,30 @@ enum Commands {
 
 #[tokio::main]
 async fn main() -> miette::Result<()> {
-    let file = std::fs::File::options()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open("./tracing.txt")
-        .into_diagnostic()?;
-
-    let (non_blocking, _guard) = tracing_appender::non_blocking(file);
-    let subscriber = tracing_subscriber::fmt()
-        .with_max_level(Level::DEBUG)
-        .with_writer(non_blocking)
-        .finish();
-    tracing::subscriber::set_global_default(subscriber).into_diagnostic().wrap_err("Failed to set subscriber")?;
-
     let cli = Cli::parse();
 
-    let span = span!(Level::TRACE, "Main");
-    let _enter = span.enter();
+    if cli.debug {
+        let file = std::fs::File::options()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open("./tracing.txt")
+            .into_diagnostic()?;
+        let (non_blocking, _guard) = tracing_appender::non_blocking(file);
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(Level::DEBUG)
+            .with_writer(non_blocking)
+            .without_time()
+            .with_ansi(false)
+            .with_line_number(false)
+            .with_target(false)
+            .finish();
+        tracing::subscriber::set_global_default(subscriber)
+            .into_diagnostic()
+            .wrap_err("Failed to set subscriber")?;
+        let span = span!(Level::TRACE, "Main");
+        let _enter = span.enter();
+    }
 
     if cli.port.is_none() && cli.command.is_none() {
         let mut cmd = Cli::command();

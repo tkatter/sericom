@@ -19,11 +19,11 @@ use crossterm::{
 };
 use miette::{Context, IntoDiagnostic};
 use serial2_tokio::SerialPort;
-use tracing::{span, Level};
 use std::{
     io::{self, Write},
     path::PathBuf,
 };
+use tracing::{Level, span};
 
 /// Spawns all of the tasks responsible for maintaining an interactive terminal session.
 pub async fn interactive_session(
