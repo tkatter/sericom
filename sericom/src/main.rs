@@ -14,6 +14,7 @@ use sericom_core::{
     cli::{get_settings, interactive_session, list_serial_ports, open_connection, valid_baud_rate},
     configs::initialize_config,
 };
+use tracing::{event, span, Level};
 use std::io::{self, Write};
 
 #[derive(Parser)]
@@ -60,7 +61,24 @@ enum Commands {
 
 #[tokio::main]
 async fn main() -> miette::Result<()> {
+    let file = std::fs::File::options()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open("./tracing.txt")
+        .into_diagnostic()?;
+
+    let (non_blocking, _guard) = tracing_appender::non_blocking(file);
+    let subscriber = tracing_subscriber::fmt()
+        .with_max_level(Level::DEBUG)
+        .with_writer(non_blocking)
+        .finish();
+    tracing::subscriber::set_global_default(subscriber).into_diagnostic().wrap_err("Failed to set subscriber")?;
+
     let cli = Cli::parse();
+
+    let span = span!(Level::TRACE, "Main");
+    let _enter = span.enter();
 
     if cli.port.is_none() && cli.command.is_none() {
         let mut cmd = Cli::command();
@@ -81,6 +99,7 @@ async fn main() -> miette::Result<()> {
     }
 
     if let Some(port) = cli.port {
+        event!(Level::TRACE, "opening connection");
         let connection = open_connection(cli.baud, &port)?;
         initialize_config()?;
         interactive_session(connection, cli.file, cli.debug, &port).await?;
@@ -98,6 +117,7 @@ async fn main() -> miette::Result<()> {
                 }
             }
             Commands::ListPorts => {
+                event!(Level::INFO, "listing ports");
                 list_serial_ports()?;
             }
             Commands::ListSettings { baud, port } => {

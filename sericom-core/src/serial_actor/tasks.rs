@@ -71,6 +71,10 @@ pub async fn run_stdout_output(
             }
             ui_command = ui_rx.recv() => {
                 match ui_command {
+                    Some(UICommand::GetStats) => {
+                        // let sb = screen_buffer.get_stats();
+                        // tracing::event!(Level::DEBUG, ?sb)
+                    }
                     Some(UICommand::ScrollUp(lines)) => {
                         screen_buffer.scroll_up(lines);
                         screen_buffer.render().ok();
@@ -180,6 +184,10 @@ fn stdin_input_loop(
                     }
                     2 => {
                         let _ = ui_tx.blocking_send(UICommand::ScrollBottom);
+                        continue;
+                    }
+                    3 => {
+                        let _ = ui_tx.blocking_send(UICommand::GetStats);
                         continue;
                     }
                     _ => continue,
@@ -293,6 +301,8 @@ pub async fn run_file_output(
     let (write_tx, write_rx) = std::sync::mpsc::channel::<Vec<u8>>();
 
     let write_handle = tokio::task::spawn_blocking(move || {
+        let span = span!(Level::DEBUG, "File Blocking");
+        let _enter = span.enter();
         let file = match File::create(&file_path) {
             Ok(f) => f,
             Err(e) => {
@@ -311,6 +321,7 @@ pub async fn run_file_output(
         while let Ok(data) = write_rx.recv() {
             writer.write_all(&data).ok();
 
+            tracing::event!(Level::DEBUG, "Wrote to File");
             let now = std::time::Instant::now();
             if now.duration_since(last_flush) > std::time::Duration::from_millis(200)
                 || writer.buffer().len() > 4 * 1024

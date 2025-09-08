@@ -49,7 +49,7 @@ mod macros {
     /// ```
     /// use serial2_tokio::SerialPort;
     /// use crossterm::style::Stylize;
-    /// use sericom::map_miette;
+    /// use sericom_core::map_miette;
     /// fn returns_err() -> miette::Result<()> {
     ///     let baud: u32 = 9600;
     ///     let port = "/dev/fakeport";

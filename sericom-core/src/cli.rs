@@ -19,6 +19,7 @@ use crossterm::{
 };
 use miette::{Context, IntoDiagnostic};
 use serial2_tokio::SerialPort;
+use tracing::{span, Level};
 use std::{
     io::{self, Write},
     path::PathBuf,
@@ -31,6 +32,8 @@ pub async fn interactive_session(
     debug: bool,
     port_name: &str,
 ) -> miette::Result<()> {
+    let span = span!(Level::TRACE, "Interactive session");
+    let _enter = span.enter();
     // Setup terminal
     let mut stdout = io::stdout();
     terminal::enable_raw_mode()
@@ -74,18 +77,23 @@ pub async fn interactive_session(
         };
 
         let file_rx = broadcast_event_tx.subscribe();
+        tracing::event!(Level::TRACE, "Spawned file task");
         tasks.spawn(run_file_output(file_rx, file_path));
     }
 
     if debug {
         let debug_rx = broadcast_event_tx.subscribe();
+        tracing::event!(Level::TRACE, "Spawned debug task");
         tasks.spawn(run_debug_output(debug_rx));
     }
 
     let actor = SerialActor::new(connection, command_rx, broadcast_event_tx);
+    tracing::event!(Level::TRACE, "Spawned SerialActor");
     tasks.spawn(actor.run());
 
+    tracing::event!(Level::TRACE, "Spawned stdout task");
     tasks.spawn(run_stdout_output(stdout_rx, ui_rx));
+    tracing::event!(Level::TRACE, "Spawned stdin task");
     tasks.spawn(run_stdin_input(command_tx, ui_tx));
 
     tasks.join_all().await;
@@ -97,6 +105,7 @@ pub async fn interactive_session(
 ///
 /// Returns `Ok(SerialPort)` or errors if unable to set the baud rate or open the `port`.
 pub fn open_connection(baud: u32, port: &str) -> miette::Result<SerialPort> {
+    span!(Level::INFO, "Opened connection");
     let settings = |mut s: serial2_tokio::Settings| -> std::io::Result<serial2_tokio::Settings> {
         s.set_raw();
         s.set_baud_rate(baud)?;

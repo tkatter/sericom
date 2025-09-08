@@ -17,3 +17,4 @@ crossterm.workspace = true
 miette.workspace = true
 serial2-tokio.workspace = true
 tokio.workspace = true
+tracing.workspace = true

@@ -19,13 +19,15 @@
 
 use crate::configs::get_config;
 use crossterm::style::Color;
+use tracing::{event, Level};
 use std::{collections::VecDeque, io::BufWriter};
 
 const MIN_RENDER_INTERVAL: tokio::time::Duration = tokio::time::Duration::from_millis(33);
 
 /// `EscapeState` holds stateful information about the incoming
 /// data to allow for proper processing of ansii escape codes/characters.
-enum EscapeState {
+#[derive(Debug, PartialEq, Eq)]
+pub enum EscapeState {
     /// Has not received ansii escape characters
     Normal,
     /// Just received an ESC (0x1B)
@@ -35,7 +37,7 @@ enum EscapeState {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-enum EscapePart {
+pub enum EscapePart {
     Empty,
     Numbers(Vec<u16>),
     Separator,
@@ -49,9 +51,9 @@ impl Default for EscapePart {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct EscapeSequence {
-    sequence: Vec<EscapePart>,
-    part: EscapePart,
+pub struct EscapeSequence {
+    pub sequence: Vec<EscapePart>,
+    pub part: EscapePart,
 }
 
 impl EscapeSequence {
@@ -112,6 +114,7 @@ pub enum UICommand {
     UpdateSelection(u16, u16),
     CopySelection,
     ClearBuffer,
+    GetStats,
 }
 
 /// `Cell` represents a cell within the terminal's window/frame.
@@ -174,6 +177,7 @@ impl From<Position> for (u16, u16) {
 /// The `ScreenBuffer` holds rendering state for the entire terminal's window/frame.
 /// It mainly serves to allow for user-interactions that require a history and location
 /// of the data displayed within the terminal i.e. copy/paste, scrolling, & highlighting.
+#[derive(Debug)]
 pub struct ScreenBuffer {
     /// Terminal width
     width: u16,
@@ -195,8 +199,8 @@ pub struct ScreenBuffer {
     max_scrollback: usize,
     /// Represents the current state for handling ansii escape sequences
     /// as incoming data is being processed.
-    escape_state: EscapeState,
-    escape_sequence: EscapeSequence,
+    pub escape_state: EscapeState,
+    pub escape_sequence: EscapeSequence,
     last_render: Option<tokio::time::Instant>,
     needs_render: bool,
 }
@@ -241,19 +245,19 @@ impl ScreenBuffer {
     fn parse_sequence(&mut self) {
         match &self.escape_sequence.sequence[..] {
             [
-            EscapePart::Numbers(nums),
+            EscapePart::Numbers(_nums),
             EscapePart::Separator,
-            EscapePart::Numbers(nums2),
-            EscapePart::Action(action)
+            EscapePart::Numbers(_nums2),
+            EscapePart::Action(_action)
             ] => {}
             [
             EscapePart::Separator,
-            EscapePart::Numbers(nums2),
-            EscapePart::Action(action)
+            EscapePart::Numbers(_nums2),
+            EscapePart::Action(_action)
             ] => {}
             [
-            EscapePart::Numbers(nums2),
-            EscapePart::Action(action)
+            EscapePart::Numbers(_nums),
+            EscapePart::Action(_action)
             ] => {}
             [EscapePart::Action(action)] => {
                 match action {
@@ -270,11 +274,11 @@ impl ScreenBuffer {
                         self.escape_state = EscapeState::Normal;
                     }
                     'C' => {
-                        self.move_cursor_left();
+                        self.move_cursor_right();
                         self.escape_state = EscapeState::Normal;
                     }
                     'D' => {
-                        self.move_cursor_right();
+                        self.move_cursor_left();
                         self.escape_state = EscapeState::Normal;
                     }
                     _ => {}
@@ -289,9 +293,12 @@ impl ScreenBuffer {
     /// processes them accordingly, handling ascii escape sequences, to
     /// render as characters/strings in the terminal.
     pub fn add_data(&mut self, data: &[u8]) {
+        let span = tracing::span!(Level::DEBUG, "Add Data");
+        let _enter = span.enter();
         let text = String::from_utf8_lossy(data);
         let mut chars = text.chars().peekable();
 
+        event!(Level::DEBUG, "Adding data");
         while let Some(ch) = chars.next() {
             match self.escape_state {
                 EscapeState::Normal => {
@@ -306,8 +313,11 @@ impl ScreenBuffer {
                         '\n' => {
                             self.new_line();
                         }
-                        '\x07' => {}
+                        '\x07' => {
+                            event!(Level::DEBUG, "Got the weird byte");
+                        }
                         '\x08' => {
+                            event!(Level::DEBUG, "Got `\x08`");
                             let mut temp_chars = chars.clone();
                             // Matches the `\x08 ' ' \x08` deletion sequence
                             if let (Some(' '), Some('\x08')) =
@@ -325,6 +335,7 @@ impl ScreenBuffer {
                             }
                         }
                         '\x1B' => {
+                            event!(Level::DEBUG, "Got ESC: `\x1B`");
                             self.escape_state = EscapeState::Esc;
                         }
                         c => {
@@ -344,6 +355,7 @@ impl ScreenBuffer {
                 }
                 EscapeState::Esc => match ch {
                     '[' => {
+                        event!(Level::DEBUG, "Got BRACKET: `[`");
                         self.escape_state = EscapeState::Csi;
                     }
                     _ => {
@@ -352,21 +364,24 @@ impl ScreenBuffer {
                 },
                 EscapeState::Csi => match ch {
                     ';' => {
+                        event!(Level::DEBUG, "DEBUG: ASCII SEPARATOR");
                         self.escape_sequence.insert_separator();
                     }
                     c if ch.is_ascii_digit() => {
+                        event!(Level::DEBUG, "DEBUG: ASCII DIGIT");
                         self.escape_sequence.push_num(c);
                     }
                     c if c.is_ascii_alphabetic() => {
+                        event!(Level::DEBUG, "DEBUG: ASCII LETTER");
                         // Reset because actions are the last members of a sequence
                         self.escape_sequence.push_action(c);
                         self.parse_sequence();
                         self.escape_sequence.reset();
-                        break;
-                        // self.escape_state = EscapeState::Normal;
+                        self.escape_state = EscapeState::Normal;
                     }
                     _ => {
-                        // self.escape_state = EscapeState::Normal;
+                        event!(Level::DEBUG, "DEBUG: IGNORED");
+                        self.escape_state = EscapeState::Normal;
                     }
                 },
             }
@@ -608,7 +623,7 @@ impl ScreenBuffer {
     }
 
     #[allow(dead_code)]
-    fn get_stats(&self) -> BufferStats {
+    pub fn get_stats(&self) -> BufferStats {
         let total_lines = self.lines.len();
         BufferStats {
             total_lines,
@@ -645,6 +660,8 @@ impl ScreenBuffer {
         use std::io::{self, Write};
         use tokio::time::Instant;
 
+        let span = tracing::span!(Level::INFO, "Render");
+        let _entered = span.enter();
         if !self.needs_render {
             return Ok(());
         }
@@ -690,20 +707,30 @@ impl ScreenBuffer {
             }
         }
 
-        let screen_cursor_y = if self.cursor_pos.y >= self.view_start
-            && self.cursor_pos.y < self.view_start + self.height as usize
-        {
-            (self.cursor_pos.y - self.view_start) as u16
-        } else {
-            self.height - 1
-        };
+        // This is relative the the terminal's L x W, whereas self.cursor_pos.y
+        // is within the entire line buf; seems to only matter when self.lines.len() < self.height
+        // let screen_cursor_y = if self.cursor_pos.y >= self.view_start
+        //     && self.cursor_pos.y < self.view_start + self.height as usize
+        // {
+        //     (self.cursor_pos.y - self.view_start) as u16
+        // } else {
+        //     self.height - 1
+        // };
+        //
+        // event!(Level::INFO, screen_y = screen_cursor_y, self_y = self.cursor_pos.y);
 
         queue!(
             writer,
-            cursor::MoveTo(self.cursor_pos.x, screen_cursor_y),
+            cursor::MoveTo(self.cursor_pos.x, self.cursor_pos.y as u16),
+            // cursor::MoveTo(self.cursor_pos.x, screen_cursor_y),
             cursor::Show
         )?;
         writer.flush()?;
+        event!(Level::INFO, "Rendered baby");
+
+        let sb = self.get_stats();
+        tracing::event!(Level::DEBUG, ?sb);
+
         self.last_render = Some(Instant::now());
         self.needs_render = false;
         Ok(())
@@ -712,7 +739,7 @@ impl ScreenBuffer {
 
 #[allow(dead_code)]
 #[derive(Debug)]
-struct BufferStats {
+pub struct BufferStats {
     pub total_lines: usize,
     pub view_start: usize,
     pub view_end: usize,
