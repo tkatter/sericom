@@ -34,13 +34,29 @@ pub async fn run_debug_output(mut rx: tokio::sync::broadcast::Receiver<SerialEve
 
         writeln!(writer, "Session started at: {}", chrono::Utc::now()).ok();
         while let Ok(data) = write_rx.recv() {
+            // let control_bytes_for_hex: Vec<u8> = data[..std::cmp::min(20, data.len())]
+            //     .iter()
+            //     .filter(|b| b.is_ascii_control())
+            //     .cloned()
+            //     .collect();
+            // Only prints the bytes of ASCII escape characters
+            // writeln!(
+            //     writer,
+            //     "RX {} bytes: {:02X?}{} UTF8: {}",
+            //     data.len(),
+            //     control_bytes_for_hex,
+            //     if data.len() > 20 { "..." } else { "" },
+            //     String::from_utf8_lossy(&data)
+            // )
+            // .ok();
+            // Prints bytes of all characters
             writeln!(
                 writer,
                 "[{}] RX {} bytes: {:02X?}{} UTF8: {}",
                 chrono::Utc::now().format("%H:%M:%S%.3f"),
                 data.len(),
-                &data[..std::cmp::min(8, data.len())],
-                if data.len() > 8 { "..." } else { "" },
+                &data[..std::cmp::min(20, data.len())],
+                if data.len() > 10 { "..." } else { "" },
                 String::from_utf8_lossy(&data)
             )
             .ok();

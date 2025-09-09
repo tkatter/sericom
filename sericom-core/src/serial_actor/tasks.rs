@@ -1,7 +1,7 @@
 use super::*;
 use crate::screen_buffer::*;
 use crossterm::{
-    event::{self, Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent},
+    event::{self, Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind},
     terminal,
 };
 use std::{
@@ -176,14 +176,13 @@ fn stdin_input_loop(
                 match f_code {
                     1 => {
                         let _ = ui_tx.blocking_send(UICommand::ScrollTop);
-                        continue;
                     }
                     2 => {
                         let _ = ui_tx.blocking_send(UICommand::ScrollBottom);
-                        continue;
                     }
-                    _ => continue,
+                    _ => {}
                 };
+                continue;
             }
             // Match Alt + Code
             Ok(Event::Key(KeyEvent {
@@ -195,13 +194,10 @@ fn stdin_input_loop(
                 if kind != crossterm::event::KeyEventKind::Press {
                     continue;
                 }
-                match code {
-                    KeyCode::Char('b') => {
-                        let _ = command_tx.blocking_send(SerialMessage::SendBreak);
-                        continue;
-                    }
-                    _ => continue,
+                if let KeyCode::Char('b') = code {
+                    let _ = command_tx.blocking_send(SerialMessage::SendBreak);
                 };
+                continue;
             }
             // Match Control + Code
             Ok(Event::Key(KeyEvent {
@@ -216,18 +212,17 @@ fn stdin_input_loop(
                 match code {
                     KeyCode::Char('c') => {
                         let _ = stdin_tx.blocking_send(UTF_CTRL_C.to_string());
-                        continue;
                     }
                     KeyCode::Char('l') => {
                         let _ = ui_tx.blocking_send(UICommand::ClearBuffer);
-                        continue;
                     }
                     KeyCode::Char('q') => {
                         let _ = command_tx.blocking_send(SerialMessage::Shutdown);
                         break;
                     }
-                    _ => continue,
+                    _ => {}
                 };
+                continue;
             }
             // Match every other key
             Ok(Event::Key(KeyEvent {
@@ -261,11 +256,11 @@ fn stdin_input_loop(
                 kind, column, row, ..
             })) => {
                 let ui_command = match kind {
-                    event::MouseEventKind::ScrollUp => UICommand::ScrollUp(1),
-                    event::MouseEventKind::ScrollDown => UICommand::ScrollDown(1),
-                    event::MouseEventKind::Down(_) => UICommand::StartSelection(column, row),
-                    event::MouseEventKind::Drag(_) => UICommand::UpdateSelection(column, row),
-                    event::MouseEventKind::Up(_) => UICommand::CopySelection,
+                    MouseEventKind::ScrollUp => UICommand::ScrollUp(1),
+                    MouseEventKind::ScrollDown => UICommand::ScrollDown(1),
+                    MouseEventKind::Down(_) => UICommand::StartSelection(column, row),
+                    MouseEventKind::Drag(_) => UICommand::UpdateSelection(column, row),
+                    MouseEventKind::Up(_) => UICommand::CopySelection,
                     _ => continue,
                 };
                 if ui_tx.blocking_send(ui_command).is_err() {
@@ -296,10 +291,7 @@ pub async fn run_file_output(
         let file = match File::create(&file_path) {
             Ok(f) => f,
             Err(e) => {
-                eprintln!(
-                    "Failed to create file '{}': {e}",
-                    file_path.to_string_lossy()
-                );
+                eprintln!("Failed to create file '{}': {e}", file_path.display());
                 return;
             }
         };
@@ -310,7 +302,6 @@ pub async fn run_file_output(
         writeln!(writer, "Session started at: {}", chrono::Utc::now()).ok();
         while let Ok(data) = write_rx.recv() {
             writer.write_all(&data).ok();
-
             let now = std::time::Instant::now();
             if now.duration_since(last_flush) > std::time::Duration::from_millis(200)
                 || writer.buffer().len() > 4 * 1024

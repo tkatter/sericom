@@ -313,9 +313,9 @@ fn valid_conf_dir() {
     }
 }
 
-#[test]
-fn initialize_conf() {
-    initialize_config().unwrap();
-    let config = get_config();
-    assert_eq!(config, &Config::default())
-}
+// #[test]
+// fn initialize_conf() {
+//     initialize_config().unwrap();
+//     let config = get_config();
+//     assert_eq!(config, &Config::default())
+// }

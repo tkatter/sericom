@@ -15,6 +15,7 @@ use sericom_core::{
     configs::initialize_config,
 };
 use std::io::{self, Write};
+use tracing::{Level, event, span};
 
 #[derive(Parser)]
 #[command(name = "sericom", version, about, long_about = None)]
@@ -62,6 +63,29 @@ enum Commands {
 async fn main() -> miette::Result<()> {
     let cli = Cli::parse();
 
+    if cli.debug {
+        let file = std::fs::File::options()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open("./tracing.txt")
+            .into_diagnostic()?;
+        let (non_blocking, _guard) = tracing_appender::non_blocking(file);
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(Level::DEBUG)
+            .with_writer(non_blocking)
+            .without_time()
+            .with_ansi(false)
+            .with_line_number(false)
+            .with_target(false)
+            .finish();
+        tracing::subscriber::set_global_default(subscriber)
+            .into_diagnostic()
+            .wrap_err("Failed to set subscriber")?;
+        let span = span!(Level::TRACE, "Main");
+        let _enter = span.enter();
+    }
+
     if cli.port.is_none() && cli.command.is_none() {
         let mut cmd = Cli::command();
         cmd.error(
@@ -81,6 +105,7 @@ async fn main() -> miette::Result<()> {
     }
 
     if let Some(port) = cli.port {
+        event!(Level::TRACE, "opening connection");
         let connection = open_connection(cli.baud, &port)?;
         initialize_config()?;
         interactive_session(connection, cli.file, cli.debug, &port).await?;
@@ -98,6 +123,7 @@ async fn main() -> miette::Result<()> {
                 }
             }
             Commands::ListPorts => {
+                event!(Level::INFO, "listing ports");
                 list_serial_ports()?;
             }
             Commands::ListSettings { baud, port } => {

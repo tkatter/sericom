@@ -1,6 +1,8 @@
 //! This module holds all of the code directly responsible for interacting
 //! with the serial connection and tasks within the program.
 
+use tracing::{Level, span};
+
 pub mod tasks;
 
 /// Represents messages/commands that are sent from worker tasks
@@ -67,6 +69,8 @@ impl SerialActor {
     /// Since data is sent byte-by-byte over a serial connection, `run` will
     /// batch the data before sending it to other tasks to reduce the number of syscalls.
     pub async fn run(mut self) {
+        let span = span!(Level::TRACE, "SerialActor");
+        let _enter = span.enter();
         let mut buffer = vec![0u8; 4096];
         loop {
             tokio::select! {
@@ -89,6 +93,7 @@ impl SerialActor {
                 }
                 // Handle reading data from serial connection
                 read_result = self.connection.read(&mut buffer) => {
+                    // tracing::event!(Level::TRACE, "Data read");
                     match read_result {
                         Ok(0) => {
                             self.broadcast_channel.send(SerialEvent::ConnectionClosed).ok();
