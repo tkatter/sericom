@@ -78,11 +78,15 @@ sudo apt install ./<path_to_downloaded_release>.deb
 sericom --version
 
 # Check the sha256 checksum
-curl -LO https://github.com/tkatter/sericom/releases/download/v0.3.0/sericom_0.3.0-1_amd64.deb
-curl -LO https://github.com/tkatter/sericom/releases/download/v0.3.0/sericom_0.3.0-1_amd64.deb.sha256
+curl -LO https://github.com/tkatter/sericom/releases/download/sericom/v0.4.0/sericom_0.4.0-1_amd64.deb
+curl -LO https://github.com/tkatter/sericom/releases/download/sericom/v0.4.0/sericom_0.4.0-1_amd64.deb.sha256
 
-sha256sum -c sericom_0.3.0-1_amd64.deb.sha256
+sha256sum -c sericom_0.4.0-1_amd64.deb.sha256
 ```
+
+### Windows Installer
+
+For Windows machines, navigate to the [releases]() page and download the `sericom-*.msi` installer. Once downloaded, launch the installer from File Explorer and click through the installation steps. By default, sericom will be installed in `C:\Program Files\sericom`.
 
 ### Build From Source
 
@@ -140,9 +144,10 @@ sericom list-ports
 - Scroll to the top of the session's history: <kbd>F1</kbd>
 - Scroll to the bottom of the session's history: <kbd>F2</kbd>
 - Copy text: simply select the text with your mouse; upon releasing the mouse button, the selected text will be automatically copied to your clipboard
-- Paste text: <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>v</kbd>
+- Paste text: <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>v</kbd> (some terminals may support <kbd>Ctrl</kbd> + <kbd>v</kbd>)
 - Clear the screen and clear the session's history: <kbd>Ctrl</kbd> + <kbd>l</kbd>
 - Quit: <kbd>Ctrl</kbd> + <kbd>q</kbd>
+- Send the Break signal: <kbd>Alt</kbd> + <kbd>b</kbd>
 
 ### Configuration
 

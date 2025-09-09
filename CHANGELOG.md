@@ -19,6 +19,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+## sericom/[0.4.0](https://github.com/tkatter/sericom/releases/tag/sericom/v0.4.0) - 2025-09-09
+
+### Fixed
+
+- Fixed ASCII escape sequence handling ([#5](https://github.com/tkatter/sericom/pull/5)). *Note: deliberately chose to ignore ASCII escape sequences that call for color changes so user config takes precedence - if this is a desired feature, please create an [issue](https://github.com/tkatter/sericom/issues).*
+
+## sericom-core/[0.3.0](https://github.com/tkatter/sericom/releases/tag/sericom-core/v0.3.0) - 2025-09-09
+
+### Fixed
+
+- Fixed ASCII escape sequence handling ([#5](https://github.com/tkatter/sericom/pull/5)) by adding an escape sequence state machine/builder to the `ScreenBuffer` to process ASCII escape sequences as they are received.
+
+### Changed
+
+- Changed internal structure of the `screen_buffer` module
+
 ## sericom/[0.3.1](https://github.com/tkatter/sericom/releases/tag/sericom/v0.3.1) - 2025-09-02
 
 ## sericom-core/[0.2.0](https://github.com/tkatter/sericom/releases/tag/sericom-core/v0.2.0) - 2025-09-02
@@ -73,9 +89,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Diffs
 
-sericom/[unreleased]: https://github.com/tkatter/sericom/compare/sericom/v0.3.1...HEAD  
-sericom-core/[unreleased]: https://github.com/tkatter/sericom/compare/sericom-core/v0.2.0...HEAD
+sericom/[unreleased]: https://github.com/tkatter/sericom/compare/sericom/v0.4.0...HEAD  
+sericom-core/[unreleased]: https://github.com/tkatter/sericom/compare/sericom-core/v0.3.0...HEAD
 
+sericom/[0.4.0]: https://github.com/tkatter/sericom/compare/v0.3.1...sericom/v0.4.0  
+sericom-core/[0.3.0]: https://github.com/tkatter/sericom/releases/tag/sericom-core/v0.2.0...sericom-core/v0.3.0  
 sericom/[0.3.1]: https://github.com/tkatter/sericom/compare/v0.3.0...sericom/v0.3.1  
 sericom-core/[0.2.0]: https://github.com/tkatter/sericom/releases/tag/sericom-core/v0.1.0...sericom-core/v0.2.0  
 sericom/[0.3.0]: https://github.com/tkatter/sericom/compare/v0.2.0...sericom/v0.3.0  
