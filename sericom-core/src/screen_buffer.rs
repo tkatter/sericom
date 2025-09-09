@@ -14,8 +14,8 @@
 //!
 //! The screen buffer solves these issues by storing each line received from the
 //! connection in a [`VecDeque`]. It is important to note that
-//! currently, the **capacity of the `VecDeque` is not hardcoded and is theoretically
-//! allowed to grow forever**, limited by memory.
+//! currently, the **capacity of the `VecDeque` is hardcoded with a value of 10,000
+//! lines and is theoretically allowed to grow forever**; limited by memory.
 
 use crate::configs::get_config;
 use crossterm::style::Color;
@@ -27,7 +27,7 @@ const MIN_RENDER_INTERVAL: tokio::time::Duration = tokio::time::Duration::from_m
 /// `EscapeState` holds stateful information about the incoming
 /// data to allow for proper processing of ansii escape codes/characters.
 #[derive(Debug, PartialEq, Eq)]
-pub enum EscapeState {
+enum EscapeState {
     /// Has not received ansii escape characters
     Normal,
     /// Just received an ESC (0x1B)
@@ -36,11 +36,19 @@ pub enum EscapeState {
     Csi,
 }
 
+/// Represents a section of an ascii escape sequence.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum EscapePart {
+enum EscapePart {
+    /// The default state when not actively processing an escape sequence.
     Empty,
+    /// Collects ascii digits (0-9) as they are received individually and are
+    /// eventually combined to create the final number that the `Action` will
+    /// perform on i.e. `vec!['2', '3']` -> `23`.
     Numbers(Vec<char>),
+    /// The `Separator` represents the `;` used in ascii escape sequences.
     Separator,
+    /// The `Action` represents the (typically) last letter of an escape
+    /// sequence that determines what action is to be taken i.e. `ESC[2J`.
     Action(char),
 }
 
@@ -50,10 +58,12 @@ impl Default for EscapePart {
     }
 }
 
+/// A state-holder/collection for building ascii escape sequences
+/// from incoming data to enable proper processing/execution.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct EscapeSequence {
-    pub sequence: Vec<EscapePart>,
-    pub part: EscapePart,
+struct EscapeSequence {
+    sequence: Vec<EscapePart>,
+    part: EscapePart,
 }
 
 impl EscapeSequence {
@@ -64,6 +74,7 @@ impl EscapeSequence {
         }
     }
 
+    /// Clear's the sequence and sets the part to [`EscapePart::Empty`].
     fn reset(&mut self) {
         // Clear is probably good since it will continue to
         // fill up to similar sizes throughout the program.
@@ -71,10 +82,12 @@ impl EscapeSequence {
         self.part = EscapePart::Empty;
     }
 
+    /// Appends the `part` that is currently being processed to the `sequence`.
     fn push_part(&mut self) {
         self.sequence.push(std::mem::take(&mut self.part));
     }
 
+    /// Appends a [`EscapePart::Separator`] to `Self.sequence`.
     fn insert_separator(&mut self) {
         if self.part != EscapePart::Empty {
             self.push_part();
@@ -113,7 +126,6 @@ pub enum UICommand {
     UpdateSelection(u16, u16),
     CopySelection,
     ClearBuffer,
-    GetStats,
 }
 
 /// `Cell` represents a cell within the terminal's window/frame.
@@ -139,14 +151,94 @@ impl Default for Cell {
     }
 }
 
+/// Line is a wrapper around `Vec<Cell>` and represents a line within the [`ScreenBuffer`].
+#[derive(Clone, Debug)]
+struct Line(Vec<Cell>);
+
+impl Line {
+    fn new(width: usize) -> Self {
+        Self(vec![Cell::default(); width])
+    }
+
+    fn reset(&mut self) {
+        self.0.iter_mut().for_each(|cell| *cell = Cell::default());
+    }
+
+    fn reset_to_idx(&mut self, idx: usize) {
+        self.0[..idx]
+            .iter_mut()
+            .for_each(|cell| *cell = Cell::default());
+    }
+
+    fn reset_from_idx(&mut self, idx: usize) {
+        self.0
+            .iter_mut()
+            .skip(idx)
+            .for_each(|cell| *cell = Cell::default());
+    }
+
+    fn set_char(&mut self, idx: usize, ch: char) {
+        self.0[idx].character = ch;
+    }
+
+    const fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    fn clear_selection(&mut self) {
+        self.0.iter_mut().for_each(|cell| cell.is_selected = false);
+    }
+
+    fn get_cell(&self, idx: usize) -> Option<&Cell> {
+        self.0.get(idx)
+    }
+
+    fn get_mut_cell(&mut self, idx: usize) -> Option<&mut Cell> {
+        self.0.get_mut(idx)
+    }
+}
+
+impl IntoIterator for Line {
+    type Item = Cell;
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a Line {
+    type Item = &'a Cell;
+    type IntoIter = std::slice::Iter<'a, Cell>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a mut Line {
+    type Item = &'a mut Cell;
+    type IntoIter = std::slice::IterMut<'a, Cell>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter_mut()
+    }
+}
+
 /// Represent's the cursor's position within the [`ScreenBuffer`].
 #[derive(Clone, Copy, Debug)]
 struct Position {
-    /// The x position of a line within `ScreenBuffer`'s scrollback buffer.
-    /// This translates to the `Cell` within a line (`Vec`).
+    /// The x position of a line within [`ScreenBuffer`]'s scrollback buffer.
+    /// This translates to the [`Cell`] within a line (`Vec`).
     x: u16,
-    /// `y` is the line number within `ScreenBuffer`'s scrollback buffer.
+    /// `y` is the line number within [`ScreenBuffer`]'s scrollback buffer.
     y: usize,
+}
+
+impl Position {
+    const fn home() -> Self {
+        Self { x: 0, y: 0 }
+    }
 }
 
 impl From<(u16, usize)> for Position {
@@ -184,7 +276,7 @@ pub struct ScreenBuffer {
     height: u16,
     /// Scrollback buffer (all lines received from the serial connection).
     /// Limited by memory.
-    lines: VecDeque<Vec<Cell>>,
+    lines: VecDeque<Line>,
     /// Current view into the buffer.
     /// Denotes which line is at the top of the screen.
     view_start: usize,
@@ -199,8 +291,12 @@ pub struct ScreenBuffer {
     /// Represents the current state for handling ansii escape sequences
     /// as incoming data is being processed.
     escape_state: EscapeState,
+    /// As ascii escape sequences are recieved, they are built in the
+    /// [`EscapeSequence`] to evaluate upon a completed escape sequence.
     escape_sequence: EscapeSequence,
+    /// Represents the time since [`ScreenBuffer::render()`] was last called.
     last_render: Option<tokio::time::Instant>,
+    /// Indicates that [`ScreenBuffer`] has new data and needs to render.
     needs_render: bool,
 }
 
@@ -213,7 +309,7 @@ impl ScreenBuffer {
             height,
             lines: VecDeque::new(),
             view_start: 0,
-            cursor_pos: Position { x: 0, y: 0 },
+            cursor_pos: Position::home(),
             selection_start: None,
             selection_end: None,
             max_scrollback,
@@ -223,9 +319,7 @@ impl ScreenBuffer {
             escape_sequence: EscapeSequence::new(),
         };
         // Start with an empty line
-        buffer
-            .lines
-            .push_back(vec![Cell::default(); width as usize]);
+        buffer.lines.push_back(Line::new(width as usize));
         buffer
     }
 
@@ -233,12 +327,27 @@ impl ScreenBuffer {
         self.cursor_pos = position.into();
     }
 
-    fn move_cursor_left(&mut self) {
-        self.cursor_pos.x = self.cursor_pos.x.saturating_sub(1);
+    fn move_cursor_left(&mut self, cells: u16) {
+        self.cursor_pos.x = self.cursor_pos.x.saturating_sub(cells);
     }
 
-    fn move_cursor_right(&mut self) {
-        self.cursor_pos.x = self.cursor_pos.x.saturating_add(1);
+    fn move_cursor_up(&mut self, lines: u16) {
+        self.cursor_pos.y = self.cursor_pos.y.saturating_sub(lines as usize);
+    }
+
+    fn move_cursor_down(&mut self, lines: u16) {
+        self.cursor_pos.y = self.cursor_pos.y.saturating_add(lines as usize);
+        while self.cursor_pos.y > self.lines.len() {
+            self.lines.push_back(Line::new(self.width as usize));
+        }
+    }
+
+    fn move_cursor_right(&mut self, cells: u16) {
+        self.cursor_pos.x = self.cursor_pos.x.saturating_add(cells);
+    }
+
+    fn set_cursor_col(&mut self, col: u16) {
+        self.cursor_pos.x = col;
     }
 
     fn parse_sequence(&mut self) {
@@ -253,7 +362,10 @@ impl ScreenBuffer {
             ] => {
                 debug!("Got ESC[{:?};{:?}{}", line_nums, col_nums, action);
                 match action {
+                    // Move cursor to (line_num, col_num)
                     'H' | 'f' => {
+                        // Can unwrap because it is guaranteed elsewhere that
+                        // `EscapePart::Numbers(Vec<Char>)` only holds ascii digits (0-9).
                         let line_num: u16 = line_nums.iter().collect::<String>().parse().unwrap();
                         let col_num: u16 = col_nums.iter().collect::<String>().parse().unwrap();
                         self.set_cursor_pos((col_num, line_num));
@@ -269,7 +381,10 @@ impl ScreenBuffer {
             ] => {
                 debug!("Got ESC[;{:?}{}", col_nums, action);
                 match action {
+                    // Move cursor to (same, col_num)
                     'H' | 'f' => {
+                        // Can unwrap because it is guaranteed elsewhere that
+                        // `EscapePart::Numbers(Vec<Char>)` only holds ascii digits (0-9).
                         let col_num: u16 = col_nums.iter().collect::<String>().parse().unwrap();
                         self.cursor_pos.x = col_num;
                     }
@@ -279,28 +394,47 @@ impl ScreenBuffer {
             }
             [EscapePart::Numbers(nums), EscapePart::Action(action)] => {
                 debug!("Got ESC[{:?}{}", nums, action);
+                // Can unwrap because it is guaranteed elsewhere that
+                // `EscapePart::Numbers(Vec<Char>)` only holds ascii digits (0-9).
                 let num: u16 = nums.iter().collect::<String>().parse().unwrap();
+                // NOTE: These functions are solely doing what they say and do NOT move the cursor
                 match (num, action) {
+                    // Move cursor up # of lines
+                    (num, 'A') => self.move_cursor_up(num),
+                    // Move cursor down # of lines
+                    (num, 'B') => self.move_cursor_down(num),
+                    // Move cursor right # of cols
+                    (num, 'C') => self.move_cursor_right(num),
+                    // Move cursor left # of cols
+                    (num, 'D') => self.move_cursor_left(num),
+                    // Moves cursor to beginning of line, # lines down
+                    (num, 'E') => {
+                        self.set_cursor_pos((0, (self.cursor_pos.y as u16) + num));
+                        while self.cursor_pos.y > self.lines.len() {
+                            self.lines.push_back(Line::new(self.width as usize));
+                        }
+                    }
+                    // Moves cursor to beginning of line, # lines up
+                    (num, 'F') => self.set_cursor_pos((0, (self.cursor_pos.y as u16) - num)),
+                    // Moves cursor to column #
+                    (num, 'G') => self.set_cursor_col(num),
                     // Erase from cursor until end of screen
                     (0, 'J') => self.clear_from_cursor_to_eos(),
                     // Erase from cursor to beginning of screen
-                    (1, 'J') => {} // TODO
+                    (1, 'J') => self.clear_from_cursor_to_sos(),
                     // Erase entire screen
                     (2, 'J') => {
-                        // TODO - use function that doesn't clear
-                        // lines from screen_buffer memory
-                        self.clear_buffer();
+                        for _ in 0..=self.height {
+                            self.lines.push_back(Line::new(self.width as usize));
+                        }
+                        self.view_start = self.lines.len() - self.height as usize;
                     }
                     // Erase from cursor to end of line
                     (0, 'K') => self.clear_from_cursor_to_eol(),
                     // Erase start of line to cursor
-                    (1, 'K') => {} // TODO
+                    (1, 'K') => self.clear_from_cursor_to_sol(),
                     // Erase entire line
-                    (2, 'K') => {} // TODO
-                    // Move cursor left # of cols
-                    (num, 'D') => self.cursor_pos.x -= num,
-                    // Move cursor right # of cols
-                    (num, 'C') => self.cursor_pos.x += num,
+                    (2, 'K') => self.clear_whole_line(),
                     _ => {}
                 }
                 self.escape_state = EscapeState::Normal;
@@ -309,13 +443,13 @@ impl ScreenBuffer {
                 debug!("Got ESC[{}", action);
                 match action {
                     // Set cursor position to 0, 0
-                    'H' => self.set_cursor_pos::<(u16, usize)>((0, 0)),
+                    'H' => self.cursor_pos = Position::home(),
                     // Erase from cursor until end of screen
                     'J' => self.clear_from_cursor_to_eos(),
                     // Erase from cursor to end of line
                     'K' => self.clear_from_cursor_to_eol(),
-                    'C' => self.move_cursor_right(),
-                    'D' => self.move_cursor_left(),
+                    'C' => self.move_cursor_right(1),
+                    'D' => self.move_cursor_left(1),
                     action if action.is_alphabetic() => {}
                     _ => {}
                 }
@@ -329,12 +463,9 @@ impl ScreenBuffer {
     /// processes them accordingly, handling ascii escape sequences, to
     /// render as characters/strings in the terminal.
     pub fn add_data(&mut self, data: &[u8]) {
-        // let span = tracing::span!(Level::DEBUG, "Add Data");
-        // let _enter = span.enter();
         let text = String::from_utf8_lossy(data);
         let mut chars = text.chars().peekable();
 
-        // event!(Level::DEBUG, "Adding data");
         while let Some(ch) = chars.next() {
             match self.escape_state {
                 EscapeState::Normal => {
@@ -349,11 +480,8 @@ impl ScreenBuffer {
                         '\n' => {
                             self.new_line();
                         }
-                        '\x07' => {
-                            // event!(Level::DEBUG, "Got the weird byte");
-                        }
+                        '\x07' => {}
                         '\x08' => {
-                            // event!(Level::DEBUG, "Got `\x08`");
                             let mut temp_chars = chars.clone();
                             // Matches the `\x08 ' ' \x08` deletion sequence
                             if let (Some(' '), Some('\x08')) =
@@ -362,18 +490,15 @@ impl ScreenBuffer {
                                 // Consume them - to remove from further processing
                                 chars.next();
                                 chars.next();
-                                self.move_cursor_left();
+                                self.move_cursor_left(1);
                                 self.set_char_at_cursor(' ');
                             } else {
                                 // If not the deletion sequence, move cursor left
                                 // when receiving a single '\x08'
-                                self.move_cursor_left();
+                                self.move_cursor_left(1);
                             }
                         }
-                        '\x1B' => {
-                            // event!(Level::DEBUG, "Got ESC: `\x1B`");
-                            self.escape_state = EscapeState::Esc;
-                        }
+                        '\x1B' => self.escape_state = EscapeState::Esc,
                         c => {
                             let mut batch = vec![c];
                             while let Some(&next_ch) = chars.peek() {
@@ -390,35 +515,20 @@ impl ScreenBuffer {
                     }
                 }
                 EscapeState::Esc => match ch {
-                    '[' => {
-                        // event!(Level::DEBUG, "Got BRACKET: `[`");
-                        self.escape_state = EscapeState::Csi;
-                    }
-                    _ => {
-                        self.escape_state = EscapeState::Normal;
-                    }
+                    '[' => self.escape_state = EscapeState::Csi,
+                    _ => self.escape_state = EscapeState::Normal,
                 },
                 EscapeState::Csi => match ch {
-                    ';' => {
-                        // event!(Level::DEBUG, "DEBUG: ASCII SEPARATOR");
-                        self.escape_sequence.insert_separator();
-                    }
-                    c if ch.is_ascii_digit() => {
-                        // event!(Level::DEBUG, "DEBUG: ASCII DIGIT {c}");
-                        self.escape_sequence.push_num(c);
-                    }
+                    ';' => self.escape_sequence.insert_separator(),
+                    c if ch.is_ascii_digit() => self.escape_sequence.push_num(c),
                     c if c.is_ascii_alphabetic() => {
-                        // event!(Level::DEBUG, "DEBUG: ASCII LETTER {c}");
                         // Reset because actions are the last members of a sequence
                         self.escape_sequence.push_action(c);
                         self.parse_sequence();
                         self.escape_sequence.reset();
                         self.escape_state = EscapeState::Normal;
                     }
-                    _ => {
-                        // event!(Level::DEBUG, "DEBUG: IGNORED {c}");
-                        self.escape_state = EscapeState::Normal;
-                    }
+                    _ => self.escape_state = EscapeState::Normal,
                 },
             }
         }
@@ -428,14 +538,13 @@ impl ScreenBuffer {
 
     fn add_char_batch(&mut self, chars: &[char]) {
         while self.cursor_pos.y >= self.lines.len() {
-            self.lines
-                .push_back(vec![Cell::default(); self.width as usize]);
+            self.lines.push_back(Line::new(self.width as usize));
         }
 
         if let Some(line) = self.lines.get_mut(self.cursor_pos.y) {
             for &ch in chars {
                 if (self.cursor_pos.x as usize) < line.len() {
-                    line[self.cursor_pos.x as usize].character = ch;
+                    line.set_char(self.cursor_pos.x as usize, ch);
                     self.cursor_pos.x += 1;
                     if self.cursor_pos.x >= self.width {
                         self.new_line();
@@ -463,46 +572,56 @@ impl ScreenBuffer {
 
     fn set_char_at_cursor(&mut self, ch: char) {
         while self.cursor_pos.y >= self.lines.len() {
-            self.lines
-                .push_back(vec![Cell::default(); self.width as usize]);
+            self.lines.push_back(Line::new(self.width as usize));
         }
 
         if let Some(line) = self.lines.get_mut(self.cursor_pos.y)
             && (self.cursor_pos.x as usize) < line.len()
         {
-            line[self.cursor_pos.x as usize].character = ch;
+            line.set_char(self.cursor_pos.x as usize, ch);
+        }
+    }
+
+    fn clear_from_cursor_to_sol(&mut self) {
+        if let Some(line) = self.lines.get_mut(self.cursor_pos.y) {
+            line.reset_to_idx(self.cursor_pos.x as usize);
+        }
+    }
+
+    fn clear_from_cursor_to_sos(&mut self) {
+        self.clear_from_cursor_to_sol();
+        for line in self
+            .lines
+            .range_mut(self.view_start..=self.cursor_pos.y - 1)
+        {
+            line.reset();
         }
     }
 
     fn clear_from_cursor_to_eol(&mut self) {
         if let Some(line) = self.lines.get_mut(self.cursor_pos.y) {
-            for cell in line.iter_mut().skip(self.cursor_pos.x as usize) {
-                *cell = Cell::default();
-            }
+            line.reset_from_idx(self.cursor_pos.x as usize);
         }
     }
 
     fn clear_from_cursor_to_eos(&mut self) {
-        // Clear the cells in the current line to eol
-        if let Some(line) = self.lines.get_mut(self.cursor_pos.y) {
-            for cell in line.iter_mut().skip(self.cursor_pos.x as usize) {
-                *cell = Cell::default();
-            }
+        self.clear_from_cursor_to_eol();
+        for line in self.lines.range_mut(self.cursor_pos.y + 1..) {
+            line.reset();
         }
-        // Clear rest of lines from cursor_pos.y to the end of screen
-        self.lines
-            .range_mut(self.cursor_pos.y + 1..)
-            .for_each(|line| {
-                line.iter_mut().for_each(|cell| *cell = Cell::default());
-            });
+    }
+
+    fn clear_whole_line(&mut self) {
+        if let Some(line) = self.lines.get_mut(self.cursor_pos.y) {
+            line.reset();
+        }
     }
 
     fn new_line(&mut self) {
         self.set_cursor_pos((0, self.cursor_pos.y + 1));
 
         if self.cursor_pos.y >= self.lines.len() {
-            self.lines
-                .push_back(vec![Cell::default(); self.width as usize]);
+            self.lines.push_back(Line::new(self.width as usize));
         }
 
         // Remove old lines if exceeding `ScreenBuffer.max_scrollback`
@@ -572,9 +691,7 @@ impl ScreenBuffer {
     /// Clears the selection state.
     pub fn clear_selection(&mut self) {
         for line in &mut self.lines {
-            for cell in line {
-                cell.is_selected = false;
-            }
+            line.clear_selection();
         }
         self.selection_start = None;
         self.selection_end = None;
@@ -583,9 +700,7 @@ impl ScreenBuffer {
 
     fn update_selection_highlighting(&mut self) {
         for line in &mut self.lines {
-            for cell in line {
-                cell.is_selected = false;
-            }
+            line.clear_selection();
         }
 
         if let (Some((start_x, start_line)), Some((end_x, end_line))) =
@@ -608,7 +723,7 @@ impl ScreenBuffer {
                     };
 
                     for x in line_start_x..=line_end_x.min(self.width - 1) {
-                        if let Some(cell) = line.get_mut(x as usize) {
+                        if let Some(cell) = line.get_mut_cell(x as usize) {
                             cell.is_selected = true;
                         }
                     }
@@ -640,7 +755,7 @@ impl ScreenBuffer {
                     };
 
                     for x in line_start_x..=line_end_x.min(self.width - 1) {
-                        if let Some(cell) = line.get(x as usize) {
+                        if let Some(cell) = line.get_cell(x as usize) {
                             result.push(cell.character);
                         }
                     }
@@ -691,8 +806,7 @@ impl ScreenBuffer {
         self.lines.clear();
         self.view_start = 0;
         self.set_cursor_pos((0_u16, 0_usize));
-        self.lines
-            .push_back(vec![Cell::default(); self.width as usize]);
+        self.lines.push_back(Line::new(self.width as usize));
         self.needs_render = true;
     }
 
@@ -776,10 +890,6 @@ impl ScreenBuffer {
             cursor::Show
         )?;
         writer.flush()?;
-        // event!(Level::INFO, "Rendered baby");
-
-        // let sb = self.get_stats();
-        // tracing::event!(Level::DEBUG, ?sb);
 
         self.last_render = Some(Instant::now());
         self.needs_render = false;
