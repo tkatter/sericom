@@ -1,6 +1,5 @@
-use std::borrow::Cow;
-
 use serde::Deserialize;
+use std::borrow::Cow;
 
 /// Represents the `[appearance]` table of the `config.toml` file.
 ///
@@ -59,7 +58,7 @@ pub const NORMALIZER: fn(&str) -> Cow<'_, str> = normalizer;
 
 fn normalizer(s: &str) -> Cow<'_, str> {
     let mut curr_cow: Cow<'_, str> = Cow::Borrowed(s);
-    
+
     if curr_cow.contains(' ') || curr_cow.contains('-') || curr_cow.contains('_') {
         let owned_str = curr_cow.to_mut();
         *owned_str = owned_str.replace(['-', '_'], "");
@@ -133,18 +132,7 @@ impl SeriColor {
     pub fn parse_from_str<S, F>(input: S, normalizer: F) -> Result<Self, &'static [&'static str]>
     where
         S: AsRef<str>,
-        F: Fn(&str) -> Cow<'_, str>
-        // `for<'a>` says that `F` implements <trait> for *all possible lifetimes* its given,
-        // rather than `F: FnMut(&'a str) -> Cow<'a, str>` where `'a` would have to be a
-        // specific lifetime defined elsewhere i.e. `fn parse_from_str<'a, S, F>`.
-        //
-        // This was needed because `F` is called on a local variable (`input_slice`) that
-        // does not need to be tied to the lifetime of the function or it's passed-in lifetime;
-        // since all of this is only used to parse the passed-in value to `SeriColor`.
-        //
-        // `F: for<'a> FnMut(&'a str) -> Cow<'a, str>` guarantees that `F` can produce a `Cow<'a, str>`
-        // with the same lifetime as `&'a str`, which in this case, both are dropped at the end of
-        // this function.
+        F: Fn(&str) -> Cow<'_, str>,
     {
         let input_slice = input.as_ref();
         let normalized_cow = normalizer(input_slice);
@@ -167,7 +155,6 @@ impl SeriColor {
             "red" => Ok(SeriColor::Red),
             "white" => Ok(SeriColor::White),
             "yellow" => Ok(SeriColor::Yellow),
-            // To handle errors where this is called
             _ => Err(VALID_SERICOLORS),
         }
     }
@@ -181,10 +168,7 @@ impl<'de> Deserialize<'de> for SeriColor {
         let s = String::deserialize(deserializer)?;
         match SeriColor::parse_from_str(&s, NORMALIZER) {
             Ok(s) => Ok(s),
-            Err(valid_colors) => Err(serde::de::Error::unknown_variant(
-                &s,
-                valid_colors,
-            )),
+            Err(valid_colors) => Err(serde::de::Error::unknown_variant(&s, valid_colors)),
         }
     }
 }
@@ -212,4 +196,3 @@ impl From<&SeriColor> for crossterm::style::Color {
         }
     }
 }
-

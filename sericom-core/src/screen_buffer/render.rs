@@ -1,5 +1,6 @@
 use crossterm::style::Color;
 use std::io::BufWriter;
+use tracing::instrument;
 
 use super::{Cursor, EscapeState, Line, ScreenBuffer, UIAction};
 use crate::configs::get_config;
@@ -10,6 +11,7 @@ impl ScreenBuffer {
     /// Takes incoming data (bytes (`u8`) from a serial connection) and
     /// processes them accordingly, handling ascii escape sequences, to
     /// render as characters/strings in the terminal.
+    #[instrument(name = "Add Data", skip(self))]
     pub fn add_data(&mut self, data: &[u8]) {
         let text = String::from_utf8_lossy(data);
         let mut chars = text.chars().peekable();

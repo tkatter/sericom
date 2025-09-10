@@ -2,11 +2,11 @@
 //! files. User config files must be `config.toml` and are parsed with [`serde`] and
 //! respectively serde's [`toml`] crate.
 
-pub mod errors;
 mod appearance;
 mod defaults;
-pub use defaults::*;
+pub mod errors;
 pub use appearance::*;
+pub use defaults::*;
 
 use crate::{
     configs::errors::{ConfigError, TomlError},
@@ -83,7 +83,6 @@ pub struct ConfigOverride {
     pub color: Option<SeriColor>,
     pub out_dir: Option<String>,
 }
-
 
 fn get_conf_dir() -> std::path::PathBuf {
     let mut user_home_dir = std::env::home_dir().expect("Failed to get home directory");

@@ -9,6 +9,7 @@ use std::{
     io::{BufWriter, Write},
     path::PathBuf,
 };
+use tracing::{debug, error, info, instrument};
 
 const UTF_TAB: &str = "\u{0009}";
 const UTF_BKSP: &str = "\u{0008}";
@@ -22,6 +23,7 @@ const UTF_RIGHT_KEY: &str = "\u{001B}\u{005B}\u{0043}";
 
 /// Responsible for receiving incoming data from the [`SerialActor`] and
 /// rendering terminal output via the [`ScreenBuffer`].
+#[instrument(skip_all, name = "Stdout")]
 pub async fn run_stdout_output(
     mut con_rx: tokio::sync::broadcast::Receiver<SerialEvent>,
     mut ui_rx: tokio::sync::mpsc::Receiver<UICommand>,
@@ -61,6 +63,7 @@ pub async fn run_stdout_output(
                     }
                     Ok(SerialEvent::Error(e)) => {
                         let error_msg = format!("[ERROR] {e}\r\n");
+                        error!("Added data: {:?}", data_buffer);
                         screen_buffer.add_data(error_msg.as_bytes());
                         screen_buffer.render().ok();
                         render_timer = None;
@@ -70,49 +73,36 @@ pub async fn run_stdout_output(
                 }
             }
             ui_command = ui_rx.recv() => {
+                debug!("Sending UICommand: {:?}", ui_command);
                 match ui_command {
                     Some(UICommand::ScrollUp(lines)) => {
                         screen_buffer.scroll_up(lines);
-                        screen_buffer.render().ok();
-                        render_timer = None;
                     }
                     Some(UICommand::ScrollDown(lines)) => {
                         screen_buffer.scroll_down(lines);
-                        screen_buffer.render().ok();
-                        render_timer = None;
                     }
                     Some(UICommand::ScrollTop) => {
                         screen_buffer.scroll_to_top();
-                        screen_buffer.render().ok();
-                        render_timer = None;
                     }
                     Some(UICommand::ScrollBottom) => {
                         screen_buffer.scroll_to_bottom();
-                        screen_buffer.render().ok();
-                        render_timer = None;
                     }
                     Some(UICommand::StartSelection(x, y)) => {
                         screen_buffer.start_selection(x, y);
-                        screen_buffer.render().ok();
-                        render_timer = None;
                     }
                     Some(UICommand::UpdateSelection(x, y)) => {
                         screen_buffer.update_selection(x, y);
-                        screen_buffer.render().ok();
-                        render_timer = None;
                     }
                     Some(UICommand::CopySelection) => {
                         screen_buffer.copy_to_clipboard().ok();
-                        screen_buffer.render().ok();
-                        render_timer = None;
                     }
                     Some(UICommand::ClearBuffer) => {
                         screen_buffer.clear_buffer();
-                        screen_buffer.render().ok();
-                        render_timer = None;
                     }
                     None => break,
                 }
+                screen_buffer.render().ok();
+                render_timer = None;
             }
             _ = async {
                 if let Some(ref mut timer) = render_timer {
@@ -156,20 +146,22 @@ pub async fn run_stdin_input(
     }
 }
 
+#[instrument(skip_all, name = "Stdin Input")]
 fn stdin_input_loop(
     stdin_tx: tokio::sync::mpsc::Sender<String>,
     command_tx: tokio::sync::mpsc::Sender<SerialMessage>,
     ui_tx: tokio::sync::mpsc::Sender<UICommand>,
 ) {
-    loop {
-        match event::read() {
+    while let Ok(event) = event::read() {
+        debug!("Read: '{:?}'", event);
+        match event {
             // Match function keys
-            Ok(Event::Key(KeyEvent {
+            Event::Key(KeyEvent {
                 code: KeyCode::F(f_code),
                 modifiers: _modifiers,
                 kind,
                 ..
-            })) => {
+            }) => {
                 if kind != crossterm::event::KeyEventKind::Press {
                     continue;
                 }
@@ -185,12 +177,12 @@ fn stdin_input_loop(
                 continue;
             }
             // Match Alt + Code
-            Ok(Event::Key(KeyEvent {
+            Event::Key(KeyEvent {
                 code,
                 modifiers: KeyModifiers::ALT,
                 kind,
                 ..
-            })) => {
+            }) => {
                 if kind != crossterm::event::KeyEventKind::Press {
                     continue;
                 }
@@ -200,12 +192,12 @@ fn stdin_input_loop(
                 continue;
             }
             // Match Control + Code
-            Ok(Event::Key(KeyEvent {
+            Event::Key(KeyEvent {
                 code,
                 modifiers: KeyModifiers::CONTROL,
                 kind,
                 ..
-            })) => {
+            }) => {
                 if kind != crossterm::event::KeyEventKind::Press {
                     continue;
                 }
@@ -225,12 +217,12 @@ fn stdin_input_loop(
                 continue;
             }
             // Match every other key
-            Ok(Event::Key(KeyEvent {
+            Event::Key(KeyEvent {
                 code,
                 modifiers: _,
                 kind,
                 ..
-            })) => {
+            }) => {
                 if kind != crossterm::event::KeyEventKind::Press {
                     continue;
                 }
@@ -252,9 +244,9 @@ fn stdin_input_loop(
                     break;
                 }
             }
-            Ok(Event::Mouse(MouseEvent {
+            Event::Mouse(MouseEvent {
                 kind, column, row, ..
-            })) => {
+            }) => {
                 let ui_command = match kind {
                     MouseEventKind::ScrollUp => UICommand::ScrollUp(1),
                     MouseEventKind::ScrollDown => UICommand::ScrollDown(1),
@@ -267,13 +259,12 @@ fn stdin_input_loop(
                     break;
                 }
             }
-            Ok(Event::Paste(text)) => {
+            Event::Paste(text) => {
                 if stdin_tx.blocking_send(text).is_err() {
                     break;
                 }
             }
-            Ok(_) => {} // Ignore other events
-            Err(_) => break,
+            _ => {} // Ignore other events
         }
     }
 }
@@ -281,12 +272,13 @@ fn stdin_input_loop(
 /// Responsible for spawning a blocking task with [`tokio::task::spawn_blocking()`]
 /// and forwarding the incoming data received from the [`SerialActor`] to the blocking
 /// task to write to a file.
+#[instrument(name = "File output", skip(file_rx))]
 pub async fn run_file_output(
     mut file_rx: tokio::sync::broadcast::Receiver<SerialEvent>,
     file_path: PathBuf,
 ) {
     let (write_tx, write_rx) = std::sync::mpsc::channel::<Vec<u8>>();
-
+    info!("Creating file: '{}'", file_path.display());
     let write_handle = tokio::task::spawn_blocking(move || {
         let file = match File::create(&file_path) {
             Ok(f) => f,
