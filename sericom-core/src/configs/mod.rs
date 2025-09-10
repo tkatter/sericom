@@ -3,6 +3,10 @@
 //! respectively serde's [`toml`] crate.
 
 pub mod errors;
+mod appearance;
+mod defaults;
+pub use defaults::*;
+pub use appearance::*;
 
 use crate::{
     configs::errors::{ConfigError, TomlError},
@@ -11,183 +15,7 @@ use crate::{
 use serde::Deserialize;
 use std::{io::Read, ops::Range, sync::OnceLock};
 
-/// A wrapper around [`crossterm::style::Color`] to allow for implementing serde's
-/// [`Deserialize`] beyond the default implementation from `#[derive(Deserialize)]`
-#[derive(Debug, PartialEq)]
-pub enum SeriColor {
-    Black,
-    Blue,
-    Cyan,
-    DarkBlue,
-    DarkCyan,
-    DarkGreen,
-    DarkGrey,
-    DarkMagenta,
-    DarkRed,
-    DarkYellow,
-    Green,
-    Grey,
-    Magenta,
-    None,
-    Red,
-    White,
-    Yellow,
-}
-
-impl<'de> Deserialize<'de> for SeriColor {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let normalizer = |s: &str| -> String { s.to_lowercase().replace(['-', '_', ' '], "") };
-        let s = String::deserialize(deserializer)?;
-        let normalized = normalizer(&s);
-        match normalized.as_str() {
-            "black" => Ok(SeriColor::Black),
-            "blue" => Ok(SeriColor::Blue),
-            "cyan" => Ok(SeriColor::Cyan),
-            "darkblue" => Ok(SeriColor::DarkBlue),
-            "darkcyan" => Ok(SeriColor::DarkCyan),
-            "darkgreen" => Ok(SeriColor::DarkGreen),
-            "darkgrey" | "darkgray" => Ok(SeriColor::DarkGrey),
-            "darkmagenta" => Ok(SeriColor::DarkMagenta),
-            "darkred" => Ok(SeriColor::DarkRed),
-            "darkyellow" => Ok(SeriColor::DarkYellow),
-            "default" => Ok(SeriColor::None),
-            "green" => Ok(SeriColor::Green),
-            "grey" | "gray" => Ok(SeriColor::Grey),
-            "magenta" => Ok(SeriColor::Magenta),
-            "red" => Ok(SeriColor::Red),
-            "white" => Ok(SeriColor::White),
-            "yellow" => Ok(SeriColor::Yellow),
-            _ => Err(serde::de::Error::unknown_variant(
-                &s,
-                &[
-                    "black",
-                    "blue",
-                    "cyan",
-                    "dark-blue",
-                    "dark-cyan",
-                    "dark-green",
-                    "dark-grey",
-                    "dark-magenta",
-                    "dark-red",
-                    "dark-yellow",
-                    "default",
-                    "green",
-                    "grey",
-                    "magenta",
-                    "red",
-                    "white",
-                    "yellow",
-                ],
-            )),
-        }
-    }
-}
-
-impl From<&SeriColor> for crossterm::style::Color {
-    fn from(value: &SeriColor) -> crossterm::style::Color {
-        match value {
-            SeriColor::Black => crossterm::style::Color::Black,
-            SeriColor::Blue => crossterm::style::Color::Blue,
-            SeriColor::Cyan => crossterm::style::Color::Cyan,
-            SeriColor::DarkBlue => crossterm::style::Color::DarkBlue,
-            SeriColor::DarkCyan => crossterm::style::Color::DarkCyan,
-            SeriColor::DarkGreen => crossterm::style::Color::DarkGreen,
-            SeriColor::DarkGrey => crossterm::style::Color::DarkGrey,
-            SeriColor::DarkMagenta => crossterm::style::Color::DarkMagenta,
-            SeriColor::DarkRed => crossterm::style::Color::DarkRed,
-            SeriColor::DarkYellow => crossterm::style::Color::DarkYellow,
-            SeriColor::Green => crossterm::style::Color::Green,
-            SeriColor::Grey => crossterm::style::Color::Grey,
-            SeriColor::Magenta => crossterm::style::Color::Magenta,
-            SeriColor::None => crossterm::style::Color::Reset,
-            SeriColor::Red => crossterm::style::Color::Red,
-            SeriColor::White => crossterm::style::Color::White,
-            SeriColor::Yellow => crossterm::style::Color::Yellow,
-        }
-    }
-}
-
-/// Represents the `[appearance]` table of the `config.toml` file.
-///
-/// The `[appearance]` table holds configuration values for sericom's appearance.
-///
-/// The default values (if no config exists) is the current directory:
-/// ```toml
-/// [appearance]
-/// fg = "green"
-/// bg = "none"
-/// hl_fg = "black"
-/// hl_bg = "white"
-/// ```
-#[derive(Debug, Deserialize, PartialEq)]
-pub struct Appearance {
-    #[serde(default = "default_fg")]
-    pub fg: SeriColor,
-    #[serde(default = "default_bg")]
-    pub bg: SeriColor,
-    #[serde(default = "default_hl_fg")]
-    pub hl_fg: SeriColor,
-    #[serde(default = "default_hl_bg")]
-    pub hl_bg: SeriColor,
-}
-
-fn default_hl_fg() -> SeriColor {
-    SeriColor::Black
-}
-
-fn default_hl_bg() -> SeriColor {
-    SeriColor::White
-}
-
-fn default_fg() -> SeriColor {
-    SeriColor::Green
-}
-fn default_bg() -> SeriColor {
-    SeriColor::None
-}
-
-impl Default for Appearance {
-    fn default() -> Self {
-        Self {
-            fg: SeriColor::Green,
-            bg: SeriColor::None,
-            hl_fg: SeriColor::Black,
-            hl_bg: SeriColor::White,
-        }
-    }
-}
-
-/// Represents the `[defaults]` table of the `config.toml` file.
-///
-/// The `[defaults]` table holds configuration values for how sericom
-/// should behave. Currently the user may only specify a default `out_dir`,
-/// where files will be created when running `sericom -f path/to/file [PORT]`.
-///
-/// The default values (if no config exists) is the current directory:
-/// ```toml
-/// [defaults]
-/// out_dir = "./"
-/// ```
-#[derive(Debug, Deserialize, PartialEq)]
-pub struct Defaults {
-    #[serde(default = "default_out_dir")]
-    pub out_dir: String,
-}
-
-impl Default for Defaults {
-    fn default() -> Self {
-        Self {
-            out_dir: "./".to_string(),
-        }
-    }
-}
-
-fn default_out_dir() -> String {
-    "./".to_string()
-}
+static CONFIG: OnceLock<Config> = OnceLock::new();
 
 /// Represents the entire `config.toml` configuration file.
 ///
@@ -200,7 +28,16 @@ pub struct Config {
     pub defaults: Defaults,
 }
 
-static CONFIG: OnceLock<Config> = OnceLock::new();
+impl Config {
+    fn apply_overrides(&mut self, overrides: ConfigOverride) {
+        if let Some(color) = overrides.color {
+            self.appearance.fg = color;
+        }
+        if let Some(dir) = overrides.out_dir {
+            self.defaults.out_dir = dir;
+        }
+    }
+}
 
 /// This function constructs a `static CONFIG` for the rest of sericom to get a
 /// reference to throughout the remainder of the program.
@@ -209,8 +46,8 @@ static CONFIG: OnceLock<Config> = OnceLock::new();
 /// [`Config::default()`]. If the user's config does exist but does not set values
 /// for every field, the global `static CONFIG` will be initialized with the user's
 /// values and fill in the unspecified fields with their default values.
-pub fn initialize_config() -> miette::Result<(), ConfigError> {
-    let config: Config = if let Ok(config_file) = get_config_file() {
+pub fn initialize_config(overrides: ConfigOverride) -> miette::Result<(), ConfigError> {
+    let mut config: Config = if let Ok(config_file) = get_config_file() {
         let mut file = std::fs::File::open(config_file).expect("File should exist");
         let mut contents = String::new();
         file.read_to_string(&mut contents)?;
@@ -225,6 +62,8 @@ pub fn initialize_config() -> miette::Result<(), ConfigError> {
         Config::default()
     };
 
+    config.apply_overrides(overrides);
+
     CONFIG
         .set(config)
         .map_err(|_| ConfigError::AlreadyInitialized)?;
@@ -238,6 +77,13 @@ pub fn initialize_config() -> miette::Result<(), ConfigError> {
 pub fn get_config() -> &'static Config {
     CONFIG.get().expect("Config not initialized")
 }
+
+#[derive(Debug)]
+pub struct ConfigOverride {
+    pub color: Option<SeriColor>,
+    pub out_dir: Option<String>,
+}
+
 
 fn get_conf_dir() -> std::path::PathBuf {
     let mut user_home_dir = std::env::home_dir().expect("Failed to get home directory");

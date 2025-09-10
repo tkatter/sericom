@@ -15,23 +15,26 @@ use sericom_core::{
     configs::initialize_config,
 };
 use std::io::{self, Write};
-use tracing::{Level, event, span};
 
+// #[command(group(
+//     clap::ArgGroup::new("config_override")
+//         .args(&["color"])
+//         .requires_all(&["port", "baud"])
+// ))]
 #[derive(Parser)]
 #[command(name = "sericom", version, about, long_about = None)]
-#[command(next_line_help = true)]
+// #[command(next_line_help = true)]
 #[command(propagate_version = true)]
 struct Cli {
     /// The path to a serial port.
     ///
     /// For Linux/MacOS something like `/dev/tty1`, Windows `COM1`.
-    /// To see available ports, use `sericom list-ports`.
     port: Option<String>,
     /// Baud rate for the serial connection.
-    ///
-    /// To see a list of valid baud rates, use `sericom list-bauds`.
     #[arg(short, long, value_parser = valid_baud_rate, default_value_t = 9600)]
     baud: u32,
+    #[clap(flatten)]
+    config_override: ConfigOverrides,
     /// Path to a file for the output.
     #[arg(short, long)]
     file: Option<String>,
@@ -45,18 +48,50 @@ struct Cli {
 #[allow(clippy::enum_variant_names)]
 #[derive(Subcommand)]
 enum Commands {
-    /// Lists all valid baud rates
-    ListBauds,
+    /// Lists valid baud rates
+    Bauds,
     /// Lists all available serial ports
-    ListPorts,
+    Ports,
     /// Gets the settings for a serial port
-    ListSettings {
+    Settings {
         #[arg(short, long, value_parser = valid_baud_rate, default_value_t = 9600)]
         baud: u32,
         /// Path to the port to open
         #[arg(short, long)]
         port: String,
     },
+}
+
+#[derive(Parser, Debug)]
+struct ConfigOverrides {
+    /// Set the forground color for the text
+    #[arg(short, long, requires_all = &["port"], value_parser = color_parser)]
+    color: Option<sericom_core::configs::SeriColor>,
+    /// Override the `out_dir` for the file
+    ///
+    /// Alternatively could simply use the absolute path
+    #[arg(short, long, requires_all = &["port", "file"])]
+    out_dir: Option<String>,
+}
+
+impl From<ConfigOverrides> for sericom_core::configs::ConfigOverride {
+    fn from(overrides: ConfigOverrides) -> Self {
+        sericom_core::configs::ConfigOverride {
+            color: overrides.color,
+            out_dir: overrides.out_dir,
+        }
+    }
+}
+
+fn color_parser(input: &str) -> miette::Result<sericom_core::configs::SeriColor, String> {
+    use sericom_core::configs::{SeriColor, NORMALIZER};
+    match SeriColor::parse_from_str(input, NORMALIZER) {
+        Ok(c) => Ok(c),
+        Err(valid_colors) => Err(format!(
+            "\n\nExpected one of: {}",
+            valid_colors.join(", ")
+        )),
+    }
 }
 
 #[tokio::main]
@@ -72,7 +107,7 @@ async fn main() -> miette::Result<()> {
             .into_diagnostic()?;
         let (non_blocking, _guard) = tracing_appender::non_blocking(file);
         let subscriber = tracing_subscriber::fmt()
-            .with_max_level(Level::DEBUG)
+            .with_max_level(tracing::Level::DEBUG)
             .with_writer(non_blocking)
             .without_time()
             .with_ansi(false)
@@ -82,8 +117,6 @@ async fn main() -> miette::Result<()> {
         tracing::subscriber::set_global_default(subscriber)
             .into_diagnostic()
             .wrap_err("Failed to set subscriber")?;
-        let span = span!(Level::TRACE, "Main");
-        let _enter = span.enter();
     }
 
     if cli.port.is_none() && cli.command.is_none() {
@@ -104,14 +137,14 @@ async fn main() -> miette::Result<()> {
         .exit();
     }
 
-    if let Some(port) = cli.port {
-        event!(Level::TRACE, "opening connection");
-        let connection = open_connection(cli.baud, &port)?;
-        initialize_config()?;
-        interactive_session(connection, cli.file, cli.debug, &port).await?;
+    if let Some(ref port) = cli.port {
+        let connection = open_connection(cli.baud, port)?;
+        let overrides: sericom_core::configs::ConfigOverride = cli.config_override.into();
+        initialize_config(overrides)?;
+        interactive_session(connection, cli.file, cli.debug, port).await?;
     } else if let Some(cmd) = cli.command {
         match cmd {
-            Commands::ListBauds => {
+            Commands::Bauds => {
                 let mut stdout = io::stdout();
                 write!(stdout, "Valid baud rates:\r\n")
                     .into_diagnostic()
@@ -122,11 +155,10 @@ async fn main() -> miette::Result<()> {
                         .wrap_err("Failed to write to stdout.".red())?;
                 }
             }
-            Commands::ListPorts => {
-                event!(Level::INFO, "listing ports");
+            Commands::Ports => {
                 list_serial_ports()?;
             }
-            Commands::ListSettings { baud, port } => {
+            Commands::Settings { baud, port } => {
                 get_settings(baud, &port)?;
             }
         }

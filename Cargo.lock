@@ -724,7 +724,7 @@ dependencies = [
  "crossterm",
  "miette",
  "serial2-tokio",
- "sericom-core 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "sericom-core",
  "tokio",
  "tracing",
  "tracing-appender",
@@ -734,23 +734,6 @@ dependencies = [
 [[package]]
 name = "sericom-core"
 version = "0.3.0"
-dependencies = [
- "chrono",
- "crossterm",
- "miette",
- "serde",
- "serial2-tokio",
- "thiserror 2.0.16",
- "tokio",
- "toml",
- "tracing",
-]
-
-[[package]]
-name = "sericom-core"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c6359fa3f6266474e46d3712ca390011d5838012c816d91423de668854fcee9c"
 dependencies = [
  "chrono",
  "crossterm",
