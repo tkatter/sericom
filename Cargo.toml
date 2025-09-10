@@ -9,6 +9,7 @@ readme = "README.md"
 repository = "https://github.com/tkatter/sericom"
 
 [workspace.dependencies]
+chrono = "0.4.41"
 crossterm = { version = "0.29.0", features = ["osc52", "event-stream"] }
 miette = { version = "7.6.0", features = ["fancy"] }
 serial2-tokio = { version = "0.1.15", features = ["windows"] }

@@ -88,24 +88,16 @@ impl From<ConfigOverrides> for sericom_core::configs::ConfigOverride {
 #[tokio::main]
 async fn main() -> miette::Result<()> {
     let cli = Cli::parse();
-
-    let file = std::fs::File::options()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open("./tracing.txt")
-        .into_diagnostic()?;
-    let (non_blocking, _guard) = tracing_appender::non_blocking(file);
-    let subscriber = tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::DEBUG)
-        .with_writer(non_blocking)
-        // .without_time()
-        .with_line_number(false)
-        .with_target(false)
-        .finish();
-    tracing::subscriber::set_global_default(subscriber)
-        .into_diagnostic()
-        .wrap_err("Failed to set subscriber")?;
+    
+    // Need to hold the guard in `main`'s scope
+    let _guard: Option<tracing_appender::non_blocking::WorkerGuard> = if let Some(ref port) = 
+        cli.port && 
+        cli.debug
+    {
+        init_tracing(port)?
+    } else {
+        None
+    };
 
     if cli.port.is_none() && cli.command.is_none() {
         let mut cmd = Cli::command();
@@ -137,7 +129,6 @@ async fn main() -> miette::Result<()> {
                 path.display()
             ));
         }
-
         initialize_config(overrides)?;
         interactive_session(connection, cli.file, cli.debug, port).await?;
     } else if let Some(cmd) = cli.command {
@@ -170,4 +161,30 @@ fn color_parser(input: &str) -> Result<sericom_core::configs::SeriColor, String>
         Ok(c) => Ok(c),
         Err(valid_colors) => Err(format!("\n\nExpected one of: {}", valid_colors.join(", "))),
     }
+}
+
+fn init_tracing(port: &str) -> miette::Result<Option<tracing_appender::non_blocking::WorkerGuard>> {
+    let path = format!(
+        "./trace-{}-{}.txt",
+        port,
+        chrono::Utc::now().format("%m%d.%H%M"),
+    );
+    let file = std::fs::File::options()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(path)
+        .into_diagnostic()?;
+    let (non_blocking, guard) = tracing_appender::non_blocking(file);
+    let subscriber = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::DEBUG)
+        .with_writer(non_blocking)
+        // .without_time()
+        .with_line_number(false)
+        .with_target(false)
+        .finish();
+    tracing::subscriber::set_global_default(subscriber)
+        .into_diagnostic()
+        .wrap_err("Failed to set subscriber")?;
+    Ok(Some(guard))
 }

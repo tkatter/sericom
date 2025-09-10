@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use super::{Line, ScreenBuffer};
 
 /// Represent's the cursor's position within the [`ScreenBuffer`].
@@ -37,6 +39,12 @@ impl From<Position> for (u16, usize) {
 impl From<Position> for (u16, u16) {
     fn from(position: Position) -> Self {
         (position.x, position.y as u16)
+    }
+}
+
+impl Display for Position {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "({}, {})", self.x, self.y)
     }
 }
 

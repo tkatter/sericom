@@ -9,7 +9,7 @@ use std::{
     io::{BufWriter, Write},
     path::PathBuf,
 };
-use tracing::{debug, error, info, instrument};
+use tracing::{error, info, instrument};
 
 const UTF_TAB: &str = "\u{0009}";
 const UTF_BKSP: &str = "\u{0008}";
@@ -73,7 +73,7 @@ pub async fn run_stdout_output(
                 }
             }
             ui_command = ui_rx.recv() => {
-                debug!("Sending UICommand: {:?}", ui_command);
+                // debug!("Sending UICommand: {:?}", ui_command);
                 match ui_command {
                     Some(UICommand::ScrollUp(lines)) => {
                         screen_buffer.scroll_up(lines);
@@ -153,7 +153,7 @@ fn stdin_input_loop(
     ui_tx: tokio::sync::mpsc::Sender<UICommand>,
 ) {
     while let Ok(event) = event::read() {
-        debug!("Read: '{:?}'", event);
+        tracing::debug!("Read: '{:?}'", event);
         match event {
             // Match function keys
             Event::Key(KeyEvent {

@@ -720,6 +720,7 @@ dependencies = [
 name = "sericom"
 version = "0.4.0"
 dependencies = [
+ "chrono",
  "clap",
  "crossterm",
  "miette",

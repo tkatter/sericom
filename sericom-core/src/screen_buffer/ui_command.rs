@@ -24,6 +24,7 @@ pub(crate) trait UIAction {
     fn clear_selection(&mut self);
     fn copy_to_clipboard(&mut self) -> std::io::Result<()>;
     fn clear_buffer(&mut self);
+    fn clear_screen(&mut self);
 }
 
 impl UIAction for ScreenBuffer {
@@ -104,13 +105,22 @@ impl UIAction for ScreenBuffer {
     }
 
     /// Clears the entire serial connection's history and reset's the screen.
-    /// Similar to <kbd>Ctrl</kbd> + <kbd>l</kbd> in a terminal, except this will reset the
+    /// Similar to <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>l</kbd> in a terminal, except this will reset the
     /// connection's message history (on the user's side).
     fn clear_buffer(&mut self) {
         self.lines.clear();
         self.view_start = 0;
         self.set_cursor_pos((0_u16, 0_usize));
         self.lines.push_back(Line::new(self.width as usize));
+        self.needs_render = true;
+    }
+
+    /// Clears the current screen while keeping the buffer's history
+    fn clear_screen(&mut self) {
+        for _ in 0..self.height {
+            self.lines.push_back(Line::new(self.width as usize));
+        }
+        self.view_start = self.lines.len() - self.height as usize;
         self.needs_render = true;
     }
 }

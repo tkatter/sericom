@@ -74,7 +74,7 @@ pub async fn interactive_session(
             let joined_path = default_out_dir.join(&path);
             let parent_path = joined_path.parent().expect("Does not have root");
             create_recursive!(parent_path);
-            path
+            joined_path
         };
 
         let file_rx = broadcast_event_tx.subscribe();
