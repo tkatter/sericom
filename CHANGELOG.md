@@ -19,11 +19,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+## sericom/[0.5.0](https://github.com/tkatter/sericom/releases/tag/sericom/v0.5.0) - 2025-09-11
+
+### Added
+
+- Config overrides via command line flags ([#6](https://github.com/tkatter/sericom/pull/6))
+
+### Fixed
+
+- Bug when passing a directory as the file for `--file` ([#6](https://github.com/tkatter/sericom/pull/6))
+
+## sericom-core/[0.4.0](https://github.com/tkatter/sericom/releases/tag/sericom-core/v0.4.0) - 2025-09-11
+
+### Added
+
+- Public API for items from `screen_buffer` module ([#6](https://github.com/tkatter/sericom/pull/6))
+  - `Cell`, `Line`, `Position`
+- Config overrides via CLI args ([#6](https://github.com/tkatter/sericom/pull/6))
+
+### Changed
+
+- Refactoring of the `configs` module ([#6](https://github.com/tkatter/sericom/pull/6))
+
+### Fixed
+
+- Bug when handling ASCII clear screen escape code ([#6](https://github.com/tkatter/sericom/pull/6))
+
 ## sericom/[0.4.0](https://github.com/tkatter/sericom/releases/tag/sericom/v0.4.0) - 2025-09-09
 
 ### Fixed
 
-- Fixed ASCII escape sequence handling ([#5](https://github.com/tkatter/sericom/pull/5)). *Note: deliberately chose to ignore ASCII escape sequences that call for color changes so user config takes precedence - if this is a desired feature, please create an [issue](https://github.com/tkatter/sericom/issues).*
+- Fixed ASCII escape sequence handling ([#5](https://github.com/tkatter/sericom/pull/5)). _Note: deliberately chose to ignore ASCII escape sequences that call for color changes so user config takes precedence - if this is a desired feature, please create an [issue](https://github.com/tkatter/sericom/issues)._
 
 ## sericom-core/[0.3.0](https://github.com/tkatter/sericom/releases/tag/sericom-core/v0.3.0) - 2025-09-09
 
@@ -89,9 +115,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Diffs
 
-sericom/[unreleased]: https://github.com/tkatter/sericom/compare/sericom/v0.4.0...HEAD  
-sericom-core/[unreleased]: https://github.com/tkatter/sericom/compare/sericom-core/v0.3.0...HEAD
+sericom/[unreleased]: https://github.com/tkatter/sericom/compare/sericom/v0.5.0...HEAD  
+sericom-core/[unreleased]: https://github.com/tkatter/sericom/compare/sericom-core/v0.4.0...HEAD
 
+sericom/[0.5.0]: https://github.com/tkatter/sericom/compare/v0.4.0...sericom/v0.5.0  
+sericom-core/[0.4.0]: https://github.com/tkatter/sericom/releases/tag/sericom-core/v0.3.0...sericom-core/v0.4.0  
 sericom/[0.4.0]: https://github.com/tkatter/sericom/compare/v0.3.1...sericom/v0.4.0  
 sericom-core/[0.3.0]: https://github.com/tkatter/sericom/releases/tag/sericom-core/v0.2.0...sericom-core/v0.3.0  
 sericom/[0.3.1]: https://github.com/tkatter/sericom/compare/v0.3.0...sericom/v0.3.1  

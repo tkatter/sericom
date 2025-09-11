@@ -69,7 +69,7 @@ using a binary `.deb` file provided in [Sericom's releases](https://github.com/t
 Either navigate to the [release](https://github.com/tkatter/sericom/releases/) page and download the appropiate file or run:
 
 ```
-curl -LO https://github.com/tkatter/sericom/releases/download/v0.3.0/sericom_0.3.0-1_amd64.deb
+curl -LO https://github.com/tkatter/sericom/releases/download/sericom/v0.5.0/sericom_0.5.0-1_amd64.deb
 
 # Once downloaded, install with the apt package manager
 sudo apt install ./<path_to_downloaded_release>.deb
@@ -78,10 +78,10 @@ sudo apt install ./<path_to_downloaded_release>.deb
 sericom --version
 
 # Check the sha256 checksum
-curl -LO https://github.com/tkatter/sericom/releases/download/sericom/v0.4.0/sericom_0.4.0-1_amd64.deb
-curl -LO https://github.com/tkatter/sericom/releases/download/sericom/v0.4.0/sericom_0.4.0-1_amd64.deb.sha256
+curl -LO https://github.com/tkatter/sericom/releases/download/sericom/v0.5.0/sericom_0.5.0-1_amd64.deb
+curl -LO https://github.com/tkatter/sericom/releases/download/sericom/v0.5.0/sericom_0.5.0-1_amd64.deb.sha256
 
-sha256sum -c sericom_0.4.0-1_amd64.deb.sha256
+sha256sum -c sericom_0.5.0-1_amd64.deb.sha256
 ```
 
 ### Windows Installer
@@ -130,13 +130,13 @@ sericom -f <PATH_TO_FILE> <PORT>
 - To get a list of all the valid baud rates:
 
 ```
-sericom list-bauds
+sericom bauds
 ```
 
 - To see all of the available serial ports:
 
 ```
-sericom list-ports
+sericom ports
 ```
 
 ### Keymaps
@@ -199,6 +199,12 @@ out_dir = "./"
 > $ sericom -f $HOME/c2960.txt
 > # file is created at /home/thomas/c2960.txt
 > ```
+
+Sericom can also be passed configuration overrides as CLI arguments:
+
+```bash
+$ sericom /dev/ttyUSB0 --color magenta --out-dir /some/other/dir
+```
 
 A list of all the available options can be found [here](https://github.com/tkatter/sericom/blob/main/configuration/values.md).
 

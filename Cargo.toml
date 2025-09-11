@@ -15,3 +15,6 @@ miette = { version = "7.6.0", features = ["fancy"] }
 serial2-tokio = { version = "0.1.15", features = ["windows"] }
 tokio = { version = "1.47.0", features = ["full"] }
 tracing = "0.1.41"
+
+[patch.crates-io]
+sericom-core = { path = "sericom-core" }
