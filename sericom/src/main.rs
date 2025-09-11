@@ -88,11 +88,11 @@ impl From<ConfigOverrides> for sericom_core::configs::ConfigOverride {
 #[tokio::main]
 async fn main() -> miette::Result<()> {
     let cli = Cli::parse();
-    
+
     // Need to hold the guard in `main`'s scope
-    let _guard: Option<tracing_appender::non_blocking::WorkerGuard> = if let Some(ref port) = 
-        cli.port && 
-        cli.debug
+    let _guard: Option<tracing_appender::non_blocking::WorkerGuard> = if let Some(ref port) =
+        cli.port
+        && cli.debug
     {
         init_tracing(port)?
     } else {

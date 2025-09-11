@@ -1,7 +1,7 @@
 use tracing::debug;
 
-use crate::screen_buffer::UIAction;
 use super::{Cursor, Line, Position, ScreenBuffer};
+use crate::screen_buffer::UIAction;
 
 /// `EscapeState` holds stateful information about the incoming
 /// data to allow for proper processing of ansii escape codes/characters.
@@ -110,7 +110,8 @@ impl ScreenBuffer {
                     'H' | 'f' => {
                         // Can unwrap because it is guaranteed elsewhere that
                         // `EscapePart::Numbers(Vec<Char>)` only holds ascii digits (0-9).
-                        let mut line_num: u16 = line_nums.iter().collect::<String>().parse().unwrap();
+                        let mut line_num: u16 =
+                            line_nums.iter().collect::<String>().parse().unwrap();
                         let col_num: u16 = col_nums.iter().collect::<String>().parse().unwrap();
                         if line_num <= 1 {
                             line_num = self.lines.len() as u16 - self.height;

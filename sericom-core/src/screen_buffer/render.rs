@@ -178,7 +178,7 @@ impl ScreenBuffer {
             }
         }
 
-        // This is relative the the terminal's L x W, whereas 
+        // This is relative the the terminal's L x W, whereas
         // self.cursor_pos.y is within the entire line buf
         let screen_cursor_y = if self.cursor_pos.y >= self.view_start
             && self.cursor_pos.y < self.view_start + self.height as usize
@@ -187,7 +187,7 @@ impl ScreenBuffer {
         } else {
             self.height - 1
         };
-        
+
         queue!(
             writer,
             cursor::MoveTo(self.cursor_pos.x, screen_cursor_y),
