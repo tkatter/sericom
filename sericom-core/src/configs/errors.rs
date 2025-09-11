@@ -11,10 +11,9 @@ use std::ops::Range;
 /// Used to allow better, more specific, handling of errors that may arise
 /// from parsing the file.
 ///
-/// [`ConfigError::AlreadyInitialized`] should theorhetically
-/// never arise; however, in the situation where
-/// [`initialize_config()`][`super::initialize_config()`] were
-/// called and `static CONFIG` is already constructed - [`ConfigError::AlreadyInitialized`]
+/// [`ConfigError::AlreadyInitialized`] should theorhetically never arise;
+/// however, in the situation where [`initialize_config()`][`super::initialize_config()`] were called and
+/// [`CONFIG`][`super::CONFIG`] is already constructed - [`ConfigError::AlreadyInitialized`]
 /// would be the error.
 #[derive(Debug, miette::Diagnostic, thiserror::Error)]
 pub enum ConfigError {

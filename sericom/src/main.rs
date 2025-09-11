@@ -11,19 +11,18 @@ use clap::{CommandFactory, Parser, Subcommand};
 use crossterm::style::Stylize;
 use miette::{Context, IntoDiagnostic};
 use sericom_core::{
-    cli::{get_settings, interactive_session, list_serial_ports, open_connection, valid_baud_rate},
+    cli::{
+        color_parser, get_settings, interactive_session, list_serial_ports, open_connection,
+        valid_baud_rate,
+    },
     configs::initialize_config,
 };
 use std::{
+    fmt::Display,
     io::{self, Write},
     path::PathBuf,
 };
 
-// #[command(group(
-//     clap::ArgGroup::new("config_override")
-//         .args(&["color"])
-//         .requires_all(&["port", "baud"])
-// ))]
 #[derive(Parser)]
 #[command(name = "sericom", version, about, long_about = None)]
 #[command(propagate_version = true)]
@@ -155,15 +154,10 @@ async fn main() -> miette::Result<()> {
     Ok(())
 }
 
-fn color_parser(input: &str) -> Result<sericom_core::configs::SeriColor, String> {
-    use sericom_core::configs::{NORMALIZER, SeriColor};
-    match SeriColor::parse_from_str(input, NORMALIZER) {
-        Ok(c) => Ok(c),
-        Err(valid_colors) => Err(format!("\n\nExpected one of: {}", valid_colors.join(", "))),
-    }
-}
-
-fn init_tracing(port: &str) -> miette::Result<Option<tracing_appender::non_blocking::WorkerGuard>> {
+fn init_tracing<S>(port: S) -> miette::Result<Option<tracing_appender::non_blocking::WorkerGuard>>
+where
+    S: AsRef<str> + Display,
+{
     let path = format!(
         "./trace-{}-{}.txt",
         port,

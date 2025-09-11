@@ -53,7 +53,7 @@ impl EscapeSequence {
         }
     }
 
-    /// Clear's the sequence and sets the part to [`EscapePart::Empty`].
+    /// Clear's the sequence and sets [`Self::part`] to [`EscapePart::Empty`].
     pub(super) fn reset(&mut self) {
         // Clear is probably good since it will continue to
         // fill up to similar sizes throughout the program.
@@ -61,12 +61,12 @@ impl EscapeSequence {
         self.part = EscapePart::Empty;
     }
 
-    /// Appends the `part` that is currently being processed to the `sequence`.
+    /// Appends the [`Self::part`] that is currently being processed to [`Self::sequence`].
     fn push_part(&mut self) {
         self.sequence.push(std::mem::take(&mut self.part));
     }
 
-    /// Appends a [`EscapePart::Separator`] to `Self.sequence`.
+    /// Appends a [`EscapePart::Separator`] to [`Self::sequence`].
     pub(super) fn insert_separator(&mut self) {
         if self.part != EscapePart::Empty {
             self.push_part();
@@ -75,6 +75,11 @@ impl EscapeSequence {
     }
 
     /// Adds numbers to the in-progress part of the escape sequence
+    ///
+    /// Passes `num` as a char because `num` must be `.is_ascii_digit()`
+    /// [`ScreenBuffer::parse_sequence()`] builds the ascii escape sequence
+    /// line/column number from pushing `char`s to a string and parsing the
+    /// `String` to `u16`.
     pub(super) fn push_num(&mut self, num: char) {
         match &mut self.part {
             EscapePart::Numbers(nums) => nums.push(num),
@@ -94,6 +99,7 @@ impl EscapeSequence {
 }
 
 impl ScreenBuffer {
+    /// Parse the built [`EscapeSequence`] and runs the respective action.
     pub(crate) fn parse_sequence(&mut self) {
         let span = tracing::span!(tracing::Level::DEBUG, "Escape sequence");
         let _enter = span.enter();

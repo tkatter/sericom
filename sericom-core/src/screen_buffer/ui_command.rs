@@ -1,16 +1,26 @@
+use crate::screen_buffer::Position;
+
 use super::{Cursor, Line, ScreenBuffer};
 
 /// `UICommand` is used for communication between stdin and the [`ScreenBuffer`].
 #[non_exhaustive]
 #[derive(Clone, Debug)]
 pub enum UICommand {
+    /// Scrolls up by `usize` lines
     ScrollUp(usize),
+    /// Scrolls down by `usize` lines
     ScrollDown(usize),
+    /// Scrolls to the last line (most recent)
     ScrollBottom,
+    /// Scrolls to the beginning of the scrollback buffer (oldest line)
     ScrollTop,
-    StartSelection(u16, u16),
-    UpdateSelection(u16, u16),
+    /// Starts text-selection at [`Position`]
+    StartSelection(Position),
+    /// Updates text-selection to [`Position`]
+    UpdateSelection(Position),
+    /// Copies the underlying selected text to the user's clipboard
     CopySelection,
+    /// Completely clears the lines in the scrollback buffer
     ClearBuffer,
 }
 
@@ -19,8 +29,8 @@ pub(crate) trait UIAction {
     fn scroll_down(&mut self, lines: usize);
     fn scroll_to_bottom(&mut self);
     fn scroll_to_top(&mut self);
-    fn start_selection(&mut self, screen_x: u16, screen_y: u16);
-    fn update_selection(&mut self, screen_x: u16, screen_y: u16);
+    fn start_selection(&mut self, pos: Position);
+    fn update_selection(&mut self, pos: Position);
     fn clear_selection(&mut self);
     fn copy_to_clipboard(&mut self) -> std::io::Result<()>;
     fn clear_buffer(&mut self);
@@ -63,18 +73,18 @@ impl UIAction for ScreenBuffer {
     /// Sets the position within the screen for the start of a selection.
     /// Where `screen_x` is the x-position of the start of the selection,
     /// and `screen_y` is the y-position (line) of the start of the selection.
-    fn start_selection(&mut self, screen_x: u16, screen_y: u16) {
-        let absolute_line = self.view_start + screen_y as usize;
+    fn start_selection(&mut self, pos: Position) {
+        let absolute_line = self.view_start + pos.y;
         self.clear_selection();
-        self.selection_start = Some((screen_x, absolute_line));
+        self.selection_start = Some((pos.x, absolute_line));
         self.needs_render = true;
     }
 
     /// Update's a selection to include the position passed to it.
     /// Where `screen_x` is the x-position and `screen_y` is the y-position (line).
-    fn update_selection(&mut self, screen_x: u16, screen_y: u16) {
-        let absolute_line = self.view_start + screen_y as usize;
-        self.selection_end = Some((screen_x, absolute_line));
+    fn update_selection(&mut self, pos: Position) {
+        let absolute_line = self.view_start + pos.y;
+        self.selection_end = Some((pos.x, absolute_line));
         self.update_selection_highlighting();
         self.needs_render = true;
     }
@@ -105,8 +115,8 @@ impl UIAction for ScreenBuffer {
     }
 
     /// Clears the entire serial connection's history and reset's the screen.
-    /// Similar to <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>l</kbd> in a terminal, except this will reset the
-    /// connection's message history (on the user's side).
+    /// Similar to <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>l</kbd> in a terminal,
+    /// except this will reset the connection's message history (on the user's side).
     fn clear_buffer(&mut self) {
         self.lines.clear();
         self.view_start = 0;

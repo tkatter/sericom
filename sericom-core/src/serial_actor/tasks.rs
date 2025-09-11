@@ -29,7 +29,7 @@ pub async fn run_stdout_output(
     mut ui_rx: tokio::sync::mpsc::Receiver<UICommand>,
 ) {
     let (width, height) = terminal::size().unwrap_or((80, 24));
-    let mut screen_buffer = ScreenBuffer::new(width, height, 10000);
+    let mut screen_buffer = ScreenBuffer::new(width, height);
     let mut data_buffer = Vec::with_capacity(2048);
     let mut render_timer: Option<tokio::time::Interval> = None;
 
@@ -87,11 +87,11 @@ pub async fn run_stdout_output(
                     Some(UICommand::ScrollBottom) => {
                         screen_buffer.scroll_to_bottom();
                     }
-                    Some(UICommand::StartSelection(x, y)) => {
-                        screen_buffer.start_selection(x, y);
+                    Some(UICommand::StartSelection(pos)) => {
+                        screen_buffer.start_selection(pos);
                     }
-                    Some(UICommand::UpdateSelection(x, y)) => {
-                        screen_buffer.update_selection(x, y);
+                    Some(UICommand::UpdateSelection(pos)) => {
+                        screen_buffer.update_selection(pos);
                     }
                     Some(UICommand::CopySelection) => {
                         screen_buffer.copy_to_clipboard().ok();
@@ -250,8 +250,8 @@ fn stdin_input_loop(
                 let ui_command = match kind {
                     MouseEventKind::ScrollUp => UICommand::ScrollUp(1),
                     MouseEventKind::ScrollDown => UICommand::ScrollDown(1),
-                    MouseEventKind::Down(_) => UICommand::StartSelection(column, row),
-                    MouseEventKind::Drag(_) => UICommand::UpdateSelection(column, row),
+                    MouseEventKind::Down(_) => UICommand::StartSelection((column, row).into()),
+                    MouseEventKind::Drag(_) => UICommand::UpdateSelection((column, row).into()),
                     MouseEventKind::Up(_) => UICommand::CopySelection,
                     _ => continue,
                 };

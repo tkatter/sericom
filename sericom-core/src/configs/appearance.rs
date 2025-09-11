@@ -51,9 +51,10 @@ impl Default for Appearance {
     }
 }
 
-/// Uses [`Cow`] to normalize strings passed to it. If the input is already
-/// normalized, it simply returns a [`Cow::Borrowed`], else will remove
-/// '-', '_', and whitespace and transform to lowercase.
+/// Uses [`Cow`] to normalize strings passed to it.
+///
+/// If the input is already normalized, it simply returns a [`Cow::Borrowed`],
+/// else will remove '-', '_', and whitespace and transform to lowercase.
 pub const NORMALIZER: fn(&str) -> Cow<'_, str> = normalizer;
 
 fn normalizer(s: &str) -> Cow<'_, str> {
@@ -71,7 +72,7 @@ fn normalizer(s: &str) -> Cow<'_, str> {
     curr_cow
 }
 
-/// Represents a list of the valid options for [`SeriColor`].
+/// A list of the valid options for [`SeriColor`].
 pub static VALID_SERICOLORS: &[&str] = &[
     "black",
     "blue",
@@ -118,6 +119,11 @@ pub enum SeriColor {
 impl SeriColor {
     /// Parses `input` to a [`SeriColor`]. Returns `Ok(SeriColor)` if successful,
     /// otherwise returns `Err(VALID_SERICOLORS)`.
+    ///
+    /// Takes a `normalizer` to be used for normalizing `input`. Pairs nicely
+    /// with [`NORMALIZER`] for the standard situations in which [`SeriColor`]
+    /// would be parsed from (config.toml and as a cli argument). However, you
+    /// may rather want to use a custom `normalizer` instead.
     ///
     /// ## Example
     ///

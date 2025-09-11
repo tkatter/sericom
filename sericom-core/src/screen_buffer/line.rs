@@ -1,49 +1,63 @@
 use super::Cell;
 use std::ops::{Index, IndexMut};
 
-/// Line is a wrapper around `Vec<Cell>` and represents a line within the [`ScreenBuffer`].
+/// Line is a wrapper around [`Vec<Cell>`] and represents a line within the [`ScreenBuffer`][`super::ScreenBuffer`].
 #[derive(Clone, Debug)]
-pub(super) struct Line(Vec<Cell>);
+pub struct Line(Vec<Cell>);
 
 impl Line {
-    pub(super) fn new(width: usize) -> Self {
+    /// Create a new line with the length/size of `width`.
+    ///
+    /// Filled with [`Cell::default()`].
+    pub fn new(width: usize) -> Self {
         Self(vec![Cell::default(); width])
     }
 
-    pub(super) fn reset(&mut self) {
+    /// Iterates over all the [`Cell`]s within the line and sets them to [`Cell::default()`].
+    pub fn reset(&mut self) {
         self.0.iter_mut().for_each(|cell| *cell = Cell::default());
     }
 
-    pub(super) fn reset_to_idx(&mut self, idx: usize) {
+    /// Iterates over the [`Cell`]s to index `idx` within [`Self`]
+    /// and sets them to [`Cell::default()`].
+    pub fn reset_to(&mut self, idx: usize) {
         self.0[..idx]
             .iter_mut()
             .for_each(|cell| *cell = Cell::default());
     }
 
-    pub(super) fn reset_from_idx(&mut self, idx: usize) {
+    /// Iterates over the [`Cell`]s from index `idx` within [`Self`]
+    /// to the end of [`Self`] and sets them to [`Cell::default()`].
+    pub fn reset_from(&mut self, idx: usize) {
         self.0
             .iter_mut()
             .skip(idx)
             .for_each(|cell| *cell = Cell::default());
     }
 
-    pub(super) fn set_char(&mut self, idx: usize, ch: char) {
+    /// Sets the character in [`Cell`] at [`Self`]\[`idx`\] to `ch`.
+    pub fn set_char(&mut self, idx: usize, ch: char) {
         self.0[idx].character = ch;
     }
 
-    pub(super) const fn len(&self) -> usize {
+    /// Util function to return the length of [`Self`].
+    #[allow(clippy::len_without_is_empty)]
+    pub const fn len(&self) -> usize {
         self.0.len()
     }
 
-    pub(super) fn clear_selection(&mut self) {
+    /// Iterates over the [`Cell`]s and resets their selected state.
+    pub fn clear_selection(&mut self) {
         self.0.iter_mut().for_each(|cell| cell.is_selected = false);
     }
 
-    pub(super) fn get_cell(&self, idx: usize) -> Option<&Cell> {
+    /// Returns a reference to [`Cell`] at `idx`.
+    pub fn get_cell(&self, idx: usize) -> Option<&Cell> {
         self.0.get(idx)
     }
 
-    pub(super) fn get_mut_cell(&mut self, idx: usize) -> Option<&mut Cell> {
+    /// Returns a mutable reference to [`Cell`] at `idx`.
+    pub fn get_mut_cell(&mut self, idx: usize) -> Option<&mut Cell> {
         self.0.get_mut(idx)
     }
 }

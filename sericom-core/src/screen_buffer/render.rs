@@ -120,8 +120,8 @@ impl ScreenBuffer {
     }
 
     /// Writes the lines/characters received from `add_data` to the terminal's screen.
-    /// As of now, `render` does not involve any diff-ing of previous renders.
     ///
+    /// As of now, `render` does not involve any diff-ing of previous renders.
     /// The nature of communicating to devices over a serial connection is similar
     /// that of a terminal; lines get printed to a screen and with each new line,
     /// all of the previously rendered characters must be re-rendered one cell higher.

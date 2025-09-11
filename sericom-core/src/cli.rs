@@ -288,7 +288,8 @@ pub fn list_serial_ports() -> miette::Result<()> {
     Ok(())
 }
 
-/// Used as a 'value_parser' for sericom's clap CLI struct to validate baud rates
+/// Used as a [`value_parser`](https://docs.rs/clap/latest/clap/struct.Arg.html#method.value_parser) for [`sericom`](https://crates.io/crates/sericom)s [`clap`](https://docs.rs/clap) CLI
+/// struct to validate and parse args into a baud rate.
 pub fn valid_baud_rate(s: &str) -> Result<u32, String> {
     let baud: u32 = s
         .parse()
@@ -301,6 +302,16 @@ pub fn valid_baud_rate(s: &str) -> Result<u32, String> {
             baud,
             serial2_tokio::COMMON_BAUD_RATES
         ))
+    }
+}
+
+/// Used as a [`value_parser`](https://docs.rs/clap/latest/clap/struct.Arg.html#method.value_parser) for [`sericom`](https://crates.io/crates/sericom)s [`clap`](https://docs.rs/clap) CLI
+/// struct to validate and parse args into a [`SeriColor`][`crate::configs::SeriColor`].
+pub fn color_parser(input: &str) -> Result<crate::configs::SeriColor, String> {
+    use crate::configs::{NORMALIZER, SeriColor};
+    match SeriColor::parse_from_str(input, NORMALIZER) {
+        Ok(c) => Ok(c),
+        Err(valid_colors) => Err(format!("\n\nExpected one of: {}", valid_colors.join(", "))),
     }
 }
 

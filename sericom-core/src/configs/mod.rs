@@ -15,7 +15,13 @@ use crate::{
 use serde::Deserialize;
 use std::{io::Read, ops::Range, sync::OnceLock};
 
-static CONFIG: OnceLock<Config> = OnceLock::new();
+/// Global value of the user's config.
+///
+/// Currently it is immutable after initialized, therefore any changes to the
+/// underlying [`Config`] must be made before calling [`initialize_config()`].
+///
+/// To get a reference to the global config during runtime, call [`get_config()`].
+pub static CONFIG: OnceLock<Config> = OnceLock::new();
 
 /// Represents the entire `config.toml` configuration file.
 ///
@@ -39,13 +45,18 @@ impl Config {
     }
 }
 
-/// This function constructs a `static CONFIG` for the rest of sericom to get a
-/// reference to throughout the remainder of the program.
+/// This function constructs a global `static CONFIG` for the rest of the program's
+/// duration to provide a reference to the config for the remainder of the program.
 ///
 /// It checks for the user's config file and if it doesn't exist, it will use
 /// [`Config::default()`]. If the user's config does exist but does not set values
 /// for every field, the global `static CONFIG` will be initialized with the user's
 /// values and fill in the unspecified fields with their default values.
+///
+/// Takes [`ConfigOverride`] to set any overriding values before initialization.
+///
+/// Returns a [`ConfigError::AlreadyInitialized`] error if called after it has
+/// already been called ([`CONFIG`] has already been set).
 pub fn initialize_config(overrides: ConfigOverride) -> miette::Result<(), ConfigError> {
     let mut config: Config = if let Ok(config_file) = get_config_file() {
         let mut file = std::fs::File::open(config_file).expect("File should exist");
@@ -70,17 +81,23 @@ pub fn initialize_config(overrides: ConfigOverride) -> miette::Result<(), Config
     Ok(())
 }
 
-/// When called, `get_config()` returns a reference to the global `static CONFIG`
+/// When called, [`get_config()`] returns a reference to the global [`CONFIG`]
 /// that was initialized at the start of the program.
 ///
 /// See [`Config`].
+///
+/// ## Panics
+/// Will panic if [`CONFIG`] as not been initialized before calling with [`initialize_config()`].
 pub fn get_config() -> &'static Config {
     CONFIG.get().expect("Config not initialized")
 }
 
 #[derive(Debug)]
+/// Available configuration options that can be overridden
 pub struct ConfigOverride {
+    /// Overrides [`Appearance::fg`]
     pub color: Option<SeriColor>,
+    /// Overrides [`Defaults::out_dir`]
     pub out_dir: Option<String>,
 }
 
