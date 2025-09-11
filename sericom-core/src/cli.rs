@@ -23,16 +23,16 @@ use std::{
     io::{self, Write},
     path::PathBuf,
 };
-use tracing::{Level, span};
+use tracing::{Level, trace};
 
 /// Spawns all of the tasks responsible for maintaining an interactive terminal session.
 pub async fn interactive_session(
     connection: SerialPort,
-    file: Option<String>,
+    file_path: Option<PathBuf>,
     debug: bool,
     port_name: &str,
 ) -> miette::Result<()> {
-    let span = span!(Level::TRACE, "Interactive session");
+    let span = tracing::span!(Level::TRACE, "Interactive Session");
     let _enter = span.enter();
     // Setup terminal
     let mut stdout = io::stdout();
@@ -51,6 +51,7 @@ pub async fn interactive_session(
     .into_diagnostic()
     .wrap_err("Failed to setup the terminal.".red())?;
 
+    trace!("Creating channels");
     // Create channels
     let (command_tx, command_rx) = tokio::sync::mpsc::channel::<SerialMessage>(100);
     let (ui_tx, ui_rx) = tokio::sync::mpsc::channel::<UICommand>(100);
@@ -60,40 +61,35 @@ pub async fn interactive_session(
     // Create tasks
     let mut tasks = tokio::task::JoinSet::new();
 
-    if let Some(path) = file {
+    if let Some(path) = file_path {
         let config = get_config();
         let default_out_dir = PathBuf::from(&config.defaults.out_dir);
-        let input_path = PathBuf::from(path);
 
-        let file_path = if input_path.is_absolute() {
-            let parent = input_path.parent().unwrap_or(&default_out_dir);
+        // If given an absolute path - override the `default_out_dir`
+        let file_path = if path.is_absolute() {
+            let parent = path.parent().unwrap_or(&default_out_dir);
             create_recursive!(parent);
-            input_path
+            path
         } else {
-            let joined_path = default_out_dir.join(input_path);
+            let joined_path = default_out_dir.join(&path);
             let parent_path = joined_path.parent().expect("Does not have root");
             create_recursive!(parent_path);
             joined_path
         };
 
         let file_rx = broadcast_event_tx.subscribe();
-        tracing::event!(Level::TRACE, "Spawned file task");
         tasks.spawn(run_file_output(file_rx, file_path));
     }
 
     if debug {
         let debug_rx = broadcast_event_tx.subscribe();
-        tracing::event!(Level::TRACE, "Spawned debug task");
         tasks.spawn(run_debug_output(debug_rx));
     }
 
     let actor = SerialActor::new(connection, command_rx, broadcast_event_tx);
-    tracing::event!(Level::TRACE, "Spawned SerialActor");
     tasks.spawn(actor.run());
 
-    tracing::event!(Level::TRACE, "Spawned stdout task");
     tasks.spawn(run_stdout_output(stdout_rx, ui_rx));
-    tracing::event!(Level::TRACE, "Spawned stdin task");
     tasks.spawn(run_stdin_input(command_tx, ui_tx));
 
     tasks.join_all().await;
@@ -105,7 +101,6 @@ pub async fn interactive_session(
 ///
 /// Returns `Ok(SerialPort)` or errors if unable to set the baud rate or open the `port`.
 pub fn open_connection(baud: u32, port: &str) -> miette::Result<SerialPort> {
-    span!(Level::INFO, "Opened connection");
     let settings = |mut s: serial2_tokio::Settings| -> std::io::Result<serial2_tokio::Settings> {
         s.set_raw();
         s.set_baud_rate(baud)?;
@@ -293,7 +288,8 @@ pub fn list_serial_ports() -> miette::Result<()> {
     Ok(())
 }
 
-/// Used as a 'value_parser' for sericom's clap CLI struct to validate baud rates
+/// Used as a [`value_parser`](https://docs.rs/clap/latest/clap/struct.Arg.html#method.value_parser) for [`sericom`](https://crates.io/crates/sericom)s [`clap`](https://docs.rs/clap) CLI
+/// struct to validate and parse args into a baud rate.
 pub fn valid_baud_rate(s: &str) -> Result<u32, String> {
     let baud: u32 = s
         .parse()
@@ -306,6 +302,16 @@ pub fn valid_baud_rate(s: &str) -> Result<u32, String> {
             baud,
             serial2_tokio::COMMON_BAUD_RATES
         ))
+    }
+}
+
+/// Used as a [`value_parser`](https://docs.rs/clap/latest/clap/struct.Arg.html#method.value_parser) for [`sericom`](https://crates.io/crates/sericom)s [`clap`](https://docs.rs/clap) CLI
+/// struct to validate and parse args into a [`SeriColor`][`crate::configs::SeriColor`].
+pub fn color_parser(input: &str) -> Result<crate::configs::SeriColor, String> {
+    use crate::configs::{NORMALIZER, SeriColor};
+    match SeriColor::parse_from_str(input, NORMALIZER) {
+        Ok(c) => Ok(c),
+        Err(valid_colors) => Err(format!("\n\nExpected one of: {}", valid_colors.join(", "))),
     }
 }
 

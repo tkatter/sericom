@@ -1,3 +1,4 @@
+#![doc(html_root_url = "https://docs.rs/sericom-core/0.3.0")]
 //! `sericom-core` is the underlying library for [`sericom`](https://crates.io/crates/sericom)
 //!
 //! As it sits right now, this library is largely meant to be solely used by `sericom`
@@ -20,6 +21,17 @@ mod macros {
     /// Takes a [`&Path`][std::path::Path] and first checks whether it exists or if it is a
     /// directory. If it doesn't exist or is not a directory, it will create
     /// the directory recursively; creating the necessary parent directories.
+    ///
+    /// ## Example
+    /// ```
+    /// use sericom_core::create_recursive;
+    /// use std::path::PathBuf;
+    /// fn mkdir() {
+    ///     let path = PathBuf::from("some/dir");
+    ///     create_recursive!(&path);
+    ///     assert!(path.is_dir() && path.exists());
+    /// }
+    /// ```
     #[macro_export]
     macro_rules! create_recursive {
         ($path:expr) => {

@@ -14,8 +14,8 @@
 //!
 //! The screen buffer solves these issues by storing each line received from the
 //! connection in a [`VecDeque`]. It is important to note that
-//! currently, the **capacity of the `VecDeque` is hardcoded with a value of 10,000
-//! lines and is theoretically allowed to grow forever**; limited by memory.
+//! currently, the **capacity of the [`VecDeque`] is hardcoded with a value of 10,000
+//! lines with [`MAX_SCROLLBACK`]**.
 
 mod cell;
 mod cursor;
@@ -23,15 +23,19 @@ mod escape;
 mod line;
 mod render;
 mod ui_command;
-use cell::*;
-use cursor::*;
+pub use cell::*;
+pub use cursor::*;
 use escape::{EscapeSequence, EscapeState};
-use line::*;
+pub use line::*;
 pub use ui_command::*;
 
 use std::collections::VecDeque;
 
+/// The maximum number of lines stored in memory in [`ScreenBuffer`].
+pub const MAX_SCROLLBACK: usize = 10000;
+
 /// The `ScreenBuffer` holds rendering state for the entire terminal's window/frame.
+///
 /// It mainly serves to allow for user-interactions that require a history and location
 /// of the data displayed within the terminal i.e. copy/paste, scrolling, & highlighting.
 #[derive(Debug)]
@@ -67,9 +71,10 @@ pub struct ScreenBuffer {
 }
 
 impl ScreenBuffer {
-    /// Constructs a new `ScreenBuffer` to be used at the start of a
-    /// serial connection session.
-    pub fn new(width: u16, height: u16, max_scrollback: usize) -> Self {
+    /// Constructs a new `ScreenBuffer`.
+    ///
+    /// Takes the `width` and `height` of the terminal.
+    pub fn new(width: u16, height: u16) -> Self {
         let mut buffer = Self {
             width,
             height,
@@ -78,7 +83,7 @@ impl ScreenBuffer {
             cursor_pos: Position::home(),
             selection_start: None,
             selection_end: None,
-            max_scrollback,
+            max_scrollback: MAX_SCROLLBACK,
             last_render: None,
             needs_render: false,
             escape_state: EscapeState::Normal,
@@ -103,7 +108,7 @@ impl ScreenBuffer {
 
     fn clear_from_cursor_to_sol(&mut self) {
         if let Some(line) = self.lines.get_mut(self.cursor_pos.y) {
-            line.reset_to_idx(self.cursor_pos.x as usize);
+            line.reset_to(self.cursor_pos.x as usize);
         }
     }
 
@@ -119,7 +124,7 @@ impl ScreenBuffer {
 
     fn clear_from_cursor_to_eol(&mut self) {
         if let Some(line) = self.lines.get_mut(self.cursor_pos.y) {
-            line.reset_from_idx(self.cursor_pos.x as usize);
+            line.reset_from(self.cursor_pos.x as usize);
         }
     }
 
@@ -155,26 +160,4 @@ impl ScreenBuffer {
             }
         }
     }
-
-    #[allow(dead_code)]
-    pub fn get_stats(&self) -> BufferStats {
-        let total_lines = self.lines.len();
-        BufferStats {
-            total_lines,
-            view_start: self.view_start,
-            view_end: (self.view_start + self.height as usize).min(total_lines),
-            cursor_line: self.cursor_pos.y,
-            has_selection: self.selection_start.is_some() && self.selection_end.is_some(),
-        }
-    }
-}
-
-#[allow(dead_code)]
-#[derive(Debug)]
-pub struct BufferStats {
-    pub total_lines: usize,
-    pub view_start: usize,
-    pub view_end: usize,
-    pub cursor_line: usize,
-    pub has_selection: bool,
 }

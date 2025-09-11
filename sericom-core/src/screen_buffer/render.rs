@@ -1,5 +1,6 @@
 use crossterm::style::Color;
 use std::io::BufWriter;
+use tracing::instrument;
 
 use super::{Cursor, EscapeState, Line, ScreenBuffer, UIAction};
 use crate::configs::get_config;
@@ -10,6 +11,7 @@ impl ScreenBuffer {
     /// Takes incoming data (bytes (`u8`) from a serial connection) and
     /// processes them accordingly, handling ascii escape sequences, to
     /// render as characters/strings in the terminal.
+    #[instrument(name = "Add Data", skip(self, data))]
     pub fn add_data(&mut self, data: &[u8]) {
         let text = String::from_utf8_lossy(data);
         let mut chars = text.chars().peekable();
@@ -81,8 +83,8 @@ impl ScreenBuffer {
                 },
             }
         }
+        // Sets `self.needs_render = true`
         self.scroll_to_bottom();
-        self.needs_render = true;
     }
 
     fn add_char_batch(&mut self, chars: &[char]) {
@@ -118,8 +120,8 @@ impl ScreenBuffer {
     }
 
     /// Writes the lines/characters received from `add_data` to the terminal's screen.
-    /// As of now, `render` does not involve any diff-ing of previous renders.
     ///
+    /// As of now, `render` does not involve any diff-ing of previous renders.
     /// The nature of communicating to devices over a serial connection is similar
     /// that of a terminal; lines get printed to a screen and with each new line,
     /// all of the previously rendered characters must be re-rendered one cell higher.
@@ -131,8 +133,6 @@ impl ScreenBuffer {
         use std::io::{self, Write};
         use tokio::time::Instant;
 
-        // let span = tracing::span!(Level::INFO, "Render");
-        // let _entered = span.enter();
         if !self.needs_render {
             return Ok(());
         }
@@ -178,22 +178,19 @@ impl ScreenBuffer {
             }
         }
 
-        // This is relative the the terminal's L x W, whereas self.cursor_pos.y
-        // is within the entire line buf; seems to only matter when self.lines.len() < self.height
-        // let screen_cursor_y = if self.cursor_pos.y >= self.view_start
-        //     && self.cursor_pos.y < self.view_start + self.height as usize
-        // {
-        //     (self.cursor_pos.y - self.view_start) as u16
-        // } else {
-        //     self.height - 1
-        // };
-        //
-        // event!(Level::INFO, screen_y = screen_cursor_y, self_y = self.cursor_pos.y);
+        // This is relative the the terminal's L x W, whereas
+        // self.cursor_pos.y is within the entire line buf
+        let screen_cursor_y = if self.cursor_pos.y >= self.view_start
+            && self.cursor_pos.y < self.view_start + self.height as usize
+        {
+            (self.cursor_pos.y - self.view_start) as u16
+        } else {
+            self.height - 1
+        };
 
         queue!(
             writer,
-            cursor::MoveTo(self.cursor_pos.x, self.cursor_pos.y as u16),
-            // cursor::MoveTo(self.cursor_pos.x, screen_cursor_y),
+            cursor::MoveTo(self.cursor_pos.x, screen_cursor_y),
             cursor::Show
         )?;
         writer.flush()?;
