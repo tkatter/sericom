@@ -27,11 +27,11 @@ license-file = ["LICENSE", "14"]
 clap = { version = "4.5.41", features = ["derive"] }
 # sericom-core = "0.3.0"
 sericom-core = { version = "0.3.0", path = "../sericom-core" }
+tracing-appender = "0.2"
+tracing-subscriber = "0.3.20"
 chrono.workspace = true
 tokio.workspace = true
 serial2-tokio.workspace = true
 miette.workspace = true
 crossterm.workspace = true
-tracing-subscriber.workspace = true
-tracing-appender.workspace = true
 tracing.workspace = true
