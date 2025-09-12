@@ -146,37 +146,38 @@ impl ScreenBuffer {
         let mut writer = BufWriter::new(io::stdout());
         queue!(writer, cursor::Hide)?;
         let config = get_config();
-        let content_style = ContentStyle {
-            attributes: Attributes::none(),
-            foreground_color: Some(Color::from(&config.appearance.fg)),
-            background_color: Some(Color::from(&config.appearance.bg)),
-            underline_color: None,
-        };
 
         for screen_y in 0..self.height {
             let line_idx = self.view_start + screen_y as usize;
+            
             queue!(writer, cursor::MoveTo(0, screen_y))?;
-            queue!(writer, style::SetStyle(content_style))?;
 
             if let Some(line) = self.lines.get_mut(line_idx) {
-                let mut line_style = ContentStyle {
-                    attributes: Attributes::none(),
-                    foreground_color: Some(Color::from(&config.appearance.fg)),
-                    background_color: Some(Color::from(&config.appearance.bg)),
-                    underline_color: None,
-                };
                 for cell in line {
-                    if cell.is_selected {
-                        line_style.attributes.set(style::Attribute::Reverse);
-                    }
+                    let mut style = ContentStyle {
+                        attributes: Attributes::none(),
+                        foreground_color: Some(Color::from(&config.appearance.fg)),
+                        background_color: Some(Color::from(&config.appearance.bg)),
+                        underline_color: None,
+                    };
                     if !self.display_attributes.is_empty() {
-                        line_style.attributes = line_style.attributes | self.display_attributes;
+                        style.attributes.extend(self.display_attributes);
                     }
-                    queue!(writer, style::SetStyle(line_style), style::Print(cell.character))?;
+                    // if cell.is_selected {
+                    //     style.attributes.set(style::Attribute::Reverse);
+                    // }
+                    // if !self.display_attributes.is_empty() {
+                    //     style.attributes.extend(self.display_attributes);
+                    //     queue!(writer, style::SetStyle(style), style::Print(cell.character))?;
+                    // } else {
+                        queue!(writer, style::SetStyle(style), style::Print(cell.character))?;
+                    // }
                 }
             } else {
-                queue!(writer, style::SetAttributes(Attributes::none()), style::ResetColor)?;
-                queue!(writer, style::Print(" ".repeat(self.width as usize)))?;
+                queue!(writer,
+                    style::ResetColor,
+                    style::Print(" ".repeat(self.width as usize)
+                ))?;
             }
         }
 

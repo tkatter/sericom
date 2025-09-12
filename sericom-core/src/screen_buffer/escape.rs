@@ -141,9 +141,9 @@ impl ScreenBuffer {
                             line_nums.iter().collect::<String>().parse().unwrap();
                         let col_num: u16 = col_nums.iter().collect::<String>().parse().unwrap();
                         if line_num <= 1 {
-                            line_num = self.lines.len() as u16 - self.height;
+                            line_num = (self.lines.len() as u16).saturating_sub(self.height);
                         } else {
-                            line_num += self.lines.len() as u16 - self.height;
+                            line_num += (self.lines.len() as u16).saturating_sub(self.height);
                         }
                         self.set_cursor_pos((col_num.saturating_sub(1), line_num));
                     }

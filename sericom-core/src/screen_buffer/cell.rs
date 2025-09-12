@@ -42,7 +42,6 @@ impl Default for Cell {
     /// the bg color from [`Appearance.bg`][`crate::configs::Appearance`], `' '` for the character, and is not selected.
     fn default() -> Self {
         let config = get_config();
-        
         let style = ContentStyle {
             foreground_color: Some(Color::from(&config.appearance.fg)),
             background_color: Some(Color::from(&config.appearance.bg)),
