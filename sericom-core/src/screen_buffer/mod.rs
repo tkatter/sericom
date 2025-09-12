@@ -24,12 +24,15 @@ mod line;
 mod render;
 mod ui_command;
 pub use cell::*;
+use crossterm::style::{Attribute, Attributes, ContentStyle};
 pub use cursor::*;
 use escape::{EscapeSequence, EscapeState};
 pub use line::*;
 pub use ui_command::*;
 
 use std::collections::VecDeque;
+
+use crate::configs::get_config;
 
 /// The maximum number of lines stored in memory in [`ScreenBuffer`].
 pub const MAX_SCROLLBACK: usize = 10000;
@@ -66,6 +69,7 @@ pub struct ScreenBuffer {
     escape_sequence: EscapeSequence,
     /// Represents the time since [`ScreenBuffer::render()`] was last called.
     last_render: Option<tokio::time::Instant>,
+    display_attributes: Attributes,
     /// Indicates that [`ScreenBuffer`] has new data and needs to render.
     needs_render: bool,
 }
@@ -88,6 +92,7 @@ impl ScreenBuffer {
             needs_render: false,
             escape_state: EscapeState::Normal,
             escape_sequence: EscapeSequence::new(),
+            display_attributes: Attributes::none(),
         };
         // Start with an empty line
         buffer.lines.push_back(Line::new(width as usize));

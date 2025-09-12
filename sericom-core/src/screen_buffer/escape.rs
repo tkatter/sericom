@@ -1,3 +1,4 @@
+use crossterm::style::Attributes;
 use tracing::debug;
 
 use super::{Cursor, Line, Position, ScreenBuffer};
@@ -105,6 +106,26 @@ impl ScreenBuffer {
         let _enter = span.enter();
         match &self.escape_sequence.sequence[..] {
             [
+                EscapePart::Numbers(x),
+                EscapePart::Separator,
+                EscapePart::Numbers(y),
+                EscapePart::Separator,
+                EscapePart::Numbers(z),
+                EscapePart::Action('m'),
+            ] => {
+                debug!("Got 'ESC[{:?};{:?};{:?}m'", x, y, z);
+                let x: u16 =
+                    x.iter().collect::<String>().parse().unwrap();
+                let y: u16 =
+                    y.iter().collect::<String>().parse().unwrap();
+                let z: u16 =
+                    z.iter().collect::<String>().parse().unwrap();
+                if x == 0 { self.display_attributes = Attributes::none(); }
+                if y == 1 { self.display_attributes.set(crossterm::style::Attribute::Bold); }
+                if z == 7 { self.display_attributes.set(crossterm::style::Attribute::Reverse); }
+                self.escape_state = EscapeState::Normal;
+            }
+            [
                 EscapePart::Numbers(line_nums),
                 EscapePart::Separator,
                 EscapePart::Numbers(col_nums),
@@ -124,7 +145,7 @@ impl ScreenBuffer {
                         } else {
                             line_num += self.lines.len() as u16 - self.height;
                         }
-                        self.set_cursor_pos((col_num, line_num));
+                        self.set_cursor_pos((col_num.saturating_sub(1), line_num));
                     }
                     _ => {}
                 }
@@ -142,7 +163,7 @@ impl ScreenBuffer {
                         // Can unwrap because it is guaranteed elsewhere that
                         // `EscapePart::Numbers(Vec<Char>)` only holds ascii digits (0-9).
                         let col_num: u16 = col_nums.iter().collect::<String>().parse().unwrap();
-                        self.cursor_pos.x = col_num;
+                        self.cursor_pos.x = col_num.saturating_sub(1);
                     }
                     _ => {}
                 }
@@ -194,19 +215,26 @@ impl ScreenBuffer {
                 debug!("Got 'ESC[{}'", action);
                 match action {
                     // Set cursor position to 0, 0
-                    'H' => self.cursor_pos = Position::home(),
+                    'H' => {
+                        self.set_cursor_pos((0, self.lines.len() - self.view_start));
+                        // self.cursor_pos = Position::home();
+                    }
                     // Erase from cursor until end of screen
                     'J' => self.clear_from_cursor_to_eos(),
                     // Erase from cursor to end of line
                     'K' => self.clear_from_cursor_to_eol(),
                     'C' => self.move_cursor_right(1),
                     'D' => self.move_cursor_left(1),
+                    'm' => {self.display_attributes = Attributes::none();}
                     action if action.is_alphabetic() => {}
                     _ => {}
                 }
                 self.escape_state = EscapeState::Normal;
             }
-            _ => self.escape_state = EscapeState::Normal,
+            other => {
+                debug!("Got OTHER 'ESC[{:?}'", other);
+                self.escape_state = EscapeState::Normal;
+            }
         }
     }
 }

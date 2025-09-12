@@ -1,6 +1,6 @@
-use crossterm::style::Color;
+use crossterm::style::{Attributes, Color, ContentStyle, Stylize};
 use std::io::BufWriter;
-use tracing::instrument;
+use tracing::{debug, instrument};
 
 use super::{Cursor, EscapeState, Line, ScreenBuffer, UIAction};
 use crate::configs::get_config;
@@ -31,6 +31,8 @@ impl ScreenBuffer {
                             self.new_line();
                         }
                         '\x07' => {}
+                        '\x0E' => {}
+                        '\x0F' => {}
                         '\x08' => {
                             let mut temp_chars = chars.clone();
                             // Matches the `\x08 ' ' \x08` deletion sequence
@@ -56,6 +58,9 @@ impl ScreenBuffer {
                                     || next_ch == '\x1B'
                                     || self.cursor_pos.x + batch.len() as u16 >= self.width
                                 {
+                                    let span = tracing::span!(tracing::Level::DEBUG, "CTRL CHAR");
+                                    let _enter = span.enter();
+                                    debug!("{:?}", next_ch);
                                     break;
                                 }
                                 batch.push(chars.next().unwrap());
@@ -88,6 +93,7 @@ impl ScreenBuffer {
     }
 
     fn add_char_batch(&mut self, chars: &[char]) {
+        tracing::debug!("CharBatch: '{:?}'", chars);
         while self.cursor_pos.y >= self.lines.len() {
             self.lines.push_back(Line::new(self.width as usize));
         }
@@ -139,41 +145,37 @@ impl ScreenBuffer {
 
         let mut writer = BufWriter::new(io::stdout());
         queue!(writer, cursor::Hide)?;
+        let config = get_config();
+        let content_style = ContentStyle {
+            attributes: Attributes::none(),
+            foreground_color: Some(Color::from(&config.appearance.fg)),
+            background_color: Some(Color::from(&config.appearance.bg)),
+            underline_color: None,
+        };
 
         for screen_y in 0..self.height {
             let line_idx = self.view_start + screen_y as usize;
             queue!(writer, cursor::MoveTo(0, screen_y))?;
+            queue!(writer, style::SetStyle(content_style))?;
 
-            if let Some(line) = self.lines.get(line_idx) {
-                let config = get_config();
-                let mut current_fg = Color::from(&config.appearance.fg);
-                let mut current_bg = Color::from(&config.appearance.bg);
-                queue!(writer, style::SetForegroundColor(current_fg))?;
-                queue!(writer, style::SetBackgroundColor(current_bg))?;
-
+            if let Some(line) = self.lines.get_mut(line_idx) {
+                let mut line_style = ContentStyle {
+                    attributes: Attributes::none(),
+                    foreground_color: Some(Color::from(&config.appearance.fg)),
+                    background_color: Some(Color::from(&config.appearance.bg)),
+                    underline_color: None,
+                };
                 for cell in line {
-                    let fg = if cell.is_selected {
-                        Color::from(&config.appearance.hl_fg)
-                    } else {
-                        cell.fg_color
-                    };
-                    let bg = if cell.is_selected {
-                        Color::from(&config.appearance.hl_bg)
-                    } else {
-                        cell.bg_color
-                    };
-                    if fg != current_fg {
-                        queue!(writer, style::SetForegroundColor(fg))?;
-                        current_fg = fg;
+                    if cell.is_selected {
+                        line_style.attributes.set(style::Attribute::Reverse);
                     }
-                    if bg != current_bg {
-                        queue!(writer, style::SetBackgroundColor(bg))?;
-                        current_bg = bg;
+                    if !self.display_attributes.is_empty() {
+                        line_style.attributes = line_style.attributes | self.display_attributes;
                     }
-                    queue!(writer, style::Print(cell.character))?;
+                    queue!(writer, style::SetStyle(line_style), style::Print(cell.character))?;
                 }
             } else {
-                queue!(writer, style::ResetColor)?;
+                queue!(writer, style::SetAttributes(Attributes::none()), style::ResetColor)?;
                 queue!(writer, style::Print(" ".repeat(self.width as usize)))?;
             }
         }
