@@ -18,3 +18,8 @@ tracing = "0.1.41"
 
 [patch.crates-io]
 sericom-core = { path = "sericom-core" }
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
