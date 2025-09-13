@@ -323,7 +323,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "778e2ac28f6c47af28e4907f13ffd1e1ddbd400980a9abd7c8df189bf578a5ad"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -649,7 +649,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -718,14 +718,14 @@ dependencies = [
 
 [[package]]
 name = "sericom"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "chrono",
  "clap",
  "crossterm",
  "miette",
  "serial2-tokio",
- "sericom-core",
+ "sericom-core 0.4.0",
  "tokio",
  "tracing",
  "tracing-appender",
@@ -735,6 +735,23 @@ dependencies = [
 [[package]]
 name = "sericom-core"
 version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e02d8a6d29b40af42b75e4385cc098bc601a14f12ec26afd668b1414961f17c7"
+dependencies = [
+ "chrono",
+ "crossterm",
+ "miette",
+ "serde",
+ "serial2-tokio",
+ "thiserror 2.0.16",
+ "tokio",
+ "toml",
+ "tracing",
+]
+
+[[package]]
+name = "sericom-core"
+version = "0.5.0"
 dependencies = [
  "chrono",
  "crossterm",
