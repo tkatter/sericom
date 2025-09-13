@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0](https://github.com/tkatter/sericom/compare/sericom-core/v0.4.0...sericom-core/v0.5.0) - 2025-09-13
+
+### Changed
+
+- Swap git-cliff for release-plz
+- git-cliff configuration
+
+### Fixed
+
+- *(ascii)* Fixed processing of ascii highlight & bold escape sequences
+- *(configs)* [**breaking**] Removed hl_fg and hl_bg configurations to use the inverse
+
 ## [0.4.0](https://github.com/tkatter/sericom/releases/tag/sericom-core/v0.4.0) - 2025-09-11
 
 ### Added

@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1](https://github.com/tkatter/sericom/compare/sericom/v0.5.0...sericom/v0.5.1) - 2025-09-13
+
+### Changed
+
+- Added cargo-dist ci for binary creations
+- Swap git-cliff for release-plz
+- git-cliff configuration
+
+### Fixed
+
+- *(tracing)* Fixed compatability between Windows and Linux serial ports as paths
+- *(configs)* [**breaking**] Removed hl_fg and hl_bg configurations to use the inverse
+
 ## [0.5.0](https://github.com/tkatter/sericom/releases/tag/sericom/v0.5.0) - 2025-09-11
 
 ### Added
