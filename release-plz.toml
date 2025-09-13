@@ -1,0 +1,118 @@
+[workspace]
+repo_url = "https://github.com/tkatter/sericom"
+
+# enable changelog updates
+changelog_update = true
+
+# update dependencies with `cargo update`
+# dependencies_update = true
+
+# create tags for the releases
+git_tag_enable = true
+
+# disable GitHub releases
+git_release_enable = false
+
+# disable release immediately after pr merge
+release_always = false
+
+# labels for the release PR
+pr_labels = ["release"]
+
+# disallow updating repositories with uncommitted changes
+allow_dirty = false
+
+# disallow packaging with uncommitted changes
+publish_allow_dirty = false
+
+# temp
+publish = true
+
+[[package]]
+name = "sericom"
+semver_check = false
+changelog_path = "sericom/CHANGELOG.md"
+git_tag_name = "sericom/v{{ version }}"
+git_release_enable = true
+git_release_name = "v{{ version }}"
+git_release_draft = true
+
+[[package]]
+name = "sericom-core"
+semver_check = true
+changelog_path = "sericom-core/CHANGELOG.md"
+git_tag_name = "sericom-core/v{{ version }}"
+
+[changelog]
+header = """# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+"""
+
+body = """
+
+## [{{ version }}]\
+    {%- if release_link -%}\
+        ({{ release_link }})\
+    {% endif %} \
+    - {{ timestamp | date(format="%Y-%m-%d") }}
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | upper_first }}
+
+    {% for commit in commits %}
+        {%- if commit.scope -%}
+            - *({{commit.scope}})* {% if commit.breaking %}[**breaking**] {% endif %}\
+                {{ commit.message }}\
+                {%- if commit.links %} \
+                    ({% for link in commit.links %}[{{link.text}}]({{link.href}}) {% endfor -%})\
+                {% endif %}
+        {% else -%}
+            - {% if commit.breaking %}[**breaking**] {% endif %}{{ commit.message }}
+        {% endif -%}
+    {% endfor -%}
+{% endfor %}
+"""
+# Remove leading and trailing whitespaces from the changelog's body.
+trim = true
+# Only "sericom/vX.X.X" or "vX.X.X" (from the repo's beginning)
+protect_breaking_commits = true
+# Order of commits in each group/release within the changelog.
+sort_commits = "newest"
+tag_pattern = "^((sericom|sericom-core)/v[0-9]+\\.[0-9]+\\.[0-9]+$|v[0-9]+\\.[0-9]+\\.[0-9]+$)$"
+commit_preprocessors = [
+  # Hyperlink PR references from merge commits.
+  { pattern = "Merge pull request #([0-9]+) from [^ ]+", replace = "PR # [${1}](https://github.com/tkatter/sericom/pull/${1}):"},
+  # Replace the issue/PR number with the link.
+  { pattern = "\\(#([0-9]+)\\)", replace = "([#${1}](https://github.com/tkatter/sericom/pull/${1}))"},
+  # Remove issue numbers.
+  { pattern = '\((\w+\s)?#([0-9]+)\)', replace = "" },
+]
+commit_parsers = [
+  { message = "^[aA]dd", group = "Added" },
+  { message = "^[sS]upport", group = "Added" },
+  { message = "^[rR]emove", group = "Removed" },
+  { message = "^.*: add", group = "Added" },
+  { message = "^.*: support", group = "Added" },
+  { message = "^.*: remove", group = "Removed" },
+  { message = "^.*: delete", group = "Removed" },
+  { message = "^test", group = "Fixed" },
+  { message = "^fix", group = "Fixed" },
+  { message = "^.*: fix", group = "Fixed" },
+  { message = "^.*[Cc]hanged*", group = "Changed" },
+  { message = "^.*[Cc]hange*", group = "Changed" },
+  { message = "^[sS]style:", group = "Changed"},
+  { message = "^[cC]i:", group = "Changed"},
+  { message = "^[rR]efactor:", group = "Changed"},
+  { message = "^[bB]uild:", group = "Changed"},
+  # Skip processing of commit if footer contains `changelog: ignore`
+  { footer = "^changelog: ?ignore", skip = true },
+  # Skip `cargo fmt` commits
+  { message = "^style\\(fmt\\)", skip = true },
+  # If the commit starts with "doc", group the commit as "Documentation" and set the default scope to "other". E.g. docs: xyz will be processed as docs(other): xyz.
+  { message = "^doc", group = "Documentation", default_scope = "other" },
+]
