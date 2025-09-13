@@ -10,8 +10,6 @@ use std::borrow::Cow;
 /// [appearance]
 /// fg = "green"
 /// bg = "none"
-/// hl_fg = "black"
-/// hl_bg = "white"
 /// ```
 #[derive(Debug, Deserialize, PartialEq)]
 pub struct Appearance {
@@ -19,18 +17,6 @@ pub struct Appearance {
     pub fg: SeriColor,
     #[serde(default = "default_bg")]
     pub bg: SeriColor,
-    #[serde(default = "default_hl_fg")]
-    pub hl_fg: SeriColor,
-    #[serde(default = "default_hl_bg")]
-    pub hl_bg: SeriColor,
-}
-
-fn default_hl_fg() -> SeriColor {
-    SeriColor::Black
-}
-
-fn default_hl_bg() -> SeriColor {
-    SeriColor::White
 }
 
 fn default_fg() -> SeriColor {
@@ -45,8 +31,6 @@ impl Default for Appearance {
         Self {
             fg: SeriColor::Green,
             bg: SeriColor::None,
-            hl_fg: SeriColor::Black,
-            hl_bg: SeriColor::White,
         }
     }
 }

@@ -148,8 +148,6 @@ fn parse_test_config() {
         appearance: Appearance {
             fg: SeriColor::DarkGrey,
             bg: SeriColor::Red,
-            hl_fg: SeriColor::White,
-            hl_bg: SeriColor::Blue,
         },
         defaults: Defaults {
             out_dir: "$HOME/.configs".to_string(),
