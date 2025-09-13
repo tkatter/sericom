@@ -29,7 +29,7 @@ rustflags = ["-C", "target-feature=+crt-static"]
 
 [dependencies]
 clap = { version = "4.5.41", features = ["derive"] }
-sericom-core = "0.4.0"
+sericom-core = { version = "0.5.0", path = "../sericom-core" }
 tracing-appender = "0.2"
 tracing-subscriber = "0.3.20"
 chrono.workspace = true
