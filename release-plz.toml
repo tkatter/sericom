@@ -14,7 +14,7 @@ git_tag_enable = true
 git_release_enable = false
 
 # disable release immediately after pr merge
-release_always = false
+# release_always = false
 
 # labels for the release PR
 pr_labels = ["release"]
@@ -33,9 +33,9 @@ name = "sericom"
 semver_check = false
 changelog_path = "sericom/CHANGELOG.md"
 git_tag_name = "sericom/v{{ version }}"
-git_release_enable = true
-git_release_name = "v{{ version }}"
-git_release_draft = true
+# git_release_enable = true
+# git_release_name = "v{{ version }}"
+# git_release_draft = true
 
 [[package]]
 name = "sericom-core"
