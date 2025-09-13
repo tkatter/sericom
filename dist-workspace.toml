@@ -21,3 +21,7 @@ publish-jobs = ["homebrew"]
 install-updater = false
 # A prefix git tags must include for dist to care about them
 tag-namespace = "sericom"
+
+[dist.github-action-commits]
+"actions/checkout" = "v5"
+"actions/download-artifact" = "v5"
