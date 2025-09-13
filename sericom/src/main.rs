@@ -156,19 +156,34 @@ async fn main() -> miette::Result<()> {
 
 fn init_tracing<S>(port: S) -> miette::Result<Option<tracing_appender::non_blocking::WorkerGuard>>
 where
-    S: AsRef<str> + Display,
+    S: AsRef<str> + Display + Into<PathBuf>,
 {
-    let path = format!(
+    use std::path::PathBuf;
+    let path_port: PathBuf = if cfg!(windows) {
+        port.into()
+    } else {
+        let p: PathBuf = port.into();
+        PathBuf::from(p.file_name().ok_or(std::io::ErrorKind::InvalidFilename)
+            .map_err(|e| miette::miette!(
+                help = format!("The name of the tracing file is tied to the port being opened, make sure you are using a valid port."),
+                "{e}: '{}'\n",
+                p.display()
+            )).wrap_err_with(|| format!("Could not create file: '{}' for tracing output.\n", p.display()))?)
+    };
+
+    let path = PathBuf::from(format!(
         "./trace-{}-{}.txt",
-        port,
-        chrono::Utc::now().format("%m%d.%H%M"),
-    );
+        path_port.display(),
+        chrono::Utc::now().format("%m%d%H%M"),
+    ));
+
     let file = std::fs::File::options()
         .write(true)
         .create(true)
         .truncate(true)
-        .open(path)
-        .into_diagnostic()?;
+        .open(&path)
+        .into_diagnostic()
+        .wrap_err_with(|| format!("Failed to create '{}'", path.display()))?;
     let (non_blocking, guard) = tracing_appender::non_blocking(file);
     let subscriber = tracing_subscriber::fmt()
         .with_max_level(tracing::Level::DEBUG)

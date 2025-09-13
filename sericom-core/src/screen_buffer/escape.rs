@@ -1,6 +1,7 @@
+use crossterm::style::Attributes;
 use tracing::debug;
 
-use super::{Cursor, Line, Position, ScreenBuffer};
+use super::{Cursor, Line, ScreenBuffer};
 use crate::screen_buffer::UIAction;
 
 /// `EscapeState` holds stateful information about the incoming
@@ -105,12 +106,37 @@ impl ScreenBuffer {
         let _enter = span.enter();
         match &self.escape_sequence.sequence[..] {
             [
+                EscapePart::Numbers(x),
+                EscapePart::Separator,
+                EscapePart::Numbers(y),
+                EscapePart::Separator,
+                EscapePart::Numbers(z),
+                EscapePart::Action('m'),
+            ] => {
+                debug!("Got: 'ESC[{:?};{:?};{:?}m'", x, y, z);
+                let x: u16 = x.iter().collect::<String>().parse().unwrap();
+                let y: u16 = y.iter().collect::<String>().parse().unwrap();
+                let z: u16 = z.iter().collect::<String>().parse().unwrap();
+                if x == 0 {
+                    self.display_attributes = Attributes::none();
+                }
+                if y == 1 {
+                    self.display_attributes
+                        .set(crossterm::style::Attribute::Bold);
+                }
+                if z == 7 {
+                    self.display_attributes
+                        .set(crossterm::style::Attribute::Reverse);
+                }
+                self.escape_state = EscapeState::Normal;
+            }
+            [
                 EscapePart::Numbers(line_nums),
                 EscapePart::Separator,
                 EscapePart::Numbers(col_nums),
                 EscapePart::Action(action),
             ] => {
-                debug!("Got 'ESC[{:?};{:?}{}'", line_nums, col_nums, action);
+                debug!("Got: 'ESC[{:?};{:?}{}'", line_nums, col_nums, action);
                 match action {
                     // Move cursor to (line_num, col_num)
                     'H' | 'f' => {
@@ -120,11 +146,11 @@ impl ScreenBuffer {
                             line_nums.iter().collect::<String>().parse().unwrap();
                         let col_num: u16 = col_nums.iter().collect::<String>().parse().unwrap();
                         if line_num <= 1 {
-                            line_num = self.lines.len() as u16 - self.height;
+                            line_num = (self.lines.len() as u16).saturating_sub(self.height);
                         } else {
-                            line_num += self.lines.len() as u16 - self.height;
+                            line_num += (self.lines.len() as u16).saturating_sub(self.height);
                         }
-                        self.set_cursor_pos((col_num, line_num));
+                        self.set_cursor_pos((col_num.saturating_sub(1), line_num));
                     }
                     _ => {}
                 }
@@ -135,25 +161,24 @@ impl ScreenBuffer {
                 EscapePart::Numbers(col_nums),
                 EscapePart::Action(action),
             ] => {
-                debug!("Got 'ESC[;{:?}{}'", col_nums, action);
+                debug!("Got: 'ESC[;{:?}{}'", col_nums, action);
                 match action {
                     // Move cursor to (same, col_num)
                     'H' | 'f' => {
                         // Can unwrap because it is guaranteed elsewhere that
                         // `EscapePart::Numbers(Vec<Char>)` only holds ascii digits (0-9).
                         let col_num: u16 = col_nums.iter().collect::<String>().parse().unwrap();
-                        self.cursor_pos.x = col_num;
+                        self.cursor_pos.x = col_num.saturating_sub(1);
                     }
                     _ => {}
                 }
                 self.escape_state = EscapeState::Normal;
             }
             [EscapePart::Numbers(nums), EscapePart::Action(action)] => {
-                debug!("Got 'ESC[{:?}{}'", nums, action);
+                debug!("Got: 'ESC[{:?}{}'", nums, action);
                 // Can unwrap because it is guaranteed elsewhere that
                 // `EscapePart::Numbers(Vec<Char>)` only holds ascii digits (0-9).
                 let num: u16 = nums.iter().collect::<String>().parse().unwrap();
-                // NOTE: These functions are solely doing what they say and do NOT move the cursor
                 match (num, action) {
                     // Move cursor up # of lines
                     (num, 'A') => self.move_cursor_up(num),
@@ -191,22 +216,30 @@ impl ScreenBuffer {
                 self.escape_state = EscapeState::Normal;
             }
             [EscapePart::Action(action)] => {
-                debug!("Got 'ESC[{}'", action);
+                debug!("Got: 'ESC[{}'", action);
                 match action {
-                    // Set cursor position to 0, 0
-                    'H' => self.cursor_pos = Position::home(),
+                    // Set cursor position to 0, 0 of screen
+                    'H' => {
+                        self.set_cursor_pos((0, self.lines.len().saturating_sub(self.view_start)));
+                    }
                     // Erase from cursor until end of screen
                     'J' => self.clear_from_cursor_to_eos(),
                     // Erase from cursor to end of line
                     'K' => self.clear_from_cursor_to_eol(),
                     'C' => self.move_cursor_right(1),
                     'D' => self.move_cursor_left(1),
+                    'm' => {
+                        self.display_attributes = Attributes::none();
+                    }
                     action if action.is_alphabetic() => {}
                     _ => {}
                 }
                 self.escape_state = EscapeState::Normal;
             }
-            _ => self.escape_state = EscapeState::Normal,
+            other => {
+                debug!("Unhandled ESC: 'ESC[{:?}'", other);
+                self.escape_state = EscapeState::Normal;
+            }
         }
     }
 }

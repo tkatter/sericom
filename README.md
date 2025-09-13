@@ -164,11 +164,6 @@ Currently the available configuration options are as follows:
 fg = "green"
 bg = "none"
 
-# Control the foreground and background colors of highlighted text
-# (text that is highlighted as it is selected via the mouse)
-hl_fg = "black"
-hl_bg = "white"
-
 [defaults]
 # The default directory where files will be written to when running `sericom -f <FILE>`
 out_dir = "./"
