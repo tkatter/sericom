@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.2](https://github.com/tkatter/sericom/compare/sericom/v0.5.1...sericom/v0.5.2) - 2025-09-13
+
+### Changed
+
+- Removed aarch64 from cargo-dist action and added path to
+
 ## [0.5.1](https://github.com/tkatter/sericom/compare/sericom/v0.5.0...sericom/v0.5.1) - 2025-09-13
 
 ### Changed
