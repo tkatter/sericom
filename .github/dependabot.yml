@@ -1,0 +1,17 @@
+# scraped from https://blog.orhun.dev/automated-rust-releases/
+# thanks!
+version: 2
+updates:
+  # Maintain dependencies for Cargo
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: daily
+    open-pull-requests-limit: 10
+
+  # Maintain dependencies for GitHub Actions
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: daily
+    open-pull-requests-limit: 10
