@@ -26,7 +26,7 @@ allow_dirty = false
 publish_allow_dirty = false
 
 # temp
-publish = false
+publish = true
 
 [[package]]
 name = "sericom"
