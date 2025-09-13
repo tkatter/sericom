@@ -24,15 +24,13 @@ mod line;
 mod render;
 mod ui_command;
 pub use cell::*;
-use crossterm::style::{Attribute, Attributes, ContentStyle};
+use crossterm::style::Attributes;
 pub use cursor::*;
 use escape::{EscapeSequence, EscapeState};
 pub use line::*;
 pub use ui_command::*;
 
 use std::collections::VecDeque;
-
-use crate::configs::get_config;
 
 /// The maximum number of lines stored in memory in [`ScreenBuffer`].
 pub const MAX_SCROLLBACK: usize = 10000;

@@ -1,6 +1,6 @@
-use crossterm::style::{Attributes, Color, ContentStyle, Stylize};
+use crossterm::style::Color;
 use std::io::BufWriter;
-use tracing::{debug, instrument};
+use tracing::instrument;
 
 use super::{Cursor, EscapeState, Line, ScreenBuffer, UIAction};
 use crate::configs::get_config;
@@ -58,9 +58,6 @@ impl ScreenBuffer {
                                     || next_ch == '\x1B'
                                     || self.cursor_pos.x + batch.len() as u16 >= self.width
                                 {
-                                    let span = tracing::span!(tracing::Level::DEBUG, "CTRL CHAR");
-                                    let _enter = span.enter();
-                                    debug!("{:?}", next_ch);
                                     break;
                                 }
                                 batch.push(chars.next().unwrap());
@@ -149,35 +146,61 @@ impl ScreenBuffer {
 
         for screen_y in 0..self.height {
             let line_idx = self.view_start + screen_y as usize;
-            
             queue!(writer, cursor::MoveTo(0, screen_y))?;
 
             if let Some(line) = self.lines.get_mut(line_idx) {
+                let mut current_fg = Color::from(&config.appearance.fg);
+                let mut current_bg = Color::from(&config.appearance.bg);
+                queue!(
+                    writer,
+                    style::SetForegroundColor(current_fg),
+                    style::SetBackgroundColor(current_bg)
+                )?;
+
                 for cell in line {
-                    let mut style = ContentStyle {
-                        attributes: Attributes::none(),
-                        foreground_color: Some(Color::from(&config.appearance.fg)),
-                        background_color: Some(Color::from(&config.appearance.bg)),
-                        underline_color: None,
+                    let global_reverse = self.display_attributes.has(style::Attribute::Reverse);
+
+                    let fg = if (cell.is_selected && !global_reverse)
+                        || (!cell.is_selected && global_reverse)
+                    {
+                        cell.bg_color
+                    } else {
+                        cell.fg_color
                     };
-                    if !self.display_attributes.is_empty() {
-                        style.attributes.extend(self.display_attributes);
+
+                    let bg = if (cell.is_selected && !global_reverse)
+                        || (!cell.is_selected && global_reverse)
+                    {
+                        cell.fg_color
+                    } else {
+                        cell.bg_color
+                    };
+
+                    if fg != current_fg {
+                        queue!(writer, style::SetForegroundColor(fg))?;
+                        current_fg = fg;
                     }
-                    // if cell.is_selected {
-                    //     style.attributes.set(style::Attribute::Reverse);
-                    // }
-                    // if !self.display_attributes.is_empty() {
-                    //     style.attributes.extend(self.display_attributes);
-                    //     queue!(writer, style::SetStyle(style), style::Print(cell.character))?;
-                    // } else {
-                        queue!(writer, style::SetStyle(style), style::Print(cell.character))?;
-                    // }
+                    if bg != current_bg {
+                        queue!(writer, style::SetBackgroundColor(bg))?;
+                        current_bg = bg;
+                    }
+
+                    if self.display_attributes.has(style::Attribute::Bold) {
+                        queue!(
+                            writer,
+                            style::SetAttribute(style::Attribute::Bold),
+                            style::Print(cell.character)
+                        )?;
+                    } else {
+                        queue!(writer, style::Print(cell.character))?;
+                    }
                 }
             } else {
-                queue!(writer,
+                queue!(
+                    writer,
                     style::ResetColor,
-                    style::Print(" ".repeat(self.width as usize)
-                ))?;
+                    style::Print(" ".repeat(self.width as usize))
+                )?;
             }
         }
 

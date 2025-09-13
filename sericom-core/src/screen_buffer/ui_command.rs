@@ -125,12 +125,12 @@ impl UIAction for ScreenBuffer {
         self.needs_render = true;
     }
 
-    /// Clears the current screen while keeping the buffer's history
+    /// Clears the current *visible* screen while keeping the buffer's history
     fn clear_screen(&mut self) {
         for _ in 0..self.height {
             self.lines.push_back(Line::new(self.width as usize));
         }
-        self.view_start = self.lines.len() - self.height as usize;
+        self.view_start = self.lines.len().saturating_sub(self.height as usize);
         self.needs_render = true;
     }
 }
@@ -145,6 +145,7 @@ impl ScreenBuffer {
             (self.selection_start, self.selection_end)
         {
             let (start_line, start_x, end_line, end_x) =
+                // If start < end or if start = end, start x has to be less than end x
                 if start_line < end_line || (start_line == end_line && start_x <= end_x) {
                     (start_line, start_x, end_line, end_x)
                 } else {
