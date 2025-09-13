@@ -7,6 +7,7 @@ documentation = "https://github.com/tkatter/sericom"
 license = "GPL-3.0-or-later"
 keywords = ["serial", "console"]
 categories = ["command-line-utilities"]
+homepage = "https://github.com/tkatter/sericom"
 edition.workspace = true
 exclude.workspace = true
 readme.workspace = true
@@ -19,6 +20,9 @@ license-file = ["LICENSE", "14"]
 
 [package.metadata.wix]
 license = "License.rtf"
+upgrade-guid = "45B3311A-7E74-4BBA-8647-66E145142705"
+path-guid = "1D7883F5-DBEB-4F8A-8F1F-79E3FA4BC55E"
+eula = false
 
 [target.x86_64-pc-windows-msvc]
 rustflags = ["-C", "target-feature=+crt-static"]
