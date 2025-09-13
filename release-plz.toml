@@ -4,17 +4,14 @@ repo_url = "https://github.com/tkatter/sericom"
 # enable changelog updates
 changelog_update = true
 
-# update dependencies with `cargo update`
-# dependencies_update = true
+# only update if commits include feat, docs, or fix
+release_commits = "^(feat|docs|fix)[(:]"
 
 # create tags for the releases
 git_tag_enable = true
 
 # disable GitHub releases
 git_release_enable = false
-
-# disable release immediately after pr merge
-# release_always = false
 
 # labels for the release PR
 pr_labels = ["release"]
@@ -25,7 +22,6 @@ allow_dirty = false
 # disallow packaging with uncommitted changes
 publish_allow_dirty = false
 
-# temp
 publish = true
 
 [[package]]
@@ -33,9 +29,6 @@ name = "sericom"
 semver_check = false
 changelog_path = "sericom/CHANGELOG.md"
 git_tag_name = "sericom/v{{ version }}"
-# git_release_enable = true
-# git_release_name = "v{{ version }}"
-# git_release_draft = true
 
 [[package]]
 name = "sericom-core"
