@@ -14,6 +14,32 @@ pub struct Cell {
     pub(super) is_selected: bool,
 }
 
+impl Cell {
+    pub const EMPTY: Self = Self::new(' ');
+
+    #[must_use]
+    pub const fn new(character: char) -> Self {
+        Self {
+            character,
+            fg_color: Color::Reset,
+            bg_color: Color::Reset,
+            is_selected: false,
+        }
+    }
+}
+
+impl From<char> for Cell {
+    fn from(value: char) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<Cell> for char {
+    fn from(value: Cell) -> Self {
+        value.character
+    }
+}
+
 impl Default for Cell {
     /// The default for [`Cell`] is the fg color from [`Appearance.fg`][`crate::configs::Appearance`],
     /// the bg color from [`Appearance.bg`][`crate::configs::Appearance`], `' '` for the character, and is not selected.

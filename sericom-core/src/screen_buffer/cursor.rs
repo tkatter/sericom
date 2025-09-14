@@ -37,6 +37,7 @@ impl From<Position> for (u16, usize) {
     }
 }
 
+#[allow(clippy::cast_possible_truncation)]
 impl From<Position> for (u16, u16) {
     fn from(position: Position) -> Self {
         (position.x, position.y as u16)
@@ -78,7 +79,7 @@ impl Cursor for ScreenBuffer {
     fn move_cursor_down(&mut self, lines: u16) {
         self.cursor_pos.y = self.cursor_pos.y.saturating_add(lines as usize);
         while self.cursor_pos.y > self.lines.len() {
-            self.lines.push_back(Line::new(self.width as usize));
+            self.lines.push_back(Line::new_default(self.width as usize));
         }
     }
 

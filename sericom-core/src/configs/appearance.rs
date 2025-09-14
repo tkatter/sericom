@@ -11,7 +11,7 @@ use std::borrow::Cow;
 /// fg = "green"
 /// bg = "none"
 /// ```
-#[derive(Debug, Deserialize, PartialEq)]
+#[derive(Debug, Deserialize, PartialEq, Eq)]
 pub struct Appearance {
     #[serde(default = "default_fg")]
     pub fg: SeriColor,
@@ -19,10 +19,10 @@ pub struct Appearance {
     pub bg: SeriColor,
 }
 
-fn default_fg() -> SeriColor {
+const fn default_fg() -> SeriColor {
     SeriColor::Green
 }
-fn default_bg() -> SeriColor {
+const fn default_bg() -> SeriColor {
     SeriColor::None
 }
 
@@ -109,6 +109,9 @@ impl SeriColor {
     /// would be parsed from (config.toml and as a cli argument). However, you
     /// may rather want to use a custom `normalizer` instead.
     ///
+    /// # Errors
+    /// Returns an error of [`VALID_SERICOLORS`] if unable to parse into [`SeriColor`]
+    ///
     /// ## Example
     ///
     /// ```
@@ -128,23 +131,23 @@ impl SeriColor {
         let normalized_cow = normalizer(input_slice);
         let normalized_str = normalized_cow.as_ref();
         match normalized_str {
-            "black" => Ok(SeriColor::Black),
-            "blue" => Ok(SeriColor::Blue),
-            "cyan" => Ok(SeriColor::Cyan),
-            "darkblue" => Ok(SeriColor::DarkBlue),
-            "darkcyan" => Ok(SeriColor::DarkCyan),
-            "darkgreen" => Ok(SeriColor::DarkGreen),
-            "darkgrey" | "darkgray" => Ok(SeriColor::DarkGrey),
-            "darkmagenta" => Ok(SeriColor::DarkMagenta),
-            "darkred" => Ok(SeriColor::DarkRed),
-            "darkyellow" => Ok(SeriColor::DarkYellow),
-            "default" => Ok(SeriColor::None),
-            "green" => Ok(SeriColor::Green),
-            "grey" | "gray" => Ok(SeriColor::Grey),
-            "magenta" => Ok(SeriColor::Magenta),
-            "red" => Ok(SeriColor::Red),
-            "white" => Ok(SeriColor::White),
-            "yellow" => Ok(SeriColor::Yellow),
+            "black" => Ok(Self::Black),
+            "blue" => Ok(Self::Blue),
+            "cyan" => Ok(Self::Cyan),
+            "darkblue" => Ok(Self::DarkBlue),
+            "darkcyan" => Ok(Self::DarkCyan),
+            "darkgreen" => Ok(Self::DarkGreen),
+            "darkgrey" | "darkgray" => Ok(Self::DarkGrey),
+            "darkmagenta" => Ok(Self::DarkMagenta),
+            "darkred" => Ok(Self::DarkRed),
+            "darkyellow" => Ok(Self::DarkYellow),
+            "default" => Ok(Self::None),
+            "green" => Ok(Self::Green),
+            "grey" | "gray" => Ok(Self::Grey),
+            "magenta" => Ok(Self::Magenta),
+            "red" => Ok(Self::Red),
+            "white" => Ok(Self::White),
+            "yellow" => Ok(Self::Yellow),
             _ => Err(VALID_SERICOLORS),
         }
     }
@@ -156,7 +159,7 @@ impl<'de> Deserialize<'de> for SeriColor {
         D: serde::Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        match SeriColor::parse_from_str(&s, NORMALIZER) {
+        match Self::parse_from_str(&s, NORMALIZER) {
             Ok(s) => Ok(s),
             Err(valid_colors) => Err(serde::de::Error::unknown_variant(&s, valid_colors)),
         }
@@ -164,25 +167,25 @@ impl<'de> Deserialize<'de> for SeriColor {
 }
 
 impl From<&SeriColor> for crossterm::style::Color {
-    fn from(value: &SeriColor) -> crossterm::style::Color {
+    fn from(value: &SeriColor) -> Self {
         match value {
-            SeriColor::Black => crossterm::style::Color::Black,
-            SeriColor::Blue => crossterm::style::Color::Blue,
-            SeriColor::Cyan => crossterm::style::Color::Cyan,
-            SeriColor::DarkBlue => crossterm::style::Color::DarkBlue,
-            SeriColor::DarkCyan => crossterm::style::Color::DarkCyan,
-            SeriColor::DarkGreen => crossterm::style::Color::DarkGreen,
-            SeriColor::DarkGrey => crossterm::style::Color::DarkGrey,
-            SeriColor::DarkMagenta => crossterm::style::Color::DarkMagenta,
-            SeriColor::DarkRed => crossterm::style::Color::DarkRed,
-            SeriColor::DarkYellow => crossterm::style::Color::DarkYellow,
-            SeriColor::Green => crossterm::style::Color::Green,
-            SeriColor::Grey => crossterm::style::Color::Grey,
-            SeriColor::Magenta => crossterm::style::Color::Magenta,
-            SeriColor::None => crossterm::style::Color::Reset,
-            SeriColor::Red => crossterm::style::Color::Red,
-            SeriColor::White => crossterm::style::Color::White,
-            SeriColor::Yellow => crossterm::style::Color::Yellow,
+            SeriColor::Black => Self::Black,
+            SeriColor::Blue => Self::Blue,
+            SeriColor::Cyan => Self::Cyan,
+            SeriColor::DarkBlue => Self::DarkBlue,
+            SeriColor::DarkCyan => Self::DarkCyan,
+            SeriColor::DarkGreen => Self::DarkGreen,
+            SeriColor::DarkGrey => Self::DarkGrey,
+            SeriColor::DarkMagenta => Self::DarkMagenta,
+            SeriColor::DarkRed => Self::DarkRed,
+            SeriColor::DarkYellow => Self::DarkYellow,
+            SeriColor::Green => Self::Green,
+            SeriColor::Grey => Self::Grey,
+            SeriColor::Magenta => Self::Magenta,
+            SeriColor::None => Self::Reset,
+            SeriColor::Red => Self::Red,
+            SeriColor::White => Self::White,
+            SeriColor::Yellow => Self::Yellow,
         }
     }
 }

@@ -11,7 +11,7 @@ use serde::Deserialize;
 /// [defaults]
 /// out_dir = "./"
 /// ```
-#[derive(Debug, Deserialize, PartialEq)]
+#[derive(Debug, Deserialize, PartialEq, Eq)]
 pub struct Defaults {
     #[serde(default = "default_out_dir")]
     pub out_dir: String,

@@ -26,7 +26,7 @@ pub static CONFIG: OnceLock<Config> = OnceLock::new();
 /// Represents the entire `config.toml` configuration file.
 ///
 /// See [`Appearance`] and [`Defaults`]
-#[derive(Default, Debug, Deserialize, PartialEq)]
+#[derive(Default, Debug, Deserialize, PartialEq, Eq)]
 pub struct Config {
     #[serde(default)]
     pub appearance: Appearance,
@@ -57,6 +57,12 @@ impl Config {
 ///
 /// Returns a [`ConfigError::AlreadyInitialized`] error if called after it has
 /// already been called ([`CONFIG`] has already been set).
+///
+/// # Errors
+/// Will error if [`read_to_string()`] fails or if [`CONFIG`] was already initialized.
+///
+/// [`read_to_string()`]: std::fs::File::read_to_string()
+#[allow(clippy::missing_panics_doc)]
 pub fn initialize_config(overrides: ConfigOverride) -> miette::Result<(), ConfigError> {
     let mut config: Config = if let Ok(config_file) = get_config_file() {
         let mut file = std::fs::File::open(config_file).expect("File should exist");
@@ -154,22 +160,22 @@ fn parse_test_config() {
         },
     };
 
-    assert_eq!(file, parsed_conf)
+    assert_eq!(file, parsed_conf);
 }
 
 #[test]
 fn check_conf_dir_is_dir() {
     let dir = get_conf_dir();
-    assert!(std::fs::metadata(dir).unwrap().is_dir())
+    assert!(std::fs::metadata(dir).unwrap().is_dir());
 }
 
 #[test]
 fn valid_conf_dir() {
     let dir = get_conf_dir();
     if cfg!(target_family = "windows") {
-        assert_eq!(dir.to_str().unwrap(), "C:\\Users\\Thomas\\.config\\sericom")
+        assert_eq!(dir.to_str().unwrap(), "C:\\Users\\Thomas\\.config\\sericom");
     } else {
-        assert_eq!(dir.to_str().unwrap(), "/home/thomas/.config/sericom")
+        assert_eq!(dir.to_str().unwrap(), "/home/thomas/.config/sericom");
     }
 }
 

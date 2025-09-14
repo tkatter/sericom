@@ -1,5 +1,7 @@
-use super::*;
-use crate::screen_buffer::*;
+use crate::{
+    screen_buffer::{ScreenBuffer, UIAction, UICommand},
+    serial_actor::{SerialEvent, SerialMessage},
+};
 use crossterm::{
     event::{self, Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind},
     terminal,
@@ -40,25 +42,20 @@ pub async fn run_stdout_output(
                     Ok(SerialEvent::Data(data)) => {
                         data_buffer.extend_from_slice(&data);
 
-                        if data_buffer.len() > 1024 || data.contains(&b'\n') {
-                            screen_buffer.add_data(&data_buffer);
-                            data_buffer.clear();
+                        screen_buffer.add_data(&data_buffer);
+                        data_buffer.clear();
 
+                        if data_buffer.len() > 1024 || data.contains(&b'\n') {
                             if screen_buffer.should_render_now() {
                                 screen_buffer.render().ok();
                                 render_timer = None;
                             } else if render_timer.is_none() {
                                 render_timer = Some(tokio::time::interval(tokio::time::Duration::from_millis(16)));
                             }
-                        } else {
-                            screen_buffer.add_data(&data_buffer);
-                            data_buffer.clear();
-
-                            if screen_buffer.should_render_now() {
-                                screen_buffer.render().ok();
-                            } else if render_timer.is_none() {
-                                render_timer = Some(tokio::time::interval(tokio::time::Duration::from_millis(16)));
-                            }
+                        } else if screen_buffer.should_render_now() {
+                            screen_buffer.render().ok();
+                        } else if render_timer.is_none() {
+                            render_timer = Some(tokio::time::interval(tokio::time::Duration::from_millis(16)));
                         }
                     }
                     Ok(SerialEvent::Error(e)) => {
@@ -68,8 +65,8 @@ pub async fn run_stdout_output(
                         screen_buffer.render().ok();
                         render_timer = None;
                     }
-                    Ok(SerialEvent::ConnectionClosed) => break,
-                    Err(_) => break,
+                    Ok(SerialEvent::ConnectionClosed)
+                    | Err(_) => break,
                 }
             }
             ui_command = ui_rx.recv() => {
@@ -104,11 +101,11 @@ pub async fn run_stdout_output(
                 screen_buffer.render().ok();
                 render_timer = None;
             }
-            _ = async {
+            () = async {
                 if let Some(ref mut timer) = render_timer {
                     timer.tick().await;
                 } else {
-                    std::future::pending::<()>().await
+                    std::future::pending::<()>().await;
                 }
             } => {
                 if screen_buffer.should_render_now() {
@@ -146,6 +143,8 @@ pub async fn run_stdin_input(
     }
 }
 
+#[allow(clippy::too_many_lines)]
+#[allow(clippy::needless_pass_by_value)]
 #[instrument(skip_all, name = "Stdin Input")]
 fn stdin_input_loop(
     stdin_tx: tokio::sync::mpsc::Sender<String>,
@@ -173,8 +172,7 @@ fn stdin_input_loop(
                         let _ = ui_tx.blocking_send(UICommand::ScrollBottom);
                     }
                     _ => {}
-                };
-                continue;
+                }
             }
             // Match Alt + Code
             Event::Key(KeyEvent {
@@ -186,10 +184,9 @@ fn stdin_input_loop(
                 if kind != crossterm::event::KeyEventKind::Press {
                     continue;
                 }
-                if let KeyCode::Char('b') = code {
+                if code == KeyCode::Char('b') {
                     let _ = command_tx.blocking_send(SerialMessage::SendBreak);
-                };
-                continue;
+                }
             }
             // Match Control + Code
             Event::Key(KeyEvent {
@@ -213,8 +210,7 @@ fn stdin_input_loop(
                         break;
                     }
                     _ => {}
-                };
-                continue;
+                }
             }
             // Match every other key
             Event::Key(KeyEvent {
@@ -341,8 +337,8 @@ pub async fn run_file_output(
                             break;
                         }
                         Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                            // Don't break on lag
                             eprintln!("File writer lagged, skipped {skipped} messages");
-                            continue; // Don't break on lag
                         }
                         _ => break,
                     }

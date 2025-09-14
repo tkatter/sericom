@@ -30,6 +30,7 @@ pub enum SerialEvent {
 }
 
 /// Responsible for passing data and messages between the serial connection and tasks.
+///
 /// It uses the Actor model to maintain a single source for communicating between the
 /// serial connection and tasks within the program.
 ///
@@ -45,7 +46,8 @@ pub struct SerialActor {
 impl SerialActor {
     /// Constructs a [`SerialActor`] Takes a serial port connection,
     /// receiver to a command channel, and a sender to a broadcast channel.
-    pub fn new(
+    #[must_use]
+    pub const fn new(
         connection: serial2_tokio::SerialPort,
         command_rx: tokio::sync::mpsc::Receiver<SerialMessage>,
         broadcast_channel: tokio::sync::broadcast::Sender<SerialEvent>,
@@ -108,7 +110,7 @@ impl SerialActor {
         }
     }
 
-    async fn send_break(&mut self) {
+    async fn send_break(&self) {
         use tokio::time::{Duration, sleep};
         let _ = self.connection.set_break(true);
         sleep(Duration::from_millis(500)).await;

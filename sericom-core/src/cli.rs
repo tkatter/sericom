@@ -1,3 +1,4 @@
+#![allow(clippy::too_long_first_doc_paragraph)]
 //! This module holds the functions that are called from `sericom` when receiving
 //! CLI commands/arguments.
 
@@ -26,6 +27,10 @@ use std::{
 use tracing::{Level, trace};
 
 /// Spawns all of the tasks responsible for maintaining an interactive terminal session.
+///
+/// # Errors
+/// Will error if [`crossterm`] fails to setup the terminal.
+#[allow(clippy::missing_panics_doc)]
 pub async fn interactive_session(
     connection: SerialPort,
     file_path: Option<PathBuf>,
@@ -99,7 +104,8 @@ pub async fn interactive_session(
 
 /// Opens a serial `port` for communication with the specified `baud`.
 ///
-/// Returns `Ok(SerialPort)` or errors if unable to set the baud rate or open the `port`.
+/// # Errors
+/// Errors if unable to set the baud rate or open the `port`.
 pub fn open_connection(baud: u32, port: &str) -> miette::Result<SerialPort> {
     let settings = |mut s: serial2_tokio::Settings| -> std::io::Result<serial2_tokio::Settings> {
         s.set_raw();
@@ -127,6 +133,12 @@ pub fn open_connection(baud: u32, port: &str) -> miette::Result<SerialPort> {
 }
 
 /// Gets the settings for the `port` with the specified `baud`.
+///
+/// # Errors
+/// - Errors if any of the [`SerialPort`] getter methods fail for retrieving
+///   data about `port`
+/// - Fails to write to stdout
+#[allow(clippy::too_many_lines)]
 pub fn get_settings(baud: u32, port: &str) -> miette::Result<()> {
     // https://www.contec.com/support/basic-knowledge/daq-control/serial-communicatin/
     let mut stdout = io::stdout();
@@ -141,7 +153,7 @@ pub fn get_settings(baud: u32, port: &str) -> miette::Result<()> {
             "--port".bold()
         )
     )?;
-    let b = map_miette!(
+    let baud_rate = map_miette!(
         settings.get_baud_rate(),
         format!("Failed to get the baud rate for port '{}'", port),
         format!(
@@ -151,7 +163,7 @@ pub fn get_settings(baud: u32, port: &str) -> miette::Result<()> {
             "--port".bold()
         )
     )?;
-    let c = map_miette!(
+    let char_size = map_miette!(
         settings.get_char_size(),
         format!("Failed to get the char size for port '{}'", port),
         format!(
@@ -161,7 +173,7 @@ pub fn get_settings(baud: u32, port: &str) -> miette::Result<()> {
             "--port".bold()
         )
     )?;
-    let s = map_miette!(
+    let stop_bits = map_miette!(
         settings.get_stop_bits(),
         format!("Failed to get stop bits for port '{}'", port),
         format!(
@@ -171,7 +183,7 @@ pub fn get_settings(baud: u32, port: &str) -> miette::Result<()> {
             "--port".bold()
         )
     )?;
-    let p = map_miette!(
+    let parity = map_miette!(
         settings.get_parity(),
         format!("Failed to get parity for port '{}'", port),
         format!(
@@ -181,7 +193,7 @@ pub fn get_settings(baud: u32, port: &str) -> miette::Result<()> {
             "--port".bold()
         )
     )?;
-    let f = map_miette!(
+    let flow_ctrl = map_miette!(
         settings.get_flow_control(),
         format!("Failed to get flow control for port '{}'", port),
         format!(
@@ -233,19 +245,19 @@ pub fn get_settings(baud: u32, port: &str) -> miette::Result<()> {
         )
     )?;
 
-    write!(stdout, "Baud rate: {b}\r\n")
+    write!(stdout, "Baud rate: {baud_rate}\r\n")
         .into_diagnostic()
         .wrap_err("Failed to write to stdout.".red())?;
-    write!(stdout, "Char size: {c}\r\n")
+    write!(stdout, "Char size: {char_size}\r\n")
         .into_diagnostic()
         .wrap_err("Failed to write to stdout.".red())?;
-    write!(stdout, "Stop bits: {s}\r\n")
+    write!(stdout, "Stop bits: {stop_bits}\r\n")
         .into_diagnostic()
         .wrap_err("Failed to write to stdout.".red())?;
-    write!(stdout, "Parity mechanism: {p}\r\n")
+    write!(stdout, "Parity mechanism: {parity}\r\n")
         .into_diagnostic()
         .wrap_err("Failed to write to stdout.".red())?;
-    write!(stdout, "Flow control: {f}\r\n")
+    write!(stdout, "Flow control: {flow_ctrl}\r\n")
         .into_diagnostic()
         .wrap_err("Failed to write to stdout.".red())?;
     write!(stdout, "Clear To Send line: {cts}\r\n")
@@ -267,7 +279,10 @@ pub fn get_settings(baud: u32, port: &str) -> miette::Result<()> {
 /// Prints a list of available serial ports to stdout.
 ///
 /// Ultimately a wrapper around [`SerialPort::available_ports()`] and may error
-/// if it is called on an unsupported platform as per [`SerialPort::available_ports()]s docs
+/// if it is called on an unsupported platform as per [`SerialPort::available_ports()`]s docs
+///
+/// # Errors
+/// Errors if fails to write to stdout
 pub fn list_serial_ports() -> miette::Result<()> {
     let mut stdout = io::stdout();
     let ports = map_miette!(
@@ -280,16 +295,17 @@ pub fn list_serial_ports() -> miette::Result<()> {
             stdout
                 .write(line.as_bytes())
                 .into_diagnostic()
-                .wrap_err("Failed to write to stdout.".red())?
-        } else {
-            continue;
-        };
+                .wrap_err("Failed to write to stdout.".red())?;
+        }
     }
     Ok(())
 }
 
 /// Used as a [`value_parser`](https://docs.rs/clap/latest/clap/struct.Arg.html#method.value_parser) for [`sericom`](https://crates.io/crates/sericom)s [`clap`](https://docs.rs/clap) CLI
 /// struct to validate and parse args into a baud rate.
+///
+/// # Errors
+/// If `s` is not a valid baud rate and returns a list of valid baud rates.
 pub fn valid_baud_rate(s: &str) -> Result<u32, String> {
     let baud: u32 = s
         .parse()
@@ -307,6 +323,10 @@ pub fn valid_baud_rate(s: &str) -> Result<u32, String> {
 
 /// Used as a [`value_parser`](https://docs.rs/clap/latest/clap/struct.Arg.html#method.value_parser) for [`sericom`](https://crates.io/crates/sericom)s [`clap`](https://docs.rs/clap) CLI
 /// struct to validate and parse args into a [`SeriColor`][`crate::configs::SeriColor`].
+///
+/// # Errors
+/// If `input` cannot be parsed into a [`SeriColor`][`crate::configs::SeriColor`]. Returns a list
+/// of valid [`SeriColor`][`crate::configs::SeriColor`].
 pub fn color_parser(input: &str) -> Result<crate::configs::SeriColor, String> {
     use crate::configs::{NORMALIZER, SeriColor};
     match SeriColor::parse_from_str(input, NORMALIZER) {

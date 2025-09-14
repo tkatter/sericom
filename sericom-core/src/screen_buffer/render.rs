@@ -11,6 +11,8 @@ impl ScreenBuffer {
     /// Takes incoming data (bytes (`u8`) from a serial connection) and
     /// processes them accordingly, handling ascii escape sequences, to
     /// render as characters/strings in the terminal.
+    #[allow(clippy::missing_panics_doc)]
+    #[allow(clippy::cast_possible_truncation)]
     #[instrument(name = "Add Data", skip(self, data))]
     pub fn add_data(&mut self, data: &[u8]) {
         let text = String::from_utf8_lossy(data);
@@ -30,15 +32,12 @@ impl ScreenBuffer {
                         '\n' => {
                             self.new_line();
                         }
-                        '\x07' => {}
-                        '\x0E' => {}
-                        '\x0F' => {}
+                        '\x07' | '\x0E' | '\x0F' => {}
                         '\x08' => {
+                            #[allow(clippy::unused_peekable)]
                             let mut temp_chars = chars.clone();
                             // Matches the `\x08 ' ' \x08` deletion sequence
-                            if let (Some(' '), Some('\x08')) =
-                                (temp_chars.next(), temp_chars.next())
-                            {
+                            if (Some(' '), Some('\x08')) == (temp_chars.next(), temp_chars.next()) {
                                 // Consume them - to remove from further processing
                                 chars.next();
                                 chars.next();
@@ -92,7 +91,7 @@ impl ScreenBuffer {
     fn add_char_batch(&mut self, chars: &[char]) {
         tracing::debug!("CharBatch: '{:?}'", chars);
         while self.cursor_pos.y >= self.lines.len() {
-            self.lines.push_back(Line::new(self.width as usize));
+            self.lines.push_back(Line::new_default(self.width as usize));
         }
 
         if let Some(line) = self.lines.get_mut(self.cursor_pos.y) {
@@ -108,6 +107,7 @@ impl ScreenBuffer {
     }
 
     /// A helper function to check whether the terminal's screen should be rendered.
+    #[must_use]
     pub fn should_render_now(&self) -> bool {
         use tokio::time::Instant;
 
@@ -116,10 +116,8 @@ impl ScreenBuffer {
         }
 
         let now = Instant::now();
-        match self.last_render {
-            Some(last) => now.duration_since(last) >= MIN_RENDER_INTERVAL,
-            None => true,
-        }
+        self.last_render
+            .is_none_or(|last| now.duration_since(last) >= MIN_RENDER_INTERVAL)
     }
 
     /// Writes the lines/characters received from `add_data` to the terminal's screen.
@@ -131,6 +129,14 @@ impl ScreenBuffer {
     ///
     /// Because of this, the only diff-ing that would make sense would be
     /// that of the cells within the screen that are simply blank.
+    ///
+    /// # Errors
+    /// This function will only error if [`queue`] errors
+    /// when drawing to the terminal.
+    ///
+    /// [`queue`]: crossterm::queue
+    #[allow(clippy::similar_names)]
+    #[allow(clippy::cast_possible_truncation)]
     pub fn render(&mut self) -> std::io::Result<()> {
         use crossterm::{cursor, queue, style};
         use std::io::{self, Write};

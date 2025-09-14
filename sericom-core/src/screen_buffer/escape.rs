@@ -47,7 +47,7 @@ pub(super) struct EscapeSequence {
 }
 
 impl EscapeSequence {
-    pub(super) fn new() -> Self {
+    pub(super) const fn new() -> Self {
         Self {
             sequence: Vec::new(),
             part: EscapePart::Empty,
@@ -101,6 +101,8 @@ impl EscapeSequence {
 
 impl ScreenBuffer {
     /// Parse the built [`EscapeSequence`] and runs the respective action.
+    #[allow(clippy::too_many_lines)]
+    #[allow(clippy::cast_possible_truncation)]
     pub(crate) fn parse_sequence(&mut self) {
         let span = tracing::span!(tracing::Level::DEBUG, "Escape sequence");
         let _enter = span.enter();
@@ -192,7 +194,7 @@ impl ScreenBuffer {
                     (num, 'E') => {
                         self.set_cursor_pos((0, (self.cursor_pos.y as u16) + num));
                         while self.cursor_pos.y > self.lines.len() {
-                            self.lines.push_back(Line::new(self.width as usize));
+                            self.lines.push_back(Line::new_default(self.width as usize));
                         }
                     }
                     // Moves cursor to beginning of line, # lines up

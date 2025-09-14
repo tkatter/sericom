@@ -24,7 +24,7 @@ pub enum UICommand {
     ClearBuffer,
 }
 
-pub(crate) trait UIAction {
+pub trait UIAction {
     fn scroll_up(&mut self, lines: usize);
     fn scroll_down(&mut self, lines: usize);
     fn scroll_to_bottom(&mut self);
@@ -32,6 +32,10 @@ pub(crate) trait UIAction {
     fn start_selection(&mut self, pos: Position);
     fn update_selection(&mut self, pos: Position);
     fn clear_selection(&mut self);
+    /// # Errors
+    /// If [`crossterm`] fails to execute [`to_clipboard_from()`]
+    ///
+    /// [`to_clipboard_from()`]: crossterm::clipboard::CopyToClipboard::to_clipboard_from
     fn copy_to_clipboard(&mut self) -> std::io::Result<()>;
     fn clear_buffer(&mut self);
     fn clear_screen(&mut self);
@@ -121,14 +125,14 @@ impl UIAction for ScreenBuffer {
         self.lines.clear();
         self.view_start = 0;
         self.set_cursor_pos((0_u16, 0_usize));
-        self.lines.push_back(Line::new(self.width as usize));
+        self.lines.push_back(Line::new_default(self.width as usize));
         self.needs_render = true;
     }
 
     /// Clears the current *visible* screen while keeping the buffer's history
     fn clear_screen(&mut self) {
         for _ in 0..self.height {
-            self.lines.push_back(Line::new(self.width as usize));
+            self.lines.push_back(Line::new_default(self.width as usize));
         }
         self.view_start = self.lines.len().saturating_sub(self.height as usize);
         self.needs_render = true;

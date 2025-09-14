@@ -1,11 +1,13 @@
 //! As of now, there is only one function, [`run_debug_output`], which is meant
-//! to debug the data being received over the serial connection. In future
-//! updates, this module is intended to be used for running tracing events with
-//! the [`tracing`](https://docs.rs/tracing/latest/tracing/) crate.
+//! to debug the data being received over the serial connection.
+//!
+//! In future updates, this module is intended to be used for running
+//! tracing events with the [`tracing`](https://docs.rs/tracing/latest/tracing/) crate.
 
 use crate::serial_actor::SerialEvent;
 
 /// This function is used for debugging the data that is sent from a device.
+///
 /// It will create a file "debug.txt" and print the data received from the device
 /// as the actual bytes received along with the corresponding ascii characters.
 ///
@@ -87,8 +89,8 @@ pub async fn run_debug_output(mut rx: tokio::sync::broadcast::Receiver<SerialEve
                             }
                         }
                         Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                            // Don't break on lag
                             eprintln!("File writer lagged, skipped {skipped} messages");
-                            continue; // Don't break on lag
                         }
                         _ => break,
                     }

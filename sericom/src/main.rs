@@ -77,7 +77,7 @@ struct ConfigOverrides {
 
 impl From<ConfigOverrides> for sericom_core::configs::ConfigOverride {
     fn from(overrides: ConfigOverrides) -> Self {
-        sericom_core::configs::ConfigOverride {
+        Self {
             color: overrides.color,
             out_dir: overrides.out_dir,
         }

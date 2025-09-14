@@ -1,3 +1,4 @@
+#![allow(clippy::too_long_first_doc_paragraph)]
 //! This module contains the code needed for the implementation of a
 //! stateful buffer that holds a history of the lines/data received
 //! from the serial connection and the rendering/updating of the buffer
@@ -17,12 +18,16 @@
 //! currently, the **capacity of the [`VecDeque`] is hardcoded with a value of 10,000
 //! lines with [`MAX_SCROLLBACK`]**.
 
+mod buffer;
 mod cell;
 mod cursor;
 mod escape;
+pub mod layout;
 mod line;
 mod render;
+pub mod terminal;
 mod ui_command;
+pub use buffer::*;
 pub use cell::*;
 use crossterm::style::Attributes;
 pub use cursor::*;
@@ -76,6 +81,7 @@ impl ScreenBuffer {
     /// Constructs a new `ScreenBuffer`.
     ///
     /// Takes the `width` and `height` of the terminal.
+    #[must_use]
     pub fn new(width: u16, height: u16) -> Self {
         let mut buffer = Self {
             width,
@@ -93,13 +99,13 @@ impl ScreenBuffer {
             display_attributes: Attributes::none(),
         };
         // Start with an empty line
-        buffer.lines.push_back(Line::new(width as usize));
+        buffer.lines.push_back(Line::new_default(width as usize));
         buffer
     }
 
     fn set_char_at_cursor(&mut self, ch: char) {
         while self.cursor_pos.y >= self.lines.len() {
-            self.lines.push_back(Line::new(self.width as usize));
+            self.lines.push_back(Line::new_default(self.width as usize));
         }
 
         if let Some(line) = self.lines.get_mut(self.cursor_pos.y)
@@ -117,10 +123,7 @@ impl ScreenBuffer {
 
     fn clear_from_cursor_to_sos(&mut self) {
         self.clear_from_cursor_to_sol();
-        for line in self
-            .lines
-            .range_mut(self.view_start..=self.cursor_pos.y - 1)
-        {
+        for line in self.lines.range_mut(self.view_start..self.cursor_pos.y) {
             line.reset();
         }
     }
@@ -148,7 +151,7 @@ impl ScreenBuffer {
         self.set_cursor_pos((0, self.cursor_pos.y + 1));
 
         if self.cursor_pos.y >= self.lines.len() {
-            self.lines.push_back(Line::new(self.width as usize));
+            self.lines.push_back(Line::new_default(self.width as usize));
         }
 
         // Remove old lines if exceeding `ScreenBuffer.max_scrollback`
