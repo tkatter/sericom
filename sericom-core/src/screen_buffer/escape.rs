@@ -17,9 +17,10 @@ pub(super) enum EscapeState {
 }
 
 /// Represents a section of an ascii escape sequence.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Default, Debug, PartialEq, Eq)]
 pub(super) enum EscapePart {
     /// The default state when not actively processing an escape sequence.
+    #[default]
     Empty,
     /// Collects ascii digits (0-9) as they are received individually and are
     /// eventually combined to create the final number that the `Action` will
@@ -30,12 +31,6 @@ pub(super) enum EscapePart {
     /// The `Action` represents the (typically) last letter of an escape
     /// sequence that determines what action is to be taken i.e. `ESC[2J`.
     Action(char),
-}
-
-impl Default for EscapePart {
-    fn default() -> Self {
-        Self::Empty
-    }
 }
 
 /// A state-holder/collection for building ascii escape sequences
