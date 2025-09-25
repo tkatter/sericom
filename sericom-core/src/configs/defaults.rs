@@ -1,4 +1,4 @@
-use crate::path_utils::{ExpandUnixPaths, is_executable};
+use crate::path_utils::{ExpandPaths, is_executable};
 use serde::{Deserialize, Deserializer};
 use std::path::PathBuf;
 
@@ -11,7 +11,8 @@ use std::path::PathBuf;
 /// The default values (if no config exists) is the current directory:
 /// ```toml
 /// [defaults]
-/// out_dir = "./"
+/// out-dir = "./"
+/// exit-script = "/path/to/script"
 /// ```
 #[derive(Debug, Deserialize, PartialEq)]
 pub struct Defaults {
@@ -42,9 +43,11 @@ fn validate_dir<'de, D>(deserializer: D) -> Result<PathBuf, D::Error>
 where
     D: Deserializer<'de>,
 {
+    use serde::de::Error;
+
     let p = PathBuf::deserialize(deserializer)?
         .get_expanded_path()
-        .map_err(|_| serde::de::Error::custom("Error expanding path."))?;
+        .ok_or(Error::custom("Error expanding path."))?;
     if !p.exists() || !p.is_dir() {
         return Err(serde::de::Error::custom(
             "Error setting out-dir, Either does not exist or is not a directory",
@@ -57,9 +60,11 @@ fn is_script<'de, D>(deserializer: D) -> Result<Option<PathBuf>, D::Error>
 where
     D: Deserializer<'de>,
 {
+    use serde::de::Error;
+
     let p = PathBuf::deserialize(deserializer)?
         .get_expanded_path()
-        .map_err(|_| serde::de::Error::custom("Error expanding path."))?;
+        .ok_or(Error::custom("Error expanding path."))?;
     if !p.exists() || !p.is_file() {
         return Err(serde::de::Error::custom(
             "Error retrieving file, Either does not exist or is not a file",

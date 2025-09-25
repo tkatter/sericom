@@ -69,11 +69,12 @@ struct ConfigOverrides {
     /// Set the forground color for the text
     #[arg(short, long, requires_all = &["port"], value_parser = color_parser)]
     color: Option<sericom_core::configs::SeriColor>,
-    /// Override the `out_dir` for the file
+    /// Override the `out-dir` for the file
     ///
     /// Alternatively could simply use the absolute path
     #[arg(short, long, requires_all = &["port", "file"], value_parser = validate_dir)]
     out_dir: Option<PathBuf>,
+    /// Override the `exit-script` that's run after writing to a file
     #[arg(long, requires_all = &["port", "file"], value_parser = is_script)]
     exit_script: Option<PathBuf>,
 }

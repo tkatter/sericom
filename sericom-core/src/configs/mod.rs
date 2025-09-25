@@ -141,12 +141,10 @@ fn parse_test_config() -> miette::Result<()> {
             [appearance]
             fg = "dark-grey"
             bg = "red"
-            hl_fg = "white"
-            hl_bg = "blue"
 
             [defaults]
-            out_dir = "$HOME/.config"
-            file_exit_script = "~/.local/bin/p"
+            out-dir = "$HOME/.config"
+            exit-script = "~/.local/bin/format-cisco"
             "#,
     )
     .into_diagnostic()?;
@@ -158,7 +156,7 @@ fn parse_test_config() -> miette::Result<()> {
         },
         defaults: Defaults {
             out_dir: PathBuf::from("/home/thomas/.config"),
-            exit_script: Some(PathBuf::from("/home/thomas/.local/bin/p")),
+            exit_script: Some(PathBuf::from("/home/thomas/.local/bin/format-cisco")),
             // file_exit_script: None,
         },
     };
@@ -185,7 +183,7 @@ fn valid_conf_dir() {
 
 #[test]
 fn get_expanded_path() {
-    use crate::path_utils::ExpandUnixPaths;
+    use crate::path_utils::ExpandPaths;
 
     let p = PathBuf::from("$HOME/.config/sericom/config.toml")
         .get_expanded_path()
