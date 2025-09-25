@@ -107,28 +107,6 @@ pub async fn interactive_session(
     Ok(())
 }
 
-fn run_file_exit_script(config: &'static crate::configs::Config, file_path: PathBuf) {
-    let span = tracing::span!(Level::DEBUG, "Exit script");
-    let _enter = span.enter();
-    use std::process::Command;
-    let Some(script_path) = config.defaults.exit_script.as_ref() else {
-        return;
-    };
-    let full_file_path = file_path
-        .canonicalize()
-        .expect("All error conditions have been checked");
-    let cmd = Command::new(script_path)
-        .env("SERICOM_OUT_FILE", full_file_path)
-        .output();
-    let o = cmd.unwrap();
-    let msg = format!(
-        "stdout: {}, stderr: {}",
-        String::from_utf8_lossy(&o.stdout),
-        String::from_utf8_lossy(&o.stderr)
-    );
-    tracing::debug!(msg);
-}
-
 /// Opens a serial `port` for communication with the specified `baud`.
 ///
 /// Returns `Ok(SerialPort)` or errors if unable to set the baud rate or open the `port`.
@@ -362,4 +340,60 @@ fn ensure_terminal_cleanup(mut stdout: io::Stdout) {
     );
     let _ = disable_raw_mode();
     let _ = stdout.flush();
+}
+
+fn run_file_exit_script(config: &'static crate::configs::Config, file_path: PathBuf) {
+    let span = tracing::span!(Level::DEBUG, "Exit script");
+    let _enter = span.enter();
+
+    let Some(script_path) = config.defaults.exit_script.as_ref() else {
+        return;
+    };
+    let full_file_path = file_path
+        .canonicalize()
+        .expect("All error conditions have been checked");
+    let cmd = create_platform_cmd(script_path, full_file_path);
+    if let Ok(output) = cmd {
+        let msg = format!(
+            "stdout: {}, stderr: {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        tracing::debug!(msg);
+    }
+}
+
+fn create_platform_cmd(
+    script: &std::path::Path,
+    file_path: std::path::PathBuf,
+) -> Result<std::process::Output, io::Error> {
+    use std::process::Command;
+
+    #[cfg(unix)]
+    {
+        Command::new(script)
+            .env("SERICOM_OUT_FILE", file_path)
+            .output()
+    }
+
+    #[cfg(windows)]
+    {
+        let ext = script.extension().expect("Validated in initialization");
+        match ext
+            .to_ascii_lowercase()
+            .to_str()
+            .expect("Converted to ascii")
+        {
+            "ps1" => Command::new("powershell.exe")
+                .arg("-File")
+                .arg(script)
+                .env("SERICOM_OUT_FILE", file_path)
+                .output(),
+            _ => Command::new("cmd.exe")
+                .arg("/C")
+                .arg(script)
+                .env("SERICOM_OUT_FILE", file_path)
+                .output(),
+        }
+    }
 }
