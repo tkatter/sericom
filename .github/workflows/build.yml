@@ -1,0 +1,24 @@
+on:
+  pull_request:
+    branches:
+      - main
+name: Rust Build Checks
+jobs:
+  build_windows:
+    runs-on: windows-latest
+    name: stable / build (Windows)
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install stable
+        uses: dtolnay/rust-toolchain@stable
+      - name: Build for Windows
+        run: cargo build --all-features --verbose
+  build_ubuntu:
+    runs-on: ubuntu-latest
+    name: stable / build (Ubuntu)
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install stable
+        uses: dtolnay/rust-toolchain@stable
+      - name: Build for Ubuntu
+        run: cargo build --all-features --verbose

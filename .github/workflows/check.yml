@@ -1,8 +1,10 @@
 on:
   push:
-    branches: [main, "feat/*"]
+    branches:
+      - main
+      - "feat/*"
   pull_request:
-name: check
+name: Rust CI Checks
 jobs:
   fmt:
     runs-on: ubuntu-latest
@@ -39,3 +41,21 @@ jobs:
       - run: cargo doc --no-deps --all-features
         env:
           RUSTDOCFLAGS: --cfg docsrs
+  check_windows:
+    runs-on: windows-latest
+    name: stable / check (Windows)
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install stable
+        uses: dtolnay/rust-toolchain@stable
+      - name: Check for Windows
+        run: cargo check --verbose --all-features
+  check_ubuntu:
+    runs-on: ubuntu-latest
+    name: stable / check (Ubuntu)
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install stable
+        uses: dtolnay/rust-toolchain@stable
+      - name: Check for Ubuntu
+        run: cargo check --verbose --all-features
