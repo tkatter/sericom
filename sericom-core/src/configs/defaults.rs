@@ -1,7 +1,6 @@
+use crate::path_utils::{ExpandUnixPaths, is_executable};
 use serde::{Deserialize, Deserializer};
-use std::{fs::metadata, os::unix::fs::MetadataExt, path::PathBuf};
-
-use crate::path_utils::ExpandUnixPaths;
+use std::path::PathBuf;
 
 /// Represents the `[defaults]` table of the `config.toml` file.
 ///
@@ -67,18 +66,10 @@ where
         ));
     }
 
-    let script = metadata(&p).map_err(|p| {
-        // Only error would be if permission issues
-        serde::de::Error::custom(p)
-    })?;
-
-    if !cfg!(windows) {
-        let mode = script.mode();
-        if mode & 0o111 == 0 {
-            return Err(serde::de::Error::custom(
-                "Invalid file type, Make sure the file is executable",
-            ));
-        }
+    if !is_executable(&p) {
+        return Err(serde::de::Error::custom(
+            "Invalid file type, Make sure the file is executable",
+        ));
     }
 
     Ok(Some(p))
