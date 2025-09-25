@@ -253,35 +253,45 @@ macro_rules! push_n_check {
 /// Macro to expand a path like shell expansion.
 ///
 /// - On unix, this handles the $XDG base directories and `~`
-/// - On Windows TODO:
+/// - On Windows, this handles %USERPROFILE%, %APPDATA%, etc.
 ///
 /// Returns `None` if unable to retrieve the user's [`home_dir`]
 ///
 /// [`home_dir`]: std::env::home_dir()
 macro_rules! expand_path {
     ($self:ident, $expand:literal, to = $expand_to:literal) => {{
-        use std::{env, ffi::OsStr, os::unix::ffi::OsStrExt, path::PathBuf};
+        use std::{env, path::PathBuf};
 
         if $self.starts_with($expand) {
             let mut home = env::home_dir()?;
-            let expanded: PathBuf = $self
-                .components()
-                .filter(|c| c.as_os_str() != OsStr::from_bytes($expand.as_bytes()))
-                .collect();
+            let expanded: PathBuf = $self.components().skip(1).collect();
             push_n_check!(home, $expand_to);
             $self = home.join(expanded);
         }
     }};
+
     ($self:ident, $expand:literal) => {{
-        use std::{env, ffi::OsStr, os::unix::ffi::OsStrExt, path::PathBuf};
+        use std::{env, path::PathBuf};
 
         if $self.starts_with($expand) {
             let home = env::home_dir()?;
-            let expanded: PathBuf = $self
-                .components()
-                .filter(|c| c.as_os_str() != OsStr::from_bytes($expand.as_bytes()))
-                .collect();
+            let expanded: PathBuf = $self.components().skip(1).collect();
             $self = home.join(expanded);
+        }
+    }};
+}
+
+/// For use with Windows Env variables for path expansions
+#[cfg(windows)]
+macro_rules! expand_env_path {
+    ($self:ident, $expand:literal, env_var = $env_var:literal) => {{
+        use std::{env, path::PathBuf};
+
+        if $self.starts_with($expand) {
+            if let Ok(base_path) = env::var($env_var) {
+                let expanded: PathBuf = $self.components().skip(1).collect();
+                $self = PathBuf::from(base_path).join(expanded)
+            }
         }
     }};
 }
@@ -299,6 +309,7 @@ impl ExpandPaths for std::path::PathBuf {
     /// Expands path in a shell-like way
     ///
     /// Returns `None` if fails to retrieve the user's home dir.
+    #[cfg(unix)]
     fn get_expanded_path(mut self) -> Option<Self> {
         expand_path!(self, "~");
         expand_path!(self, "$HOME");
@@ -313,6 +324,24 @@ impl ExpandPaths for std::path::PathBuf {
         expand_path!(self, "$XDG_PUBLICSHARE_DIR", to = "Public");
         expand_path!(self, "$XDG_STATE_HOME", to = ".local/state");
         expand_path!(self, "$XDG_TEMPLATES_DIR", to = "Templates");
+        Some(self)
+    }
+    #[cfg(windows)]
+    fn get_expanded_path(mut self) -> Option<Self> {
+        // Basic home directory expansion
+        expand_path!(self, "~");
+        expand_env_path!(self, "%USERPROFILE%", env_var = "USERPROFILE");
+        expand_env_path!(self, "%APPDATA%", env_var = "APPDATA");
+        expand_env_path!(self, "%LOCALAPPDATA%", env_var = "LOCALAPPDATA");
+        expand_env_path!(self, "%TEMP%", env_var = "TEMP");
+        expand_env_path!(self, "%TMP%", env_var = "TMP");
+        expand_path!(self, "%DESKTOP%", to = "Desktop");
+        expand_path!(self, "%DOCUMENTS%", to = "Documents");
+        expand_path!(self, "%DOWNLOADS%", to = "Downloads");
+        expand_path!(self, "%MUSIC%", to = "Music");
+        expand_path!(self, "%PICTURES%", to = "Pictures");
+        expand_path!(self, "%VIDEOS%", to = "Videos");
+        expand_path!(self, "%PUBLIC%", to = "Public");
         Some(self)
     }
 }
