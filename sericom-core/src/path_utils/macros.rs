@@ -109,10 +109,63 @@ macro_rules! map_miette {
     };
 }
 
+/// Creates the default filename if none is specified from the `port` name
+/// and a timestamp.
+///
+/// Can also add a prefix the filename or the target out-dir.
+/// Path will end up looking like this:
+///  - Windows: `com4-09251554.txt`
+///  - Unix: `ttyUSB0-09251554.txt`
+///  - Prefixed: `trace-ttyUSB0-09251554.txt`
+///
+/// # Errors
+/// Errors on Unix systems if [`file_name`] returns `None`
+///
+/// # Examples
+/// ```
+/// use sericom_core::compat_port_path;
+/// use std::path::PathBuf;
+/// use chrono::Utc;
+///
+/// fn get_default_fname() -> miette::Result<()> {
+///     let out_dir = PathBuf::from("/home/dev/test");
+///     let port_name = PathBuf::from("/dev/ttyUSB0");
+///
+///     let fname = compat_port_path!(port_name.clone(), prefix = "test");
+///     assert_eq!(fname, PathBuf::from(format!(
+///         "testing-ttyUSB0-{}.txt",
+///         Utc::now().format("%m%d%H%M")
+///     )));
+///
+///     let fname = compat_port_path!(out_dir, port_name.clone(), prefix = "test");
+///     assert_eq!(fname, PathBuf::from(format!(
+///         "/home/dev/test/testing-ttyUSB0-{}.txt",
+///         Utc::now().format("%m%d%H%M")
+///     )));
+///
+///     let fname = compat_port_path!(out_dir, port_name.clone());
+///     assert_eq!(fname, PathBuf::from(format!(
+///         "/home/dev/test/ttyUSB0-{}.txt",
+///         Utc::now().format("%m%d%H%M")
+///     )));
+///
+///     let fname = compat_port_path!(port_name);
+///     assert_eq!(fname, PathBuf::from(format!(
+///         "ttyUSB0-{}.txt",
+///         Utc::now().format("%m%d%H%M")
+///     )));
+///     Ok(())
+/// }
+///
+///
+/// ```
+///
+/// [`file_name`]: std::path::Path::file_name()
 #[macro_export]
 macro_rules! compat_port_path {
     ($port:expr, prefix = $prefix:literal) => {{
         use chrono;
+        use std::path::PathBuf;
 
         let path_port = $crate::path_utils::get_compat_port_path($port)?;
         PathBuf::from(format!(
@@ -124,7 +177,6 @@ macro_rules! compat_port_path {
     }};
 
     ($out_dir:expr, $port:expr, prefix = $prefix:expr) => {{
-        use super::get_compat_port_path;
         use chrono;
 
         let path_port = $crate::path_utils::get_compat_port_path($port)?;
@@ -167,40 +219,51 @@ where
     use miette::{self, WrapErr};
     use std::path::PathBuf;
 
-    let path_port: PathBuf = if cfg!(windows) {
-        port.into()
-    } else {
+    #[cfg(windows)]
+    {
+        Ok(port.into())
+    }
+    #[cfg(unix)]
+    {
         let p: PathBuf = port.into();
-        PathBuf::from(p.file_name().ok_or(std::io::ErrorKind::InvalidFilename)
+        Ok(PathBuf::from(p.file_name().ok_or(std::io::ErrorKind::InvalidFilename)
             .map_err(|e| miette::miette!(
                 help = format!("The name of the tracing file is tied to the port being opened, make sure you are using a valid port."),
                 "{e}: '{}'\n",
                 p.display()
-            )).wrap_err_with(|| format!("Could not create file: '{}' for tracing output.\n", p.display()))?)
-    };
-
-    Ok(path_port)
+            )).wrap_err_with(|| format!("Could not create file: '{}' for tracing output.\n", p.display()))?))
+    }
 }
 
-// TODO: DOCS
+/// Macro to join a path to the user's home directory and
+/// check whether it exists.
+///
+/// Used for building the $XDG base directories.
+///
+/// Returns `None` if the joined path doesn't exist.
 macro_rules! push_n_check {
     ($home:expr, $push:literal) => {
         $home.push($push);
         if !$home.exists() {
-            return Err(());
+            return None;
         }
     };
 }
 
-// TODO: DOCS
+/// Macro to expand a path like shell expansion.
+///
+/// - On unix, this handles the $XDG base directories and `~`
+/// - On Windows TODO:
+///
+/// Returns `None` if unable to retrieve the user's [`home_dir`]
+///
+/// [`home_dir`]: std::env::home_dir()
 macro_rules! expand_path {
     ($self:ident, $expand:literal, to = $expand_to:literal) => {{
         use std::{env, ffi::OsStr, os::unix::ffi::OsStrExt, path::PathBuf};
 
         if $self.starts_with($expand) {
-            let Some(mut home) = env::home_dir() else {
-                return Err(());
-            };
+            let mut home = env::home_dir()?;
             let expanded: PathBuf = $self
                 .components()
                 .filter(|c| c.as_os_str() != OsStr::from_bytes($expand.as_bytes()))
@@ -213,9 +276,7 @@ macro_rules! expand_path {
         use std::{env, ffi::OsStr, os::unix::ffi::OsStrExt, path::PathBuf};
 
         if $self.starts_with($expand) {
-            let Some(home) = env::home_dir() else {
-                return Err(());
-            };
+            let home = env::home_dir()?;
             let expanded: PathBuf = $self
                 .components()
                 .filter(|c| c.as_os_str() != OsStr::from_bytes($expand.as_bytes()))
@@ -225,12 +286,20 @@ macro_rules! expand_path {
     }};
 }
 
-pub(crate) trait ExpandUnixPaths {
-    fn get_expanded_path(self) -> Result<std::path::PathBuf, ()>;
+/// Trait for expanding paths in a shell-like way.
+pub trait ExpandPaths {
+    /// Expands path in a shell-like way
+    ///
+    /// Takes ownership of the implementor and returns `Some(PathBuf)` if
+    /// self can successfully expand the path; otherwise, returns `None`.
+    fn get_expanded_path(self) -> Option<std::path::PathBuf>;
 }
 
-impl ExpandUnixPaths for std::path::PathBuf {
-    fn get_expanded_path(mut self) -> Result<Self, ()> {
+impl ExpandPaths for std::path::PathBuf {
+    /// Expands path in a shell-like way
+    ///
+    /// Returns `None` if fails to retrieve the user's home dir.
+    fn get_expanded_path(mut self) -> Option<Self> {
         expand_path!(self, "~");
         expand_path!(self, "$HOME");
         expand_path!(self, "$XDG_CACHE_HOME", to = ".cache");
@@ -244,6 +313,6 @@ impl ExpandUnixPaths for std::path::PathBuf {
         expand_path!(self, "$XDG_PUBLICSHARE_DIR", to = "Public");
         expand_path!(self, "$XDG_STATE_HOME", to = ".local/state");
         expand_path!(self, "$XDG_TEMPLATES_DIR", to = "Templates");
-        Ok(self)
+        Some(self)
     }
 }
