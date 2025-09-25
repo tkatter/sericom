@@ -3,4 +3,6 @@ fg = "green"
 bg = "none"
 
 [defaults]
-out_dir = "./"
+out-dir = "./"
+# Not set
+# exit-script = "~/path/to/script"

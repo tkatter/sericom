@@ -16,18 +16,6 @@ with devices over serial connection, and its underlying library [**Sericom-core*
 
 Sericom is a CLI tool for communicating with devices over a serial connection.
 
-Currently, it functions similar to the `screen` CLI tool (when used to communicate
-over a serial connection). It will print the lines received from a device over a
-serial connection to the terminal's screen and send commands to the device as it
-receives them from stdin.
-
-Sericom has the following basic functionality (tested on Windows and Linux):
-
-- Scrolling through a session's history
-- Selecting text via the mouse and copying it to the clipboard
-- Pasting text into stdin (<kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>v</kbd>)
-- Writing the lines received to a file
-
 The goal of Sericom, going forward, is to serve as an automation tool to execute
 tasks on devices via a serial connection. Sericom was originally developed with the
 intention of communicating with networking devices (switches, routers, firewalls, etc),
@@ -61,32 +49,10 @@ cargo install sericom
 Sericom will be installed in `$HOME/.cargo/bin/`. As long as that directory is
 in your `PATH`, you should be able to start using Sericom!
 
-### Debian/Ubuntu Binary `.deb` File Installation
+### GitHub Releases
 
-If using Debian or a Debian derivative like Ubuntu, Sericom can be installed
-using a binary `.deb` file provided in [Sericom's releases](https://github.com/tkatter/sericom/releases/).
-
-Either navigate to the [release](https://github.com/tkatter/sericom/releases/) page and download the appropiate file or run:
-
-```
-curl -LO https://github.com/tkatter/sericom/releases/download/sericom/v0.5.0/sericom_0.5.0-1_amd64.deb
-
-# Once downloaded, install with the apt package manager
-sudo apt install ./<path_to_downloaded_release>.deb
-
-# Verify installation
-sericom --version
-
-# Check the sha256 checksum
-curl -LO https://github.com/tkatter/sericom/releases/download/sericom/v0.5.0/sericom_0.5.0-1_amd64.deb
-curl -LO https://github.com/tkatter/sericom/releases/download/sericom/v0.5.0/sericom_0.5.0-1_amd64.deb.sha256
-
-sha256sum -c sericom_0.5.0-1_amd64.deb.sha256
-```
-
-### Windows Installer
-
-For Windows machines, navigate to the [releases]() page and download the `sericom-*.msi` installer. Once downloaded, launch the installer from File Explorer and click through the installation steps. By default, sericom will be installed in `C:\Program Files\sericom`.
+For binaries and Windows installers, head over to the [releases](https://github.com/tkatter/sericom/releases/tag/latest) page to grab
+the download and follow the instructions pertaining to the download.
 
 ### Build From Source
 
@@ -109,35 +75,35 @@ Cargo will build the binary and put it in `sericom/target/release/sericom`.
 
 - To open a connection to a serial port (uses a default baud rate of 9600):
 
-```
-# Syntax
-sericom <PORT>
+  ```
+  # Syntax
+  sericom <PORT>
 
-# Windows
-sericom.exe COM4
+  # Windows
+  sericom.exe COM4
 
-# Linux
-sericom /dev/ttyUSB0
-```
+  # Linux
+  sericom /dev/ttyUSB0
+  ```
 
 - To open a connection and write everything received to a file:
 
-```
-# Syntax
-sericom -f <PATH_TO_FILE> <PORT>
-```
+  ```
+  # Syntax
+  sericom -f <PATH_TO_FILE> <PORT>
+  ```
+
+  - Can also do `-f` without a file path and it will default to a file name
+    of `<PORT_NAME>-<TIMESTAMP>.txt` in the default out-dir.
 
 - To get a list of all the valid baud rates:
-
-```
-sericom bauds
-```
-
+  ```
+  sericom bauds
+  ```
 - To see all of the available serial ports:
-
-```
-sericom ports
-```
+  ```
+  sericom ports
+  ```
 
 ### Keymaps
 
@@ -166,7 +132,9 @@ bg = "none"
 
 [defaults]
 # The default directory where files will be written to when running `sericom -f <FILE>`
-out_dir = "./"
+out-dir = "./"
+# Path to an executable to run after writing to a file
+exit-script = "~/path/to/script"
 ```
 
 > [!NOTE] Behavior of the `out_dir` configuration

@@ -16,6 +16,7 @@ use sericom_core::{
         valid_baud_rate,
     },
     configs::initialize_config,
+    path_utils::{is_script, validate_dir},
 };
 use std::{
     fmt::Display,
@@ -38,7 +39,7 @@ struct Cli {
     config_override: ConfigOverrides,
     /// Path to a file for the output.
     #[arg(short, long)]
-    file: Option<PathBuf>,
+    file: Option<Option<PathBuf>>,
     /// Display debug output
     #[arg(short, long)]
     debug: bool,
@@ -68,11 +69,14 @@ struct ConfigOverrides {
     /// Set the forground color for the text
     #[arg(short, long, requires_all = &["port"], value_parser = color_parser)]
     color: Option<sericom_core::configs::SeriColor>,
-    /// Override the `out_dir` for the file
+    /// Override the `out-dir` for the file
     ///
     /// Alternatively could simply use the absolute path
-    #[arg(short, long, requires_all = &["port", "file"])]
-    out_dir: Option<String>,
+    #[arg(short, long, requires_all = &["port", "file"], value_parser = validate_dir)]
+    out_dir: Option<PathBuf>,
+    /// Override the `exit-script` that's run after writing to a file
+    #[arg(long, requires_all = &["port", "file"], value_parser = is_script)]
+    exit_script: Option<PathBuf>,
 }
 
 impl From<ConfigOverrides> for sericom_core::configs::ConfigOverride {
@@ -80,6 +84,7 @@ impl From<ConfigOverrides> for sericom_core::configs::ConfigOverride {
         sericom_core::configs::ConfigOverride {
             color: overrides.color,
             out_dir: overrides.out_dir,
+            exit_script: overrides.exit_script,
         }
     }
 }
@@ -120,7 +125,7 @@ async fn main() -> miette::Result<()> {
         let connection = open_connection(cli.baud, port)?;
         let overrides: sericom_core::configs::ConfigOverride = cli.config_override.into();
 
-        if let Some(path) = &cli.file
+        if let Some(Some(path)) = &cli.file
             && path.is_dir()
         {
             return Err(miette::miette!(
@@ -158,24 +163,9 @@ fn init_tracing<S>(port: S) -> miette::Result<Option<tracing_appender::non_block
 where
     S: AsRef<str> + Display + Into<PathBuf>,
 {
-    use std::path::PathBuf;
-    let path_port: PathBuf = if cfg!(windows) {
-        port.into()
-    } else {
-        let p: PathBuf = port.into();
-        PathBuf::from(p.file_name().ok_or(std::io::ErrorKind::InvalidFilename)
-            .map_err(|e| miette::miette!(
-                help = format!("The name of the tracing file is tied to the port being opened, make sure you are using a valid port."),
-                "{e}: '{}'\n",
-                p.display()
-            )).wrap_err_with(|| format!("Could not create file: '{}' for tracing output.\n", p.display()))?)
-    };
+    use sericom_core::compat_port_path;
 
-    let path = PathBuf::from(format!(
-        "./trace-{}-{}.txt",
-        path_port.display(),
-        chrono::Utc::now().format("%m%d%H%M"),
-    ));
+    let path = compat_port_path!(port, prefix = "trace");
 
     let file = std::fs::File::options()
         .write(true)

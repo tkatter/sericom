@@ -2,6 +2,7 @@
 //! CLI commands/arguments.
 
 use crate::{
+    compat_port_path,
     configs::get_config,
     create_recursive,
     debug::run_debug_output,
@@ -28,7 +29,7 @@ use tracing::{Level, trace};
 /// Spawns all of the tasks responsible for maintaining an interactive terminal session.
 pub async fn interactive_session(
     connection: SerialPort,
-    file_path: Option<PathBuf>,
+    file_path: Option<Option<PathBuf>>,
     debug: bool,
     port_name: &str,
 ) -> miette::Result<()> {
@@ -50,6 +51,7 @@ pub async fn interactive_session(
     )
     .into_diagnostic()
     .wrap_err("Failed to setup the terminal.".red())?;
+    let config = get_config();
 
     trace!("Creating channels");
     // Create channels
@@ -61,25 +63,33 @@ pub async fn interactive_session(
     // Create tasks
     let mut tasks = tokio::task::JoinSet::new();
 
-    if let Some(path) = file_path {
-        let config = get_config();
+    if let Some(maybe_path) = file_path {
         let default_out_dir = PathBuf::from(&config.defaults.out_dir);
-
-        // If given an absolute path - override the `default_out_dir`
-        let file_path = if path.is_absolute() {
-            let parent = path.parent().unwrap_or(&default_out_dir);
-            create_recursive!(parent);
-            path
-        } else {
-            let joined_path = default_out_dir.join(&path);
-            let parent_path = joined_path.parent().expect("Does not have root");
-            create_recursive!(parent_path);
-            joined_path
+        let file_path = match maybe_path {
+            Some(path) => {
+                // If given an absolute path - override the `default_out_dir`
+                if path.is_absolute() {
+                    let parent = path.parent().unwrap_or(&default_out_dir);
+                    create_recursive!(parent);
+                    path
+                } else {
+                    let joined_path = default_out_dir.join(&path);
+                    let parent_path = joined_path.parent().expect("Does not have root");
+                    create_recursive!(parent_path);
+                    joined_path
+                }
+            }
+            None => {
+                let default_out_dir = PathBuf::from(&config.defaults.out_dir);
+                compat_port_path!(default_out_dir, port_name)
+            }
         };
-
         let file_rx = broadcast_event_tx.subscribe();
-        tasks.spawn(run_file_output(file_rx, file_path));
-    }
+        tasks.spawn(async move {
+            run_file_output(file_rx, file_path.clone()).await;
+            run_file_exit_script(config, file_path);
+        });
+    };
 
     if debug {
         let debug_rx = broadcast_event_tx.subscribe();
@@ -330,4 +340,60 @@ fn ensure_terminal_cleanup(mut stdout: io::Stdout) {
     );
     let _ = disable_raw_mode();
     let _ = stdout.flush();
+}
+
+fn run_file_exit_script(config: &'static crate::configs::Config, file_path: PathBuf) {
+    let span = tracing::span!(Level::DEBUG, "Exit script");
+    let _enter = span.enter();
+
+    let Some(script_path) = config.defaults.exit_script.as_ref() else {
+        return;
+    };
+    let full_file_path = file_path
+        .canonicalize()
+        .expect("All error conditions have been checked");
+    let cmd = create_platform_cmd(script_path, full_file_path);
+    if let Ok(output) = cmd {
+        let msg = format!(
+            "stdout: {}, stderr: {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        tracing::debug!(msg);
+    }
+}
+
+fn create_platform_cmd(
+    script: &std::path::Path,
+    file_path: std::path::PathBuf,
+) -> Result<std::process::Output, io::Error> {
+    use std::process::Command;
+
+    #[cfg(unix)]
+    {
+        Command::new(script)
+            .env("SERICOM_OUT_FILE", file_path)
+            .output()
+    }
+
+    #[cfg(windows)]
+    {
+        let ext = script.extension().expect("Validated in initialization");
+        match ext
+            .to_ascii_lowercase()
+            .to_str()
+            .expect("Converted to ascii")
+        {
+            "ps1" => Command::new("powershell.exe")
+                .arg("-File")
+                .arg(script)
+                .env("SERICOM_OUT_FILE", file_path)
+                .output(),
+            _ => Command::new("cmd.exe")
+                .arg("/C")
+                .arg(script)
+                .env("SERICOM_OUT_FILE", file_path)
+                .output(),
+        }
+    }
 }
