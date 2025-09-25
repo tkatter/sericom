@@ -1,6 +1,5 @@
-use std::{fs::metadata, os::unix::fs::MetadataExt, path::PathBuf};
-
 use crate::path_utils::ExpandPaths;
+use std::path::PathBuf;
 
 /// Validates a directory
 ///
@@ -67,6 +66,8 @@ pub fn is_script(input: &str) -> Result<Option<PathBuf>, String> {
 pub(crate) fn is_executable(path: &std::path::Path) -> bool {
     #[cfg(unix)]
     {
+        use std::{fs::metadata, os::unix::fs::MetadataExt};
+
         let Ok(script) = metadata(path) else {
             return false;
         };
