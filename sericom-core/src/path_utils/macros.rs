@@ -216,15 +216,15 @@ pub fn get_compat_port_path<S>(port: S) -> miette::Result<std::path::PathBuf>
 where
     S: Into<std::path::PathBuf>,
 {
-    use miette::{self, WrapErr};
-    use std::path::PathBuf;
-
     #[cfg(windows)]
     {
         Ok(port.into())
     }
     #[cfg(unix)]
     {
+        use miette::{self, WrapErr};
+        use std::path::PathBuf;
+
         let p: PathBuf = port.into();
         Ok(PathBuf::from(p.file_name().ok_or(std::io::ErrorKind::InvalidFilename)
             .map_err(|e| miette::miette!(
