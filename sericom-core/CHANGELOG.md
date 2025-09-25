@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0](https://github.com/tkatter/sericom/compare/sericom-core/v0.6.0...sericom-core/v0.7.0) - 2025-09-25
+
+### Added
+
+- *(configs)* added config option for a default dir for debug output
+
+### Changed
+
+- Make unix imports conditional
+
 ## [0.6.0](https://github.com/tkatter/sericom/compare/sericom-core/v0.5.0...sericom-core/v0.6.0) - 2025-09-25
 
 ### Added

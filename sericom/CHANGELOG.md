@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.4](https://github.com/tkatter/sericom/compare/sericom/v0.5.3...sericom/v0.5.4) - 2025-09-25
+
+### Added
+
+- *(configs)* added config option for a default dir for debug output
+
 ## [0.5.3](https://github.com/tkatter/sericom/compare/sericom/v0.5.2...sericom/v0.5.3) - 2025-09-25
 
 ### Documentation
