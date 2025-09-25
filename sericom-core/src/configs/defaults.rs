@@ -8,18 +8,31 @@ use std::path::PathBuf;
 /// should behave. Currently the user may only specify a default `out_dir`,
 /// where files will be created when running `sericom -f path/to/file [PORT]`.
 ///
-/// The default values (if no config exists) is the current directory:
+/// The default values (if no config exists) is the current directory. Uses
+/// [`current_dir`] which corresponds to getcwd on Unix and GetCurrentDirectoryW
+/// on Windows. If this fails it simply uses "./".
+///
 /// ```toml
 /// [defaults]
 /// out-dir = "./"
-/// exit-script = "/path/to/script"
+/// debug-dir = "./"
+/// # No exit script by default
+/// # exit-script = "/path/to/script"
 /// ```
+///
+/// [`current_dir`]: std::env::current_dir()
 #[derive(Debug, Deserialize, PartialEq)]
 pub struct Defaults {
     #[serde(rename = "out-dir")]
     #[serde(default = "default_out_dir")]
     #[serde(deserialize_with = "validate_dir")]
     pub out_dir: PathBuf,
+
+    #[serde(rename = "debug-dir")]
+    #[serde(default = "default_out_dir")]
+    #[serde(deserialize_with = "validate_dir")]
+    pub debug_dir: PathBuf,
+
     #[serde(rename = "exit-script")]
     #[serde(default)]
     #[serde(deserialize_with = "is_script")]
@@ -29,14 +42,16 @@ pub struct Defaults {
 impl Default for Defaults {
     fn default() -> Self {
         Self {
-            out_dir: PathBuf::from("./"),
+            out_dir: default_out_dir(),
+            debug_dir: default_out_dir(),
             exit_script: None,
         }
     }
 }
 
 fn default_out_dir() -> PathBuf {
-    PathBuf::from("./")
+    use std::env::current_dir;
+    current_dir().unwrap_or(PathBuf::from("./"))
 }
 
 fn validate_dir<'de, D>(deserializer: D) -> Result<PathBuf, D::Error>
