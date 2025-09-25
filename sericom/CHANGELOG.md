@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.3](https://github.com/tkatter/sericom/compare/sericom/v0.5.2...sericom/v0.5.3) - 2025-09-25
+
+### Documentation
+
+- *(exit-script)* Added docs for new stuff
+- *(other)* Update docs for windows exit-script
+- *(other)* Updated README and config example files
+
+### Chore
+
+- *(deps)* bump clap from 4.5.47 to 4.5.48 ([#22](https://github.com/tkatter/sericom/pull/22))
+
+### Feat
+
+- *(exit-script)* ability to specify a script to run after writing a file
+
 ## [0.5.2](https://github.com/tkatter/sericom/compare/sericom/v0.5.1...sericom/v0.5.2) - 2025-09-13
 
 ### Changed

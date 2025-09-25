@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0](https://github.com/tkatter/sericom/compare/sericom-core/v0.5.0...sericom-core/v0.6.0) - 2025-09-25
+
+### Added
+
+- *(exit-script)* added ability to run script after file is written
+
+### Changed
+
+- *(clippy)* Change EscapePart derive impl for clippy CI
+
+### Documentation
+
+- *(exit-script)* Added docs for new stuff
+
+### Fixed
+
+- *(exit-script)* Windows compatibility for exit-scripts
+
+### Chore
+
+- *(deps)* bump serde from 1.0.225 to 1.0.226 ([#23](https://github.com/tkatter/sericom/pull/23))
+- *(deps)* bump toml from 0.9.6 to 0.9.7 ([#21](https://github.com/tkatter/sericom/pull/21))
+- *(deps)* bump serde from 1.0.224 to 1.0.225 ([#20](https://github.com/tkatter/sericom/pull/20))
+- *(deps)* bump toml from 0.9.5 to 0.9.6 ([#19](https://github.com/tkatter/sericom/pull/19))
+- *(deps)* bump serde from 1.0.219 to 1.0.224 ([#18](https://github.com/tkatter/sericom/pull/18))
+
 ## [0.5.0](https://github.com/tkatter/sericom/compare/sericom-core/v0.4.0...sericom-core/v0.5.0) - 2025-09-13
 
 ### Changed
