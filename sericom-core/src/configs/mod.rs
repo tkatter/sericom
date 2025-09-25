@@ -163,6 +163,7 @@ fn parse_test_config() -> miette::Result<()> {
         defaults: Defaults {
             out_dir: PathBuf::from("/home/thomas/.config"),
             exit_script: Some(PathBuf::from("/home/thomas/.local/bin/format-cisco")),
+            debug_dir: PathBuf::from("/home/thomas/Code/Work/sericom/sericom-core"),
             // file_exit_script: None,
         },
     };

@@ -34,6 +34,7 @@ The valid options are as follows:
 # Defaults
 
 - `out-dir`: Path to a directory
+- `debug-dir`: Path to a directory for debug output files
 - `exit-script`: Path to a script that will be run after writing to a file
   - The script will be passed an environment variable `SERICOM_OUT_FILE` which
     has the absolute path to the file that was just written

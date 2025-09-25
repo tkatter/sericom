@@ -15,13 +15,13 @@ use sericom_core::{
         color_parser, get_settings, interactive_session, list_serial_ports, open_connection,
         valid_baud_rate,
     },
-    configs::initialize_config,
+    configs::{get_config, initialize_config},
     path_utils::{is_script, validate_dir},
 };
 use std::{
     fmt::Display,
     io::{self, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
 #[derive(Parser)]
@@ -93,16 +93,6 @@ impl From<ConfigOverrides> for sericom_core::configs::ConfigOverride {
 async fn main() -> miette::Result<()> {
     let cli = Cli::parse();
 
-    // Need to hold the guard in `main`'s scope
-    let _guard: Option<tracing_appender::non_blocking::WorkerGuard> = if let Some(ref port) =
-        cli.port
-        && cli.debug
-    {
-        init_tracing(port)?
-    } else {
-        None
-    };
-
     if cli.port.is_none() && cli.command.is_none() {
         let mut cmd = Cli::command();
         cmd.error(
@@ -134,6 +124,17 @@ async fn main() -> miette::Result<()> {
             ));
         }
         initialize_config(overrides)?;
+        // Need to hold the guard in `main`'s scope
+        let _guard: Option<tracing_appender::non_blocking::WorkerGuard> = if let Some(ref port) =
+            cli.port
+            && cli.debug
+        {
+            let config = get_config();
+            let out_dir = config.defaults.debug_dir.as_path();
+            init_tracing(out_dir, port)?
+        } else {
+            None
+        };
         interactive_session(connection, cli.file, cli.debug, port).await?;
     } else if let Some(cmd) = cli.command {
         match cmd {
@@ -159,14 +160,16 @@ async fn main() -> miette::Result<()> {
     Ok(())
 }
 
-fn init_tracing<S>(port: S) -> miette::Result<Option<tracing_appender::non_blocking::WorkerGuard>>
+fn init_tracing<S>(
+    out_dir: &Path,
+    port: S,
+) -> miette::Result<Option<tracing_appender::non_blocking::WorkerGuard>>
 where
     S: AsRef<str> + Display + Into<PathBuf>,
 {
     use sericom_core::compat_port_path;
 
-    let path = compat_port_path!(port, prefix = "trace");
-
+    let path = compat_port_path!(out_dir, port, prefix = "trace");
     let file = std::fs::File::options()
         .write(true)
         .create(true)
