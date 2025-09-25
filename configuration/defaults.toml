@@ -4,5 +4,5 @@ bg = "none"
 
 [defaults]
 out-dir = "./"
-# This feature currently only works on Linux
-exit-script = "~/path/to/script"
+# Not set
+# exit-script = "~/path/to/script"

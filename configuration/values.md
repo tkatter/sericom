@@ -35,6 +35,5 @@ The valid options are as follows:
 
 - `out-dir`: Path to a directory
 - `exit-script`: Path to a script that will be run after writing to a file
-  - Currently only works on Linux
   - The script will be passed an environment variable `SERICOM_OUT_FILE` which
     has the absolute path to the file that was just written

@@ -133,6 +133,7 @@ bg = "none"
 [defaults]
 # The default directory where files will be written to when running `sericom -f <FILE>`
 out-dir = "./"
+# Path to an executable to run after writing to a file
 exit-script = "~/path/to/script"
 ```
 
