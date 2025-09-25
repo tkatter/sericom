@@ -13,7 +13,7 @@ use crate::{
     create_recursive,
 };
 use serde::Deserialize;
-use std::{io::Read, ops::Range, sync::OnceLock};
+use std::{io::Read, ops::Range, path::PathBuf, sync::OnceLock};
 
 /// Global value of the user's config.
 ///
@@ -41,6 +41,9 @@ impl Config {
         }
         if let Some(dir) = overrides.out_dir {
             self.defaults.out_dir = dir;
+        }
+        if let Some(script) = overrides.exit_script {
+            self.defaults.exit_script = Some(script);
         }
     }
 }
@@ -98,13 +101,15 @@ pub struct ConfigOverride {
     /// Overrides [`Appearance::fg`]
     pub color: Option<SeriColor>,
     /// Overrides [`Defaults::out_dir`]
-    pub out_dir: Option<String>,
+    pub out_dir: Option<PathBuf>,
+    /// Overrides [`Defaults::exit_script`]
+    pub exit_script: Option<PathBuf>,
 }
 
 fn get_conf_dir() -> std::path::PathBuf {
     let mut user_home_dir = std::env::home_dir().expect("Failed to get home directory");
 
-    if cfg!(target_os = "windows") {
+    if cfg!(windows) {
         user_home_dir.push(".config\\sericom");
     } else {
         user_home_dir.push(".config/sericom");
@@ -129,7 +134,8 @@ fn get_config_file() -> miette::Result<std::path::PathBuf, ConfigError> {
 }
 
 #[test]
-fn parse_test_config() {
+fn parse_test_config() -> miette::Result<()> {
+    use miette::IntoDiagnostic;
     let file: Config = toml::from_str(
         r#"
             [appearance]
@@ -139,10 +145,11 @@ fn parse_test_config() {
             hl_bg = "blue"
 
             [defaults]
-            out_dir = "$HOME/.configs"
+            out_dir = "$HOME/.config"
+            file_exit_script = "~/.local/bin/p"
             "#,
     )
-    .unwrap();
+    .into_diagnostic()?;
 
     let parsed_conf = Config {
         appearance: Appearance {
@@ -150,11 +157,14 @@ fn parse_test_config() {
             bg: SeriColor::Red,
         },
         defaults: Defaults {
-            out_dir: "$HOME/.configs".to_string(),
+            out_dir: PathBuf::from("/home/thomas/.config"),
+            exit_script: Some(PathBuf::from("/home/thomas/.local/bin/p")),
+            // file_exit_script: None,
         },
     };
 
-    assert_eq!(file, parsed_conf)
+    assert_eq!(file, parsed_conf);
+    Ok(())
 }
 
 #[test]
@@ -173,9 +183,33 @@ fn valid_conf_dir() {
     }
 }
 
+#[test]
+fn get_expanded_path() {
+    use crate::path_utils::ExpandUnixPaths;
+
+    let p = PathBuf::from("$HOME/.config/sericom/config.toml")
+        .get_expanded_path()
+        .unwrap();
+
+    let p2 = PathBuf::from("~/.config/sericom/config.toml")
+        .get_expanded_path()
+        .unwrap();
+
+    let p3 = PathBuf::from("$XDG_CONFIG_HOME/some/path")
+        .get_expanded_path()
+        .unwrap();
+
+    assert_eq!(p, PathBuf::from("/home/thomas/.config/sericom/config.toml"));
+    assert_eq!(
+        p2,
+        PathBuf::from("/home/thomas/.config/sericom/config.toml")
+    );
+    assert_eq!(p3, PathBuf::from("/home/thomas/.config/some/path"))
+}
+
 // #[test]
-// fn initialize_conf() {
-//     initialize_config().unwrap();
-//     let config = get_config();
-//     assert_eq!(config, &Config::default())
+// fn initialize_conf() -> miette::Result<()> {
+//     initialize_config(ConfigOverride { color: None, out_dir: None, file_exit_script: None, })?;
+//     // assert_eq!(config, &Config::default())
+//     Ok(())
 // }

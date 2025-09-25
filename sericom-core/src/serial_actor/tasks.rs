@@ -290,7 +290,6 @@ pub async fn run_file_output(
         let mut writer = BufWriter::with_capacity(8 * 1024, file);
         let mut last_flush = std::time::Instant::now();
 
-        writeln!(writer, "SERIAL: ").ok();
         writeln!(writer, "Session started at: {}", chrono::Utc::now()).ok();
         while let Ok(data) = write_rx.recv() {
             writer.write_all(&data).ok();
