@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0](https://github.com/tkatter/sericom/compare/sericom-core/v0.5.0...sericom-core/v0.6.0) - 2025-09-25
+
+### Added
+
+- *(exit-script)* Added ability to run script after file is written
+  - Added APIs to for script/path validation
+
+### Documentation
+
+- *(exit-script)* Documentation for new APIs and updating old API docs respectively
+
+### Fixed
+
+- *(exit-script)* Windows compatibility for exit-scripts
+
 ## [0.5.0](https://github.com/tkatter/sericom/compare/sericom-core/v0.4.0...sericom-core/v0.5.0) - 2025-09-13
 
 ### Changed
