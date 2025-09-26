@@ -1,111 +1,68 @@
-use crossterm::style::Color;
+#![allow(unused)]
+use crossterm::style::{Attributes, Color, Colors};
 use std::io::BufWriter;
 use tracing::instrument;
 
-use super::{Cursor, EscapeState, Line, ScreenBuffer, UIAction};
-use crate::configs::get_config;
+use super::{Cursor, ScreenBuffer, UIAction};
+use crate::{
+    configs::get_config,
+    ui::{ByteParser, Cell, Line, NL, ParserEvent, Span},
+};
 
 const MIN_RENDER_INTERVAL: tokio::time::Duration = tokio::time::Duration::from_millis(33);
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct TestLine(Vec<ParserEvent>);
+impl TestLine {
+    fn new() -> Self {
+        TestLine(vec![])
+    }
+    fn push(&mut self, event: ParserEvent) {
+        self.0.push(event);
+    }
+}
 
 impl ScreenBuffer {
     /// Takes incoming data (bytes (`u8`) from a serial connection) and
     /// processes them accordingly, handling ascii escape sequences, to
     /// render as characters/strings in the terminal.
     #[instrument(name = "Add Data", skip(self, data))]
-    pub fn add_data(&mut self, data: &[u8]) {
-        let text = String::from_utf8_lossy(data);
-        let mut chars = text.chars().peekable();
-
-        while let Some(ch) = chars.next() {
-            match self.escape_state {
-                EscapeState::Normal => {
-                    match ch {
-                        '\r' => {
-                            self.cursor_pos.x = 0;
-                            if chars.peek() == Some(&'\n') {
-                                chars.next();
-                                self.new_line();
-                            }
-                        }
-                        '\n' => {
-                            self.new_line();
-                        }
-                        '\x07' => {}
-                        '\x0E' => {}
-                        '\x0F' => {}
-                        '\x08' => {
-                            let mut temp_chars = chars.clone();
-                            // Matches the `\x08 ' ' \x08` deletion sequence
-                            if let (Some(' '), Some('\x08')) =
-                                (temp_chars.next(), temp_chars.next())
-                            {
-                                // Consume them - to remove from further processing
-                                chars.next();
-                                chars.next();
-                                self.move_cursor_left(1);
-                                self.set_char_at_cursor(' ');
-                            } else {
-                                // If not the deletion sequence, move cursor left
-                                // when receiving a single '\x08'
-                                self.move_cursor_left(1);
-                            }
-                        }
-                        '\x1B' => self.escape_state = EscapeState::Esc,
-                        c => {
-                            let mut batch = vec![c];
-                            while let Some(&next_ch) = chars.peek() {
-                                if next_ch.is_control()
-                                    || next_ch == '\x1B'
-                                    || self.cursor_pos.x + batch.len() as u16 >= self.width
-                                {
-                                    break;
-                                }
-                                batch.push(chars.next().unwrap());
-                            }
-                            self.add_char_batch(&batch);
-                        }
-                    }
-                }
-                EscapeState::Esc => match ch {
-                    '[' => self.escape_state = EscapeState::Csi,
-                    _ => self.escape_state = EscapeState::Normal,
-                },
-                EscapeState::Csi => match ch {
-                    ';' => self.escape_sequence.insert_separator(),
-                    c if ch.is_ascii_digit() => self.escape_sequence.push_num(c),
-                    c if c.is_ascii_alphabetic() => {
-                        // Reset because actions are the last members of a sequence
-                        self.escape_sequence.push_action(c);
-                        self.parse_sequence();
-                        self.escape_sequence.reset();
-                        self.escape_state = EscapeState::Normal;
-                    }
-                    // NOTE: May need to handle '?', ':', and '>'
-                    _ => self.escape_state = EscapeState::Normal,
-                },
-            }
-        }
-        // Sets `self.needs_render = true`
-        self.scroll_to_bottom();
+    pub fn add_data(&mut self, parser: &mut ByteParser, data: &[u8]) {
+        let events = parser.feed(data);
+        // self.process_events(writer, event);
     }
 
-    fn add_char_batch(&mut self, chars: &[char]) {
-        tracing::debug!("CharBatch: '{:?}'", chars);
-        while self.cursor_pos.y >= self.lines.len() {
-            self.lines.push_back(Line::new(self.width as usize));
-        }
-
-        if let Some(line) = self.lines.get_mut(self.cursor_pos.y) {
-            for &ch in chars {
-                line.set_char(self.cursor_pos.x as usize, ch);
-                self.cursor_pos.x += 1;
-                if self.cursor_pos.x >= self.width {
-                    self.new_line();
-                    break;
-                }
+    fn add_lines(&mut self, parsed_events: Vec<ParserEvent>) {
+        let config = get_config();
+        let fg = Color::from(&config.appearance.fg);
+        let bg = Color::from(&config.appearance.bg);
+        let mut curr_colors: Colors = Colors::new(fg, bg);
+        let mut curr_line = TestLine::new();
+        for event in parsed_events {
+            if event == ParserEvent::Control(NL) {
+                self.lines.push_back(curr_line);
             }
+            curr_line.push(event);
         }
     }
+
+    // fn add_char_batch(&mut self, chars: &[char]) {
+    //     tracing::debug!("CharBatch: '{:?}'", chars);
+    //     while self.cursor.y >= self.lines.len() {
+    //         self.lines.push_back(Line::new_default(self.width.into()));
+    //     }
+    //
+    //     if let Some(line) = self.lines.get_mut(self.cursor.y) {
+    //         for &ch in chars {
+    //             line.set_char(self.cursor.x as usize, ch);
+    //             self.cursor.x += 1;
+    //             if self.cursor.x >= self.width {
+    //                 self.new_line();
+    //                 break;
+    //             }
+    //         }
+    //     }
+    // }
 
     /// A helper function to check whether the terminal's screen should be rendered.
     pub fn should_render_now(&self) -> bool {
@@ -131,6 +88,7 @@ impl ScreenBuffer {
     ///
     /// Because of this, the only diff-ing that would make sense would be
     /// that of the cells within the screen that are simply blank.
+    #[allow(clippy::similar_names)]
     pub fn render(&mut self) -> std::io::Result<()> {
         use crossterm::{cursor, queue, style};
         use std::io::{self, Write};
@@ -206,17 +164,17 @@ impl ScreenBuffer {
 
         // This is relative the the terminal's L x W, whereas
         // self.cursor_pos.y is within the entire line buf
-        let screen_cursor_y = if self.cursor_pos.y >= self.view_start
-            && self.cursor_pos.y < self.view_start + self.height as usize
+        let screen_cursor_y = if self.cursor.y >= self.view_start
+            && self.cursor.y < self.view_start + self.height as usize
         {
-            (self.cursor_pos.y - self.view_start) as u16
+            (self.cursor.y - self.view_start) as u16
         } else {
             self.height - 1
         };
 
         queue!(
             writer,
-            cursor::MoveTo(self.cursor_pos.x, screen_cursor_y),
+            cursor::MoveTo(self.cursor.x, screen_cursor_y),
             cursor::Show
         )?;
         writer.flush()?;

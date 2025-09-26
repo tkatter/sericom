@@ -1,5 +1,8 @@
-use super::*;
-use crate::screen_buffer::*;
+use crate::{
+    screen_buffer::*,
+    serial_actor::{SerialEvent, SerialMessage, parser::ByteParser},
+    ui::{Rect, Terminal},
+};
 use crossterm::{
     event::{self, Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind},
     terminal,
@@ -29,7 +32,11 @@ pub async fn run_stdout_output(
     mut ui_rx: tokio::sync::mpsc::Receiver<UICommand>,
 ) {
     let (width, height) = terminal::size().unwrap_or((80, 24));
-    let mut screen_buffer = ScreenBuffer::new(width, height);
+    let mut screen_buffer = ScreenBuffer::new(Rect {
+        width,
+        height,
+        origin: crate::ui::Position::ORIGIN,
+    });
     let mut data_buffer = Vec::with_capacity(2048);
     let mut render_timer: Option<tokio::time::Interval> = None;
 
@@ -43,22 +50,19 @@ pub async fn run_stdout_output(
                         if data_buffer.len() > 1024 || data.contains(&b'\n') {
                             screen_buffer.add_data(&data_buffer);
                             data_buffer.clear();
-
                             if screen_buffer.should_render_now() {
                                 screen_buffer.render().ok();
                                 render_timer = None;
                             } else if render_timer.is_none() {
                                 render_timer = Some(tokio::time::interval(tokio::time::Duration::from_millis(16)));
                             }
-                        } else {
+                        } else if screen_buffer.should_render_now() {
                             screen_buffer.add_data(&data_buffer);
                             data_buffer.clear();
 
-                            if screen_buffer.should_render_now() {
-                                screen_buffer.render().ok();
-                            } else if render_timer.is_none() {
-                                render_timer = Some(tokio::time::interval(tokio::time::Duration::from_millis(16)));
-                            }
+                            screen_buffer.render().ok();
+                        } else if render_timer.is_none() {
+                            render_timer = Some(tokio::time::interval(tokio::time::Duration::from_millis(16)));
                         }
                     }
                     Ok(SerialEvent::Error(e)) => {
@@ -68,8 +72,7 @@ pub async fn run_stdout_output(
                         screen_buffer.render().ok();
                         render_timer = None;
                     }
-                    Ok(SerialEvent::ConnectionClosed) => break,
-                    Err(_) => break,
+                    Ok(SerialEvent::ConnectionClosed) | Err(_) => break,
                 }
             }
             ui_command = ui_rx.recv() => {
@@ -104,11 +107,11 @@ pub async fn run_stdout_output(
                 screen_buffer.render().ok();
                 render_timer = None;
             }
-            _ = async {
+            () = async {
                 if let Some(ref mut timer) = render_timer {
                     timer.tick().await;
                 } else {
-                    std::future::pending::<()>().await
+                    std::future::pending::<()>().await;
                 }
             } => {
                 if screen_buffer.should_render_now() {
@@ -146,6 +149,7 @@ pub async fn run_stdin_input(
     }
 }
 
+#[allow(clippy::too_many_lines)]
 #[instrument(skip_all, name = "Stdin Input")]
 fn stdin_input_loop(
     stdin_tx: tokio::sync::mpsc::Sender<String>,
@@ -174,7 +178,6 @@ fn stdin_input_loop(
                     }
                     _ => {}
                 };
-                continue;
             }
             // Match Alt + Code
             Event::Key(KeyEvent {
@@ -189,7 +192,6 @@ fn stdin_input_loop(
                 if let KeyCode::Char('b') = code {
                     let _ = command_tx.blocking_send(SerialMessage::SendBreak);
                 };
-                continue;
             }
             // Match Control + Code
             Event::Key(KeyEvent {
@@ -214,7 +216,6 @@ fn stdin_input_loop(
                     }
                     _ => {}
                 };
-                continue;
             }
             // Match every other key
             Event::Key(KeyEvent {
@@ -341,7 +342,6 @@ pub async fn run_file_output(
                         }
                         Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
                             eprintln!("File writer lagged, skipped {skipped} messages");
-                            continue; // Don't break on lag
                         }
                         _ => break,
                     }
@@ -361,4 +361,108 @@ pub async fn run_file_output(
 
     let _ = data_streamer.await;
     let _ = write_handle.await;
+}
+
+pub async fn _run_stdout_output(
+    mut con_rx: tokio::sync::broadcast::Receiver<SerialEvent>,
+    mut ui_rx: tokio::sync::mpsc::Receiver<UICommand>,
+) {
+    let mut terminal = Terminal::default();
+    let screen_buffer = ScreenBuffer::new(terminal.area());
+    let mut data_buffer: Vec<u8> = Vec::with_capacity(2048);
+    let mut render_timer: Option<tokio::time::Interval> = None;
+
+    /////////
+    let mut parser = ByteParser::new();
+
+    terminal.draw(|frame| {
+        frame.render_widget(screen_buffer, frame.area());
+    });
+
+    loop {
+        tokio::select! {
+            serial_event = con_rx.recv() => {
+                match serial_event {
+                    Ok(SerialEvent::Data(data)) => {
+                        data_buffer.extend_from_slice(&data);
+                        // screen_buffer.add_data(&data_buffer);
+                        // data_buffer.clear();
+                        if data_buffer.len() > 1024 || data.contains(&b'\n') {
+                            let parsed = parser.feed(&data_buffer);
+                            tracing::debug!("{:?}", parsed);
+                            data_buffer.clear();
+
+                            // if screen_buffer.should_render_now() {
+                            //     screen_buffer.render().ok();
+                            //     render_timer = None;
+                            // } else if render_timer.is_none() {
+                            //     render_timer = Some(tokio::time::interval(tokio::time::Duration::from_millis(16)));
+                            // }
+                        }
+                        // } else if &screen_buffer.should_render_now() {
+                        //     let parsed = parser.feed(&data_buffer);
+                        //     tracing::debug!("{:?}", parsed);
+                        //     data_buffer.clear();
+                        //
+                        //     screen_buffer.render().ok();
+                        // } else if render_timer.is_none() {
+                        //     render_timer = Some(tokio::time::interval(tokio::time::Duration::from_millis(16)));
+                        // }
+                    }
+                    Ok(SerialEvent::Error(_)) => {
+                        // let error_msg = format!("[ERROR] {e}\r\n");
+                        // error!("Added data: {:?}", data_buffer);
+                        // screen_buffer.add_data(error_msg.as_bytes());
+                        // screen_buffer.render().ok();
+                        // render_timer = None;
+                    }
+                    Ok(SerialEvent::ConnectionClosed) | Err(_) => break,
+                }
+            }
+            ui_command = ui_rx.recv() => {
+                // debug!("Sending UICommand: {:?}", ui_command);
+                // match ui_command {
+                //     Some(UICommand::ScrollUp(lines)) => {
+                //         screen_buffer.scroll_up(lines);
+                //     }
+                //     Some(UICommand::ScrollDown(lines)) => {
+                //         screen_buffer.scroll_down(lines);
+                //     }
+                //     Some(UICommand::ScrollTop) => {
+                //         screen_buffer.scroll_to_top();
+                //     }
+                //     Some(UICommand::ScrollBottom) => {
+                //         screen_buffer.scroll_to_bottom();
+                //     }
+                //     Some(UICommand::StartSelection(pos)) => {
+                //         screen_buffer.start_selection(pos);
+                //     }
+                //     Some(UICommand::UpdateSelection(pos)) => {
+                //         screen_buffer.update_selection(pos);
+                //     }
+                //     Some(UICommand::CopySelection) => {
+                //         screen_buffer.copy_to_clipboard().ok();
+                //     }
+                //     Some(UICommand::ClearBuffer) => {
+                //         screen_buffer.clear_buffer();
+                //     }
+                //     None => break,
+                // }
+                // screen_buffer.render().ok();
+                // render_timer = None;
+            }
+            () = async {
+                if let Some(ref mut timer) = render_timer {
+                    timer.tick().await;
+                } else {
+                    std::future::pending::<()>().await;
+                }
+            } => {
+                // if screen_buffer.should_render_now() {
+                //     screen_buffer.render().ok();
+                //     render_timer = None;
+                // }
+            }
+        }
+    }
 }

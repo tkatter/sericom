@@ -1,16 +1,34 @@
-use super::Cell;
 use std::ops::{Index, IndexMut};
 
+use crate::ui::Span;
+
 /// Line is a wrapper around [`Vec<Cell>`] and represents a line within the [`ScreenBuffer`][`super::ScreenBuffer`].
-#[derive(Clone, Debug)]
-pub struct Line(Vec<Cell>);
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct Line(Vec<Span>);
 
 impl Line {
     /// Create a new line with the length/size of `width`.
     ///
+    /// Filled with `span`.
+    #[must_use]
+    pub fn new(width: usize, span: Span) -> Self {
+        Self(vec![span; width])
+    }
+
+    /// Create a new line with the length/size of `width`.
+    ///
     /// Filled with [`Cell::default()`].
-    pub fn new(width: usize) -> Self {
-        Self(vec![Cell::default(); width])
+    #[must_use]
+    pub fn new_default(width: usize) -> Self {
+        Self(vec![Span::default(); width])
+    }
+
+    /// Create a new line with the length/size of `width`.
+    ///
+    /// Filled with [`Cell::EMPTY`].
+    #[must_use]
+    pub fn new_empty(width: usize) -> Self {
+        Self(vec![Span::default(); width])
     }
 
     /// Iterates over all the [`Cell`]s within the line and sets them to [`Cell::default()`].
@@ -41,6 +59,7 @@ impl Line {
     }
 
     /// Util function to return the length of [`Self`].
+    #[must_use]
     #[allow(clippy::len_without_is_empty)]
     pub const fn len(&self) -> usize {
         self.0.len()
@@ -48,22 +67,51 @@ impl Line {
 
     /// Iterates over the [`Cell`]s and resets their selected state.
     pub fn clear_selection(&mut self) {
-        self.0.iter_mut().for_each(|cell| cell.is_selected = false);
+        self.0
+            .iter_mut()
+            .for_each(|span| span.iter_mut().for_each(|cell| cell.is_selected = false));
     }
 
     /// Returns a reference to [`Cell`] at `idx`.
-    pub fn get_cell(&self, idx: usize) -> Option<&Cell> {
+    #[must_use]
+    pub fn get_span(&self, idx: usize) -> Option<&Span> {
         self.0.get(idx)
     }
 
     /// Returns a mutable reference to [`Cell`] at `idx`.
-    pub fn get_mut_cell(&mut self, idx: usize) -> Option<&mut Cell> {
+    pub fn get_mut_span(&mut self, idx: usize) -> Option<&mut Span> {
         self.0.get_mut(idx)
+    }
+
+    pub fn count_cells(&self) -> usize {
+        let mut num_cells = 0;
+        self.0.iter().for_each(|span| {
+            num_cells += span.count();
+        });
+        num_cells
+    }
+
+    pub fn iter(&self) -> std::slice::Iter<'_, Span> {
+        self.0.iter()
+    }
+
+    pub fn iter_mut(&mut self) -> std::slice::IterMut<'_, Span> {
+        self.0.iter_mut()
+    }
+
+    pub fn push(&mut self, span: Span) {
+        self.0.push(span);
+    }
+}
+
+impl Default for Line {
+    fn default() -> Self {
+        Self(Default::default())
     }
 }
 
 impl IntoIterator for Line {
-    type Item = Cell;
+    type Item = Span;
     type IntoIter = std::vec::IntoIter<Self::Item>;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -72,8 +120,8 @@ impl IntoIterator for Line {
 }
 
 impl<'a> IntoIterator for &'a Line {
-    type Item = &'a Cell;
-    type IntoIter = std::slice::Iter<'a, Cell>;
+    type Item = &'a Span;
+    type IntoIter = std::slice::Iter<'a, Span>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.iter()
@@ -81,8 +129,8 @@ impl<'a> IntoIterator for &'a Line {
 }
 
 impl<'a> IntoIterator for &'a mut Line {
-    type Item = &'a mut Cell;
-    type IntoIter = std::slice::IterMut<'a, Cell>;
+    type Item = &'a mut Span;
+    type IntoIter = std::slice::IterMut<'a, Span>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.iter_mut()
@@ -90,7 +138,7 @@ impl<'a> IntoIterator for &'a mut Line {
 }
 
 impl Index<usize> for Line {
-    type Output = Cell;
+    type Output = Span;
     fn index(&self, index: usize) -> &Self::Output {
         &self.0[index]
     }

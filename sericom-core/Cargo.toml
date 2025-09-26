@@ -18,3 +18,8 @@ miette.workspace = true
 serial2-tokio.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+
+[lints.clippy]
+pedantic = "warn"
+perf = "warn"
+nursery = "warn"

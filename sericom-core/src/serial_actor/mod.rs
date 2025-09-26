@@ -1,6 +1,7 @@
 //! This module holds all of the code directly responsible for interacting
 //! with the serial connection and tasks within the program.
 
+pub mod parser;
 pub mod tasks;
 
 /// Represents messages/commands that are sent from worker tasks
