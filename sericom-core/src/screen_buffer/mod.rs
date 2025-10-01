@@ -37,14 +37,14 @@ pub const MAX_SCROLLBACK: usize = 10000;
 pub struct ScreenBuffer {
     /// Scrollback buffer (all lines received from the serial connection).
     /// Limited by memory.
-    lines: VecDeque<Line>,
+    pub(crate) lines: VecDeque<Line>,
     /// Current view into the buffer.
     /// Denotes which line is at the top of the screen.
-    view_start: usize,
+    pub(crate) view_start: usize,
     /// The terminal's dimensions
-    rect: Rect,
+    pub(crate) rect: Rect,
     /// Position of the cursor within the `ScreenBuffer`.
-    cursor: crate::ui::Position,
+    pub(crate) cursor: crate::ui::Position,
     /// Start of text selection. Used for highlighting and copying to clipboard.
     selection_start: Option<(u16, usize)>,
     /// End of text selection. Used for highlighting and copying to clipboard.
@@ -68,12 +68,21 @@ impl ScreenBuffer {
             max_scrollback: MAX_SCROLLBACK,
         };
         // Start with an empty line
-        buffer.lines.push_back(Line::new_default(rect.width.into()));
+        buffer.lines.push_back(Line::new_empty(rect.width.into()));
         buffer
     }
 
     fn width(&self) -> u16 {
         self.rect.width
+    }
+
+    pub(crate) fn line_from_cursor(&mut self) -> usize {
+        let line_idx = self.view_start + usize::from(self.cursor.y);
+        while line_idx > self.lines.len() {
+            self.lines
+                .push_back(Line::new_empty(usize::from(self.rect.width)));
+        }
+        line_idx
     }
 
     fn set_char_at_cursor(&mut self, ch: char) {
@@ -85,13 +94,13 @@ impl ScreenBuffer {
         if let Some(line) = self.lines.get_mut(usize::from(self.cursor.y))
             && (self.cursor.x as usize) < line.len()
         {
-            line.set_char(self.cursor.x as usize, ch);
+            // line.set_char(self.cursor.x as usize, ch);
         }
     }
 
     fn clear_from_cursor_to_sol(&mut self) {
         if let Some(line) = self.lines.get_mut(usize::from(self.cursor.y)) {
-            line.reset_to(self.cursor.x as usize);
+            // line.reset_to(self.cursor.x as usize);
         }
     }
 
@@ -107,7 +116,7 @@ impl ScreenBuffer {
 
     fn clear_from_cursor_to_eol(&mut self) {
         if let Some(line) = self.lines.get_mut(usize::from(self.cursor.y)) {
-            line.reset_from(self.cursor.x as usize);
+            // line.reset_from(self.cursor.x as usize);
         }
     }
 

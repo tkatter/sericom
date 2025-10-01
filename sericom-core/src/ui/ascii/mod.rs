@@ -1,6 +1,9 @@
 mod parser;
 pub mod process;
 
+#[cfg(test)]
+mod test;
+
 pub(crate) use parser::*;
 
 /// Bracket '['

@@ -2,7 +2,7 @@ use crate::ui::{Buffer, Frame};
 
 use super::Rect;
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Terminal {
     buffers: [Buffer; 2],
     current_buffer: usize,

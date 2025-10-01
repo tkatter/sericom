@@ -1,7 +1,7 @@
 use crate::{
     screen_buffer::*,
-    serial_actor::{SerialEvent, SerialMessage, parser::ByteParser},
-    ui::{Rect, Terminal},
+    serial_actor::{SerialEvent, SerialMessage},
+    ui::{ByteParser, Rect, Terminal},
 };
 use crossterm::{
     event::{self, Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind},
@@ -48,7 +48,7 @@ pub async fn run_stdout_output(
                         data_buffer.extend_from_slice(&data);
 
                         if data_buffer.len() > 1024 || data.contains(&b'\n') {
-                            screen_buffer.add_data(&data_buffer);
+                            // screen_buffer.add_data(&data_buffer);
                             data_buffer.clear();
                             if screen_buffer.should_render_now() {
                                 screen_buffer.render().ok();
@@ -57,7 +57,7 @@ pub async fn run_stdout_output(
                                 render_timer = Some(tokio::time::interval(tokio::time::Duration::from_millis(16)));
                             }
                         } else if screen_buffer.should_render_now() {
-                            screen_buffer.add_data(&data_buffer);
+                            // screen_buffer.add_data(&data_buffer);
                             data_buffer.clear();
 
                             screen_buffer.render().ok();
@@ -68,7 +68,7 @@ pub async fn run_stdout_output(
                     Ok(SerialEvent::Error(e)) => {
                         let error_msg = format!("[ERROR] {e}\r\n");
                         error!("Added data: {:?}", data_buffer);
-                        screen_buffer.add_data(error_msg.as_bytes());
+                        // screen_buffer.add_data(error_msg.as_bytes());
                         screen_buffer.render().ok();
                         render_timer = None;
                     }

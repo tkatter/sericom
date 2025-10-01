@@ -1,4 +1,4 @@
-use crate::screen_buffer::Position;
+use crate::ui::Position;
 
 use super::{Cursor, Line, ScreenBuffer};
 
@@ -46,47 +46,47 @@ impl UIAction for ScreenBuffer {
             self.view_start = 0;
         }
         self.clear_selection();
-        self.needs_render = true;
+        // self.needs_render = true;
     }
 
     /// Called to scroll the terminal down by `lines`.
     fn scroll_down(&mut self, lines: usize) {
-        let max_view_start = self.lines.len().saturating_sub(self.height as usize);
+        let max_view_start = self.lines.len().saturating_sub(self.rect.height as usize);
         self.view_start = (self.view_start + lines).min(max_view_start);
         self.clear_selection();
-        self.needs_render = true;
+        // self.needs_render = true;
     }
 
     /// Scrolls to the bottom of the screen. The bottom of the screen is
     /// the same as the most recent lines received from the serial connection
     fn scroll_to_bottom(&mut self) {
-        self.view_start = self.lines.len().saturating_sub(self.height as usize);
-        self.needs_render = true;
+        self.view_start = self.lines.len().saturating_sub(self.rect.height as usize);
+        // self.needs_render = true;
     }
 
     /// Scrolls to the top of the serial connection's history.
     fn scroll_to_top(&mut self) {
         self.view_start = 0;
-        self.needs_render = true;
+        // self.needs_render = true;
     }
 
     /// Sets the position within the screen for the start of a selection.
     /// Where `screen_x` is the x-position of the start of the selection,
     /// and `screen_y` is the y-position (line) of the start of the selection.
     fn start_selection(&mut self, pos: Position) {
-        let absolute_line = self.view_start + pos.y;
+        let absolute_line = self.view_start + usize::from(pos.y);
         self.clear_selection();
         self.selection_start = Some((pos.x, absolute_line));
-        self.needs_render = true;
+        // self.needs_render = true;
     }
 
     /// Update's a selection to include the position passed to it.
     /// Where `screen_x` is the x-position and `screen_y` is the y-position (line).
     fn update_selection(&mut self, pos: Position) {
-        let absolute_line = self.view_start + pos.y;
+        let absolute_line = self.view_start + usize::from(pos.y);
         self.selection_end = Some((pos.x, absolute_line));
         self.update_selection_highlighting();
-        self.needs_render = true;
+        // self.needs_render = true;
     }
 
     /// Clears the selection state.
@@ -96,7 +96,7 @@ impl UIAction for ScreenBuffer {
         }
         self.selection_start = None;
         self.selection_end = None;
-        self.needs_render = true;
+        // self.needs_render = true;
     }
 
     /// Copy's the currently selected text to the user's clipboard.
@@ -121,17 +121,19 @@ impl UIAction for ScreenBuffer {
         self.lines.clear();
         self.view_start = 0;
         self.set_cursor_pos((0_u16, 0_usize));
-        self.lines.push_back(Line::new_default(self.width.into()));
-        self.needs_render = true;
+        self.lines
+            .push_back(Line::new_default(self.rect.width.into()));
+        // self.needs_render = true;
     }
 
     /// Clears the current *visible* screen while keeping the buffer's history
     fn clear_screen(&mut self) {
-        for _ in 0..self.height {
-            self.lines.push_back(Line::new_default(self.width.into()));
+        for _ in 0..self.rect.height {
+            self.lines
+                .push_back(Line::new_default(self.rect.width.into()));
         }
-        self.view_start = self.lines.len().saturating_sub(self.height as usize);
-        self.needs_render = true;
+        self.view_start = self.lines.len().saturating_sub(self.rect.height as usize);
+        // self.needs_render = true;
     }
 }
 
@@ -158,14 +160,14 @@ impl ScreenBuffer {
                     let line_end_x = if line_idx == end_line {
                         end_x
                     } else {
-                        self.width - 1
+                        self.rect.width - 1
                     };
 
-                    for x in line_start_x..=line_end_x.min(self.width - 1) {
-                        if let Some(cell) = line.get_mut_cell(x as usize) {
-                            cell.is_selected = true;
-                        }
-                    }
+                    // for x in line_start_x..=line_end_x.min(self.width - 1) {
+                    //     if let Some(cell) = line.get_mut_cell(x as usize) {
+                    //         cell.is_selected = true;
+                    //     }
+                    // }
                 }
             }
         }
@@ -190,14 +192,14 @@ impl ScreenBuffer {
                     let line_end_x = if line_idx == end_line {
                         end_x
                     } else {
-                        self.width - 1
+                        self.rect.width - 1
                     };
 
-                    for x in line_start_x..=line_end_x.min(self.width - 1) {
-                        if let Some(cell) = line.get_cell(x as usize) {
-                            result.push(cell.character);
-                        }
-                    }
+                    // for x in line_start_x..=line_end_x.min(self.width - 1) {
+                    //     if let Some(cell) = line.get_cell(x as usize) {
+                    //         result.push(cell.character);
+                    //     }
+                    // }
 
                     if line_idx < end_line {
                         result.push('\n');
