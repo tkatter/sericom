@@ -1,8 +1,10 @@
+mod colors;
 mod parser;
+pub use colors::*;
 pub mod process;
 
 #[cfg(test)]
-mod test;
+pub(crate) mod test;
 
 pub(crate) use parser::*;
 

@@ -9,3 +9,6 @@ run-trace:
 
 check-win:
   cargo c --target x86_64-pc-windows-msvc
+
+test:
+  cargo t -p sericom-core --lib

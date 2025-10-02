@@ -1,12 +1,12 @@
 use std::collections::VecDeque;
 
-use crossterm::style::{Attributes, Colors};
+use crossterm::style::{Attribute, Attributes, Color};
 
 use super::*;
 use crate::{
     configs::{ConfigOverride, initialize_config},
     screen_buffer::*,
-    ui::{Cell, Line, Position, Rect, Span},
+    ui::{Line, Position, Rect},
 };
 const CONFIG_OVERRIDE: ConfigOverride = ConfigOverride {
     color: None,
@@ -15,67 +15,127 @@ const CONFIG_OVERRIDE: ConfigOverride = ConfigOverride {
 };
 const TERMINAL_SIZE: (u16, u16) = (80, 24);
 
-// #[test]
-// fn test_helloworld_parsing() {
-//     initialize_config(CONFIG_OVERRIDE).ok();
-//     let rect = Rect::new(Position::ORIGIN, TERMINAL_SIZE.0, TERMINAL_SIZE.1);
-//     let mut sb = ScreenBuffer::new(rect);
-//     let mut parser = ByteParser::new();
-//     // let parsed = parser.feed(b"Hello\nWorld\n");
-//     let parsed = parser.feed(TEST_BYTES);
-//
-//     eprintln!("{parsed:#?}");
-//
-//     sb.process_events(parsed);
-//
-//     eprintln!("{}", debug_dump(&sb));
-//     assert_eq!(1, 2);
-// }
+macro_rules! setup {
+    ($sb:ident, $parser:ident) => {
+        initialize_config(CONFIG_OVERRIDE).ok();
+        let rect = Rect::new(Position::ORIGIN, TERMINAL_SIZE.0, TERMINAL_SIZE.1);
+        let mut $sb = ScreenBuffer::new(rect);
+        let mut $parser = ByteParser::new();
+    };
+    ($sb:ident, $parser:ident, $config:ident) => {
+        initialize_config(CONFIG_OVERRIDE).ok();
+        let rect = Rect::new(Position::ORIGIN, TERMINAL_SIZE.0, TERMINAL_SIZE.1);
+        let mut $sb = ScreenBuffer::new(rect);
+        let mut $parser = ByteParser::new();
+        let $config = $crate::configs::get_config();
+    };
+}
 
-#[test]
-fn test_color_spans() {
-    initialize_config(CONFIG_OVERRIDE).ok();
-    let rect = Rect::new(Position::ORIGIN, TERMINAL_SIZE.0, TERMINAL_SIZE.1);
-    let mut sb = ScreenBuffer::new(rect);
-    let mut parser = ByteParser::new();
-    let parsed = parser.feed(b"\x1b[31mRed\x1b[34mBlue\n");
+/// Assert that a line's text contents equal `expected`
+/// Usage:
+///   `assert_line_eq!(sb, 1, "Hello, world!");`
+macro_rules! assert_line_eq {
+    ($sb:expr, $line_idx:expr, $expected:expr) => {{
+        let sb = &$sb; // ScreenBuffer
+        let line_idx = $line_idx; // which line
+        let expected: &str = $expected; // expected text
 
-    // eprintln!("{parsed:#?}");
+        let line = sb.lines.get(line_idx).expect(&format!(
+            "No line at index {line_idx}, only {} lines",
+            sb.lines.len()
+        ));
+        let actual: String = line
+            .iter()
+            .flat_map(|span| span.iter().map(|c| c.character))
+            .collect();
 
-    sb.process_events(parsed);
-    // eprintln!("{}", debug_dump(&sb.lines));
+        if actual.trim_end() != expected {
+            panic!(
+                "Line {line_idx} mismatch!\n  Expected: {:?}\n  Actual:   {:?}\n\nFull buffer:\n{}",
+                expected,
+                actual,
+                $crate::ui::test::debug_dump(&sb.lines),
+            );
+        }
+    }};
+}
 
-    let mut vecd = VecDeque::new();
-    vecd.push_back(Line::new_empty(TERMINAL_SIZE.0.into()));
-    let mut new_line = Line::reserve_new(2);
+/// Assert that a specific span on a line matches given text and style.
+/// Usage:
+///   `assert_span_eq!(sb, 1, 0, "Red", fg=Color::DarkRed, bg=Color::Reset);`
+#[macro_export]
+macro_rules! assert_span_eq {
+    (
+        $sb:expr,        // ScreenBuffer
+        $line_idx:expr,  // which line
+        $span_idx:expr  // which span in that line
+        $(, expected => $expected_text:expr)?
+        $(, fg => $fg_color:expr)?
+        $(, bg => $bg_color:expr)?
+        $(, attrs => $attrs:expr)?
+    ) => {{
+        let sb = &$sb;
+        let line_idx = $line_idx;
+        let span_idx = $span_idx;
 
-    let mut red_span = Span::reserve_new(
-        3,
-        Some(Colors::new(
-            crossterm::style::Color::DarkRed,
-            crossterm::style::Color::Reset,
-        )),
-        Some(Attributes::default()),
-    );
-    "Red".chars().for_each(|c| red_span.push(Cell::from(c)));
-    new_line.push(red_span);
+        let line = sb
+            .lines
+            .get(line_idx)
+            .expect(&format!("No line at index {line_idx}, only {} lines", sb.lines.len()));
+        let span = line
+            .iter()
+            .nth(span_idx)
+            .expect(&format!("No span at index {span_idx} in line {}", line_idx));
 
-    let mut blue_span = Span::reserve_new(
-        (TERMINAL_SIZE.0 - 3).into(),
-        Some(Colors::new(
-            crossterm::style::Color::DarkBlue,
-            crossterm::style::Color::Reset,
-        )),
-        Some(Attributes::default()),
-    );
-    "Blue".chars().for_each(|c| blue_span.push(Cell::from(c)));
-    blue_span.fill_to_width((TERMINAL_SIZE.0 - 3).into());
-    new_line.push(blue_span);
-    vecd.push_back(new_line);
+        // Collect text from cells
+        $(
+            let expected_text: &str = $expected_text;
+            let actual_text: String = span.iter().map(|c| c.character).collect();
+            if !actual_text.starts_with(expected_text) {
+                panic!(
+                    "Span {span_idx} text mismatch!\n  Expected: {:?}\n  Actual:   {:?}\n\nFull buffer:\n{}",
+                    expected_text,
+                    actual_text,
+                    $crate::ui::test::debug_dump(&sb.lines),
+                );
+            }
+        )?
 
-    // eprintln!("{}", debug_dump(&vecd));
-
-    assert_eq!(vecd, sb.lines);
+        // Check optional style args
+        $(
+            assert_eq!(
+                span.colors.foreground,
+                Some($fg_color),
+                "Span {} fg color mismatch (expected {:?}, got {:?})\n{}",
+                span_idx,
+                $fg_color,
+                span.colors.foreground,
+                $crate::ui::test::debug_dump(&sb.lines),
+            );
+        )?
+        $(
+            assert_eq!(
+                span.colors.background,
+                Some($bg_color),
+                "Span {} bg color mismatch (expected {:?}, got {:?})\n{}",
+                span_idx,
+                $bg_color,
+                span.colors.background,
+                $crate::ui::test::debug_dump(&sb.lines),
+            );
+        )?
+        $(
+            assert_eq!(
+                span.attrs,
+                $attrs,
+                "Span {} attrs mismatch (expected {:?}, got {:?})\n{}",
+                span_idx,
+                $attrs,
+                span.attrs,
+                $crate::ui::test::debug_dump(&sb.lines),
+            );
+        )?
+    }};
 }
 
 fn debug_dump(lines: &VecDeque<Line>) -> String {
@@ -102,30 +162,135 @@ fn debug_dump(lines: &VecDeque<Line>) -> String {
     out
 }
 
-const TEST_BYTES: &[u8] = &[
-    8, 8, 8, 8, 8, 8, 8, 8, 8, 32, 32, 32, 32, 32, 32, 32, 32, 8, 8, 8, 8, 8, 8, 8, 8, 8, 77, 111,
-    116, 104, 101, 114, 98, 111, 97, 114, 100, 32, 97, 115, 115, 101, 109, 98, 108, 121, 32, 110,
-    117, 109, 98, 101, 114, 32, 32, 32, 32, 32, 58, 32, 55, 51, 45, 49, 54, 54, 56, 54, 45, 48, 53,
-    13, 10, 32, 45, 45, 77, 111, 114, 101, 45, 45, 32, 8, 8, 8, 8, 8, 8, 8, 8, 8, 32, 32, 32, 32,
-    32, 32, 32, 32, 8, 8, 8, 8, 8, 8, 8, 8, 8, 13, 10, 83, 119, 105, 116, 99, 104, 62, 13, 10, 83,
-    119, 105, 116, 99, 104, 62, 13, 10, 83, 119, 105, 116, 99, 104, 62, 115, 104, 32, 118, 101,
-    114, 13, 10, 67, 105, 115, 99, 111, 32, 73, 79, 83, 32, 83, 111, 102, 116, 119, 97, 114, 101,
-    44, 32, 67, 50, 57, 54, 48, 88, 32, 83, 111, 102, 116, 119, 97, 114, 101, 32, 40, 67, 50, 57,
-    54, 48, 88, 45, 85, 78, 73, 86, 69, 82, 83, 65, 76, 75, 57, 45, 77, 41, 44, 32, 86, 101, 114,
-    115, 105, 111, 110, 32, 49, 53, 46, 50, 40, 50, 41, 69, 53, 44, 32, 82, 69, 76, 69, 65, 83, 69,
-    32, 83, 79, 70, 84, 87, 65, 82, 69, 32, 40, 102, 99, 50, 41, 13, 10, 84, 101, 99, 104, 110,
-    105, 99, 97, 108, 32, 83, 117, 112, 112, 111, 114, 116, 58, 32, 104, 116, 116, 112, 58, 47, 47,
-    119, 119, 119, 46, 99, 105, 115, 99, 111, 46, 99, 111, 109, 47, 116, 101, 99, 104, 115, 117,
-    112, 112, 111, 114, 116, 13, 10, 67, 111, 112, 121, 114, 105, 103, 104, 116, 32, 40, 99, 41,
-    32, 49, 57, 56, 54, 45, 50, 48, 49, 54, 32, 98, 121, 32, 67, 105, 115, 99, 111, 32, 83, 121,
-    115, 116, 101, 109, 115, 44, 32, 73, 110, 99, 46, 13, 10, 67, 111, 109, 112, 105, 108, 101,
-    100, 32, 84, 104, 117, 32, 48, 50, 45, 74, 117, 110, 45, 49, 54, 32, 48, 49, 58, 51, 49, 32,
-    98, 121, 32, 112, 114, 111, 100, 95, 114, 101, 108, 95, 116, 101, 97, 109, 13, 10, 13, 10, 82,
-    79, 77, 58, 32, 66, 111, 111, 116, 115, 116, 114, 97, 112, 32, 112, 114, 111, 103, 114, 97,
-    109, 32, 105, 115, 32, 67, 50, 57, 54, 48, 88, 32, 98, 111, 111, 116, 32, 108, 111, 97, 100,
-    101, 114, 13, 10, 66, 79, 79, 84, 76, 68, 82, 58, 32, 67, 50, 57, 54, 48, 88, 32,
-];
+#[test]
+fn test_single_plain_line() {
+    setup!(sb, parser, config);
+    let parsed = parser.feed(b"Hello, world!\n");
+    sb.process_events(parsed);
+    let fg = Color::from(&config.appearance.fg);
+    let bg = Color::from(&config.appearance.bg);
 
-/*
-66, 111, 111, 116, 32, 76, 111, 97, 100, 101, 114, 32, 40, 67, 50, 57, 54, 48, 88, 45, 72, 66, 79, 79, 84, 45, 77, 41, 32, 86, 101, 114, 115, 105, 111, 110, 32, 49, 53, 46, 50, 40, 51, 114, 41, 69, 49, 44, 32, 82, 69, 76, 69, 65, 83, 69, 32, 83, 79, 70, 84, 87, 65, 82, 69, 32, 40, 102, 99, 49, 41, 13, 10, 13, 10, 83, 119, 105, 116, 99, 104, 32, 117, 112, 116, 105, 109, 101, 32, 105, 115, 32, 51, 32, 100, 97, 121, 115, 44, 32, 50, 32, 104, 111, 117, 114, 115, 44, 32, 49, 54, 32, 109, 105, 110, 117, 116, 101, 115, 13, 10, 83, 121, 115, 116, 101, 109, 32, 114, 101, 116, 117, 114, 110, 101, 100, 32, 116, 111, 32, 82, 79, 77, 32, 98, 121, 32, 112, 111, 119, 101, 114, 45, 111, 110, 13, 10, 83, 121, 115, 116, 101, 109, 32, 114, 101, 115, 116, 97, 114, 116, 101, 100, 32, 97, 116, 32, 48, 49, 58, 52, 55, 58, 51, 55, 32, 85, 84, 67, 32, 83, 117, 110, 32, 83, 101, 112, 32, 50, 56, 32, 50, 48, 50, 53, 13, 10, 83, 121, 115, 116, 101, 109, 32, 105, 109, 97, 103, 101, 32, 102, 105, 108, 101, 32, 105, 115, 32, 34, 102, 108, 97, 115, 104, 58, 47, 99, 50, 57, 54, 48, 120, 45, 117, 110, 105, 118, 101, 114, 115, 97, 108, 107, 57, 45, 109, 122, 46, 49, 53, 50, 45, 50, 46, 69, 53, 47, 99, 50, 57, 54, 48, 120, 45, 117, 110, 105, 118, 101, 114, 115, 97, 108, 107, 57, 45, 109, 122, 46, 49, 53, 50, 45, 50, 46, 69, 53, 46, 98, 105, 110, 34, 13, 10, 76, 97, 115, 116, 32, 114, 101, 108, 111, 97, 100, 32, 114, 101, 97, 115, 111, 110, 58, 32, 112, 111, 119, 101, 114, 45, 111, 110, 13, 10, 13, 10, 13, 10, 13, 10, 84, 104, 105, 115, 32, 112, 114, 111, 100, 117, 99, 116, 32, 99, 111, 110, 116, 97, 105, 110, 115, 32, 99, 114, 121, 112, 116, 111, 103, 114, 97, 112, 104, 105, 99, 32, 102, 101, 97, 116, 117, 114, 101, 115, 32, 97, 110, 100, 32, 105, 115, 32, 115, 117, 98, 106, 101, 99, 116, 32, 116, 111, 32, 85, 110, 105, 116, 101, 100, 13, 10, 83, 116, 97, 116, 101, 115, 32, 97, 110, 100, 32, 108, 111, 99, 97, 108, 32, 99, 111, 117, 110, 116, 114, 121, 32, 108, 97, 119, 115, 32, 103, 111, 118, 101, 114, 110, 105, 110, 103, 32, 105, 109, 112, 111, 114, 116, 44, 32, 101, 120, 112, 111, 114, 116, 44, 32, 116, 114, 97, 110, 115, 102, 101, 114, 32, 97, 110, 100, 13, 10, 117, 115, 101, 46, 32, 68, 101, 108, 105, 118, 101, 114, 121, 32, 111, 102, 32, 67, 105, 115, 99, 111, 32, 99, 114, 121, 112, 116, 111, 103, 114, 97, 112, 104, 105, 99, 32, 112, 114, 111, 100, 117, 99, 116, 115, 32, 100, 111, 101, 115, 32, 110, 111, 116, 32, 105, 109, 112, 108, 121, 13, 10, 116, 104, 105, 114, 100, 45, 112, 97, 114, 116, 121, 32, 97, 117, 116, 104, 111, 114, 105, 116, 121, 32, 116, 111, 32, 105, 109, 112, 111, 114, 116, 44, 32, 101, 120, 112, 111, 114, 116, 44, 32, 100, 105, 115, 116, 114, 105, 98, 117, 116, 101, 32, 111, 114, 32, 117, 115, 101, 32, 101, 110, 99, 114, 121, 112, 116, 105, 111, 110, 46, 13, 10, 32, 45, 45, 77, 111, 114, 101, 45, 45, 32, 8, 8, 8, 8, 8, 8, 8, 8, 8, 32, 32, 32, 32, 32, 32, 32, 32, 8, 8, 8, 8, 8, 8, 8, 8, 8, 73, 109, 112, 111, 114, 116, 101, 114, 115, 44, 32, 101, 120, 112, 111, 114, 116, 101, 114, 115, 44, 32, 100, 105, 115, 116, 114, 105, 98, 117, 116, 111, 114, 115, 32, 97, 110, 100, 32, 117, 115, 101, 114, 115, 32, 97, 114, 101, 32, 114, 101, 115, 112, 111, 110, 115, 105, 98, 108, 101, 32, 102, 111, 114, 13, 10, 99, 111, 109, 112, 108, 105, 97, 110, 99, 101, 32, 119, 105, 116, 104, 32, 85, 46, 83, 46, 32, 97, 110, 100, 32, 108, 111, 99, 97, 108, 32, 99, 111, 117, 110, 116, 114, 121, 32, 108, 97, 119, 115, 46, 32, 66, 121, 32, 117, 115, 105, 110, 103, 32, 116, 104, 105, 115, 32, 112, 114, 111, 100, 117, 99, 116, 32, 121, 111, 117, 13, 10, 97, 103, 114, 101, 101, 32, 116, 111, 32, 99, 111, 109, 112, 108, 121, 32, 119, 105, 116, 104, 32, 97, 112, 112, 108, 105, 99, 97, 98, 108, 101, 32, 108, 97, 119, 115, 32, 97, 110, 100, 32, 114, 101, 103, 117, 108, 97, 116, 105, 111, 110, 115, 46, 32, 73, 102, 32, 121, 111, 117, 32, 97, 114, 101, 32, 117, 110, 97, 98, 108, 101, 13, 10, 116, 111, 32, 99, 111, 109, 112, 108, 121, 32, 119, 105, 116, 104, 32, 85, 46, 83, 46, 32, 97, 110, 100, 32, 108, 111, 99, 97, 108, 32, 108, 97, 119, 115, 44, 32, 114, 101, 116, 117, 114, 110, 32, 116, 104, 105, 115, 32, 112, 114, 111, 100, 117, 99, 116, 32, 105, 109, 109, 101, 100, 105, 97, 116, 101, 108, 121, 46, 13, 10, 13, 10, 65, 32, 115, 117, 109, 109, 97, 114, 121, 32, 111, 102, 32, 85, 46, 83, 46, 32, 108, 97, 119, 115, 32, 103, 111, 118, 101, 114, 110, 105, 110, 103, 32, 67, 105, 115, 99, 111, 32, 99, 114, 121, 112, 116, 111, 103, 114, 97, 112, 104, 105, 99, 32, 112, 114, 111, 100, 117, 99, 116, 115, 32, 109, 97, 121, 32, 98, 101, 32, 102, 111, 117, 110, 100, 32, 97, 116, 58, 13, 10, 104, 116, 116, 112, 58, 47, 47, 119, 119, 119, 46, 99, 105, 115, 99, 111, 46, 99, 111, 109, 47, 119, 119, 108, 47, 101, 120, 112, 111, 114, 116, 47, 99, 114, 121, 112, 116, 111, 47, 116, 111, 111, 108, 47, 115, 116, 113, 114, 103, 46, 104, 116, 109, 108, 13, 10, 13, 10, 73, 102, 32, 121, 111, 117, 32, 114, 101, 113, 117, 105, 114, 101, 32, 102, 117, 114, 116, 104, 101, 114, 32, 97, 115, 115, 105, 115, 116, 97, 110, 99, 101, 32, 112, 108, 101, 97, 115, 101, 32, 99, 111, 110, 116, 97, 99, 116, 32, 117, 115, 32, 98, 121, 32, 115, 101, 110, 100, 105, 110, 103, 32, 101, 109, 97, 105, 108, 32, 116, 111, 13, 10, 101, 120, 112, 111, 114, 116, 64, 99, 105, 115, 99, 111, 46, 99, 111, 109, 46, 13, 10, 13, 10, 99, 105, 115, 99, 111, 32, 87, 83, 45, 67, 50, 57, 54, 48, 88, 45, 52, 56, 70, 80, 68, 45, 76, 32, 40, 65, 80, 77, 56, 54, 88, 88, 88, 41, 32, 112, 114, 111, 99, 101, 115, 115, 111, 114, 32, 40, 114, 101, 118, 105, 115, 105, 111, 110, 32, 77, 48, 41, 32, 119, 105, 116, 104, 32, 53, 50, 52, 50, 56, 56, 75, 32, 98, 121, 116, 101, 115, 32, 111, 102, 32, 109, 101, 109, 111, 114, 121, 46, 13, 10, 80, 114, 111, 99, 101, 115, 115, 111, 114, 32, 98, 111, 97, 114, 100, 32, 73, 68, 32, 70, 79, 67, 50, 48, 50, 55, 87, 49, 75, 66, 13, 10, 76, 97, 115, 116, 32, 114, 101, 115, 101, 116, 32, 102, 114, 111, 109, 32, 112, 111, 119, 101, 114, 45, 111, 110, 13, 10, 49, 32, 86, 105, 114, 116, 117, 97, 108, 32, 69, 116, 104, 101, 114, 110, 101, 116, 32, 105, 110, 116, 101, 114, 102, 97, 99, 101, 13, 10, 49, 32, 70, 97, 115, 116, 69, 116, 104, 101, 114, 110, 101, 116, 32, 105, 110, 116, 101, 114, 102, 97, 99, 101, 13, 10, 53, 48, 32, 71, 105, 103, 97, 98, 105, 116, 32, 69, 116, 104, 101, 114, 110, 101, 116, 32, 105, 110, 116, 101, 114, 102, 97, 99, 101, 115, 13, 10, 50, 32, 84, 101, 110, 32, 71, 105, 103, 97, 98, 105, 116, 32, 69, 116, 104, 101, 114, 110, 101, 116, 32, 105, 110, 116, 101, 114, 102, 97, 99, 101, 115, 13, 10, 84, 104, 101, 32, 112, 97, 115, 115, 119, 111, 114, 100, 45, 114, 101, 99, 111, 118, 101, 114, 121, 32, 109, 101, 99, 104, 97, 110, 105, 115, 109, 32, 105, 115, 32, 101, 110, 97, 98, 108, 101, 100, 46, 13, 10, 13, 10, 53, 49, 50, 75, 32, 98, 121, 116, 101, 115, 32, 111, 102, 32, 102, 108, 97, 115, 104, 45, 115, 105, 109, 117, 108, 97, 116, 101, 100, 32, 110, 111, 110, 45, 118, 111, 108, 97, 116, 105, 108, 101, 32, 99, 111, 110, 102, 105, 103, 117, 114, 97, 116, 105, 111, 110, 32, 109, 101, 109, 111, 114, 121, 46, 13, 10, 66, 97, 115, 101, 32, 101, 116, 104, 101, 114, 110, 101, 116, 32, 77, 65, 67, 32, 65, 100, 100, 114, 101, 115, 115, 32, 32, 32, 32, 32, 32, 32, 58, 32, 48, 48, 58, 65, 50, 58, 56, 57, 58, 66, 54, 58, 51, 70, 58, 48, 48, 13, 10, 32, 45, 45, 77, 111, 114, 101, 45, 45, 32, 8, 8, 8, 8, 8, 8, 8, 8, 8, 32, 32, 32, 32, 32, 32, 32, 32, 8, 8, 8, 8, 8, 8, 8, 8, 8, 13, 10, 83, 119, 105, 116, 99, 104, 62, 13, 10, 83, 119, 105, 116, 99, 104, 62];
-*/
+    // Expect one line with one span, fg=default, text padded
+    assert_line_eq!(sb, 1, "Hello, world!");
+    assert_span_eq!(sb, 1, 0, fg => fg, bg => bg);
+}
+
+#[test]
+fn test_two_lines_plain_text() {
+    setup!(sb, parser, config);
+    let parsed = parser.feed(b"Hello\nWorld\n");
+    sb.process_events(parsed);
+    let fg = Color::from(&config.appearance.fg);
+    let bg = Color::from(&config.appearance.bg);
+
+    // Expected: two lines, one with "Hello" padded, one with "World" padded
+    assert_eq!(sb.lines.len(), 3); // initial empty line + 2
+    assert_line_eq!(sb, 1, "Hello");
+    assert_line_eq!(sb, 2, "World");
+    assert_span_eq!(sb, 1, 0, fg => fg, bg => bg);
+    assert_span_eq!(sb, 2, 0, fg => fg, bg => bg);
+}
+
+#[test]
+fn test_three_color_spans() {
+    setup!(sb, parser, config);
+    let parsed = parser.feed(b"\x1b[31mRed\x1b[32mGreen\x1b[34mBlue\n");
+    sb.process_events(parsed);
+    let bg = Color::from(&config.appearance.bg);
+
+    assert_eq!(sb.lines.len(), 2); // initial empty + 1 line
+    let line = sb.lines.get(1).unwrap();
+    assert_eq!(line.len(), 3); // three spans
+    assert_span_eq!(sb, 1, 0, expected => "Red", fg => Color::DarkRed, bg => bg);
+    assert_span_eq!(sb, 1, 1, expected => "Green", fg => Color::DarkGreen, bg => bg);
+    assert_span_eq!(sb, 1, 2, expected => "Blue", fg => Color::DarkBlue, bg => bg);
+}
+
+#[test]
+fn test_no_newline_incomplete_line() {
+    setup!(sb, parser, config);
+    let parsed = parser.feed(b"Hello");
+    sb.process_events(parsed);
+    let fg = Color::from(&config.appearance.fg);
+    let bg = Color::from(&config.appearance.bg);
+
+    // Should still only contain the initial empty line
+    assert_eq!(sb.lines.len(), 1);
+    assert_span_eq!(sb, 0, 0, expected => "", fg => fg, bg => bg);
+}
+
+#[test]
+fn test_mixed_plain_and_color() {
+    setup!(sb, parser, config);
+    let parsed = parser.feed(b"Normal \x1b[31mRed\n");
+    sb.process_events(parsed);
+    let fg = Color::from(&config.appearance.fg);
+    let bg = Color::from(&config.appearance.bg);
+
+    // Expect two spans: "Normal " default, "Red" DarkRed
+    let line = sb.lines.get(1).unwrap();
+    assert_eq!(line.len(), 2);
+    assert_span_eq!(sb, 1, 0, expected => "Normal ", fg => fg, bg => bg);
+    assert_span_eq!(sb, 1, 1, expected => "Red", fg => Color::DarkRed, bg => bg);
+}
+
+#[test]
+fn test_bold_italic_span() {
+    setup!(sb, parser);
+
+    let parsed = parser.feed(b"\x1b[1;3mHello\n"); // bold + italic
+    sb.process_events(parsed);
+
+    let span_attrs = Attributes::from(Attribute::Bold) | Attributes::from(Attribute::Italic);
+    assert_span_eq!(sb, 1, 0, attrs => span_attrs);
+}
+
+#[test]
+#[allow(clippy::cognitive_complexity)]
+fn test_multiline_multicolor() {
+    setup!(sb, parser, config);
+    let fg = Color::from(&config.appearance.fg);
+    let bg = Color::from(&config.appearance.bg);
+
+    let input = concat!(
+        // Line 1: basic color DarkRed -> text
+        "\x1b[31mRed ",
+        // switch to Cyan
+        "\x1b[96mCyan ",
+        // switch to bold, underline, DarkBlue, then some text
+        "\x1b[1;4;34mBoldUnderBlue\n",
+        // Line 2: 256-color palette FG (202 = orange) and BG (27 = blueish)
+        "\x1b[38;5;202;48;5;27mOrangeOnBlue ",
+        // reset, then normal text
+        "\x1b[0mResetHere\n",
+        // Line 3: truecolor foreground text
+        "\x1b[38;2;128;200;64mTrueColorGreenish ",
+        // add truecolor background text with italic attr
+        "\x1b[3;48;2;200;64;128mBgPinkItalic\n",
+    )
+    .as_bytes();
+
+    let parsed = parser.feed(input);
+    sb.process_events(parsed);
+
+    // Buffer should have initial empty + 3 lines
+    assert_eq!(sb.lines.len(), 4);
+
+    // Line 1
+    assert_line_eq!(sb, 1, "Red Cyan BoldUnderBlue");
+    assert_span_eq!(sb, 1, 0, expected => "Red", fg => Color::DarkRed, bg => bg);
+    assert_span_eq!(sb, 1, 1, expected => "Cyan", fg => Color::Cyan, bg => bg);
+    let span_attrs = Attributes::from(Attribute::Bold) | Attributes::from(Attribute::Underlined);
+    assert_span_eq!(sb, 1, 2, expected => "BoldUnderBlue", fg => Color::DarkBlue, bg => bg, attrs => span_attrs);
+
+    // Line 2
+    assert_line_eq!(sb, 2, "OrangeOnBlue ResetHere");
+    assert_span_eq!(sb, 2, 0, expected => "OrangeOnBlue", fg => Color::AnsiValue(202), bg => Color::AnsiValue(27));
+    assert_span_eq!(sb, 2, 1, expected => "ResetHere", fg => fg, bg => bg, attrs => Attributes::default());
+
+    // Line 3
+    assert_line_eq!(sb, 3, "TrueColorGreenish BgPinkItalic");
+    assert_span_eq!(sb, 3, 0, expected => "TrueColorGreenish", fg => Color::Rgb { r:128, g:200, b:64 }, bg => bg);
+    let italic = Attributes::from(Attribute::Italic);
+    assert_span_eq!(sb, 3, 1, expected => "BgPinkItalic", fg => Color::Rgb { r:128, g:200, b:64 }, bg => Color::Rgb { r:200, g:64, b:128 }, attrs => italic);
+}
