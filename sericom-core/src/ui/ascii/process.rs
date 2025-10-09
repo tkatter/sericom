@@ -3,8 +3,8 @@ use crossterm::style::Attributes;
 use crate::{
     screen_buffer::ScreenBuffer,
     ui::{
-        BS, CR, Cell, Cursor, FF, Line, NL, ParserEvent, Rect, Span, TAB, is_graphics_seq,
-        line::ColorState, process_colors,
+        BK, BS, CR, Cell, Cursor, ESC, FF, Line, NL, ParserEvent, Rect, Span, TAB,
+        ascii::cursor::process_cursor, line::ColorState, process_colors,
     },
 };
 
@@ -33,6 +33,7 @@ impl ScreenBuffer {
                         // Don't want an else branch because don't want line wrap
                         if total_cells < usize::from(self.rect.width) {
                             curr_span.push(Cell::new(char::from(*c)));
+                            self.move_cursor_right(1);
                         }
                     }
                 }
@@ -63,21 +64,51 @@ impl ScreenBuffer {
                     }
                 }
                 ParserEvent::EscapeSequence(seq) => {
-                    // Verify it is a color sequence 'ESC[_m'
-                    if is_graphics_seq(seq) {
-                        // Start a new span for change in graphics
-                        if !curr_span.is_empty() {
-                            curr_span.shrink();
-                            curr_line.push(curr_span);
-                            curr_span =
-                                Span::reserve_new(span_cap(&curr_line, &self.rect), None, None);
+                    let Some(seq_type) = classify_escape_seq(seq) else {
+                        todo!();
+                    };
+                    match seq_type {
+                        EscSequenceType::Cursor(kind) => {
+                            process_cursor(seq, kind, self);
                         }
-                        process_colors(seq, &mut color_state, &mut attrs);
-                        curr_span.set_attrs(attrs);
-                        curr_span.set_colors(&color_state);
+                        EscSequenceType::Erase(_kind) => todo!(),
+                        EscSequenceType::Graphics => {
+                            if !curr_span.is_empty() {
+                                curr_span.shrink();
+                                curr_line.push(curr_span);
+                                curr_span =
+                                    Span::reserve_new(span_cap(&curr_line, &self.rect), None, None);
+                            }
+                            process_colors(seq, &mut color_state, &mut attrs);
+                            curr_span.set_attrs(attrs);
+                            curr_span.set_colors(&color_state);
+                        }
+                        EscSequenceType::Screen(_kind) => todo!(),
                     }
                 }
             }
         }
+    }
+}
+
+enum EscSequenceType {
+    Cursor(u8),
+    Erase(u8),
+    Graphics,
+    Screen(u8),
+}
+
+fn classify_escape_seq(seq: &[u8]) -> Option<EscSequenceType> {
+    if seq.len() < 3 || seq[0] != ESC || seq[1] != BK {
+        return None;
+    }
+
+    let last = *seq.last().expect("Verified len != 0");
+    match last {
+        b'm' => Some(EscSequenceType::Graphics),
+        b'A'..=b'G' | b'H' | b'f' | b'n' | b's' | b'u' => Some(EscSequenceType::Cursor(last)),
+        b'J' | b'K' => Some(EscSequenceType::Erase(last)),
+        b'h' | b'l' => Some(EscSequenceType::Screen(last)),
+        _ => None,
     }
 }

@@ -1,13 +1,6 @@
 use crossterm::style::{Attribute, Attributes, Color};
 
-use crate::ui::{BK, ColorState, ESC, SEP};
-
-pub fn is_graphics_seq(seq: &[u8]) -> bool {
-    seq.len() >= 3
-        && seq[0] == ESC
-        && seq[1] == BK
-        && *seq.last().expect("Verified len != 0") == b'm'
-}
+use crate::ui::{ColorState, SEP};
 
 pub fn process_colors(seq: &[u8], color_state: &mut ColorState, attrs: &mut Attributes) {
     // Get the part between 'ESC[' and 'm'

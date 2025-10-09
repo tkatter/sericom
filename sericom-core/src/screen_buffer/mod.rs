@@ -36,7 +36,7 @@ pub const MAX_SCROLLBACK: usize = 10000;
 #[derive(Debug)]
 pub struct ScreenBuffer {
     /// Scrollback buffer (all lines received from the serial connection).
-    /// Limited by memory.
+    /// Limited by [`MAX_SCROLLBACK`].
     pub(crate) lines: VecDeque<Line>,
     /// Current view into the buffer.
     /// Denotes which line is at the top of the screen.
@@ -47,6 +47,8 @@ pub struct ScreenBuffer {
     pub(crate) cursor: crate::ui::Position,
     /// Start of text selection. Used for highlighting and copying to clipboard.
     selection_start: Option<(u16, usize)>,
+    /// Saved cursor position from ascii escape sequence
+    saved_cursor: Option<crate::ui::Position>,
     /// End of text selection. Used for highlighting and copying to clipboard.
     selection_end: Option<(u16, usize)>,
     /// Configuration for the maximum amount of lines to keep in memory.
@@ -63,6 +65,7 @@ impl ScreenBuffer {
             view_start: 0,
             rect,
             cursor: crate::ui::Position::ORIGIN,
+            saved_cursor: None,
             selection_start: None,
             selection_end: None,
             max_scrollback: MAX_SCROLLBACK,
@@ -159,24 +162,42 @@ impl ScreenBuffer {
     }
 }
 
-impl crate::ui::Cursor for ScreenBuffer {
+impl ScreenBuffer {
     /// Sets the cursor position.
-    fn set_cursor_pos<P: Into<crate::ui::Position>>(&mut self, position: P) {
+    pub fn set_cursor_pos<P: Into<crate::ui::Position>>(&mut self, position: P) {
         self.cursor = position.into();
     }
 
+    pub const fn save_cursor_pos(&mut self) {
+        self.saved_cursor = Some(self.cursor);
+    }
+
+    pub const fn restore_cursor_pos(&mut self) {
+        if let Some(saved_cursor) = self.saved_cursor {
+            self.cursor = saved_cursor;
+            self.saved_cursor = None;
+        }
+    }
+
     /// Moves the cursor left by `cells`.
-    fn move_cursor_left(&mut self, cells: u16) {
+    pub const fn move_cursor_left(&mut self, cells: u16) {
         self.cursor.x = self.cursor.x.saturating_sub(cells);
     }
 
+    /// Moves the cursor right by `cells`.
+    pub const fn move_cursor_right(&mut self, cells: u16) {
+        if self.cursor.x < self.rect.width {
+            self.cursor.x = self.cursor.x.saturating_add(cells);
+        }
+    }
+
     /// Moves the cursor up by `lines`.
-    fn move_cursor_up(&mut self, lines: u16) {
+    pub const fn move_cursor_up(&mut self, lines: u16) {
         self.cursor.y = self.cursor.y.saturating_sub(lines);
     }
 
     /// Moves the cursor down by `lines`.
-    fn move_cursor_down(&mut self, lines: u16) {
+    pub fn move_cursor_down(&mut self, lines: u16) {
         self.cursor.y = self.cursor.y.saturating_add(lines);
         while usize::from(self.cursor.y) > self.lines.len() {
             self.lines
@@ -184,13 +205,8 @@ impl crate::ui::Cursor for ScreenBuffer {
         }
     }
 
-    /// Moves the cursor right by `cells`.
-    fn move_cursor_right(&mut self, cells: u16) {
-        self.cursor.x = self.cursor.x.saturating_add(cells);
-    }
-
     /// Sets the column of the cursor
-    fn set_cursor_col(&mut self, col: u16) {
+    pub const fn set_cursor_col(&mut self, col: u16) {
         self.cursor.x = col;
     }
 }

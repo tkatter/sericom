@@ -1,4 +1,5 @@
 mod colors;
+mod cursor;
 mod parser;
 pub use colors::*;
 pub mod process;

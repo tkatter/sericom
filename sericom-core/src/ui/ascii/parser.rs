@@ -1,19 +1,21 @@
+use crate::ui::ESC;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum ParserEvent {
+pub enum ParserEvent {
     Text(Vec<u8>),
     Control(u8),
     EscapeSequence(Vec<u8>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum ParseState {
+pub enum ParseState {
     Normal,
     Esc,
     Csi,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ByteParser {
+pub struct ByteParser {
     state: ParseState,
     buffer: Vec<u8>,
 }
@@ -37,7 +39,7 @@ impl ByteParser {
             }
             match self.state {
                 ParseState::Normal => match b {
-                    0x1B => {
+                    ESC => {
                         if !self.buffer.is_empty() {
                             events.push(ParserEvent::Text(std::mem::take(&mut self.buffer)));
                         }
