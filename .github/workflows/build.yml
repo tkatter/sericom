@@ -8,7 +8,7 @@ jobs:
     runs-on: windows-latest
     name: stable / build (Windows)
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: Install stable
         uses: dtolnay/rust-toolchain@stable
       - name: Build for Windows
@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     name: stable / build (Ubuntu)
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: Install stable
         uses: dtolnay/rust-toolchain@stable
       - name: Build for Ubuntu
