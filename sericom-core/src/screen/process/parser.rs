@@ -1,4 +1,4 @@
-use crate::ui::ESC;
+use super::ESC;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ParserEvent {

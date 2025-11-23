@@ -2,10 +2,7 @@ use std::ops::{Index, IndexMut};
 
 use crossterm::style::{Attribute, Attributes, Color, Colors};
 
-use crate::{
-    configs::get_config,
-    ui::{Cell, ColorState},
-};
+use crate::{configs::get_config, screen::process::ColorState, ui::Cell};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Span {
@@ -95,6 +92,13 @@ impl Span {
     }
     pub fn iter_mut(&mut self) -> std::slice::IterMut<'_, Cell> {
         self.cells.iter_mut()
+    }
+    /// Returns the number of [`Cell`]s in a [`Span`] that are not [`Cell::EMPTY`]
+    pub fn num_filled_cells(&self) -> usize {
+        self.cells
+            .iter()
+            .filter(|&cell| *cell != Cell::EMPTY)
+            .count()
     }
 }
 

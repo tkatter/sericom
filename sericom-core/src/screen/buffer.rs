@@ -1,29 +1,4 @@
-//! This module contains the code needed for the implementation of a
-//! stateful buffer that holds a history of the lines/data received
-//! from the serial connection and the rendering/updating of the buffer
-//! to the terminal screen (stdout).
-//!
-//! Simply writing the data received from the serial connection directly
-//! to stdout creates one main issue: there is no history of previous lines
-//! that were received from the serial connection. Without a screen buffer,
-//! lines would simply be wiped from existence as they exit the terminal's screen.
-//!
-//! As a result, there would be no way to implement features like scrolling,
-//! highlighting text (for UI purposes), and getting characters at specific
-//! locations within the screen for things like copying to a clipboard.
-//!
-//! The screen buffer solves these issues by storing each line received from the
-//! connection in a [`VecDeque`]. It is important to note that
-//! currently, the **capacity of the [`VecDeque`] is hardcoded with a value of 10,000
-//! lines with [`MAX_SCROLLBACK`]**.
-
-mod cursor;
-mod escape;
-mod render;
-mod ui_command;
-pub use ui_command::*;
-
-use crate::ui::{Cursor, Line, Rect};
+use crate::ui::{self, Cursor, Line, Rect, TermPos};
 use std::collections::VecDeque;
 
 /// The maximum number of lines stored in memory in [`ScreenBuffer`].
@@ -42,13 +17,13 @@ pub struct ScreenBuffer {
     /// Denotes which line is at the top of the screen.
     pub(crate) view_start: usize,
     /// The terminal's dimensions
-    pub(crate) rect: Rect,
+    pub(crate) rect: Rect<TermPos>,
     /// Position of the cursor within the `ScreenBuffer`.
-    pub(crate) cursor: crate::ui::Position,
+    pub(crate) cursor: ui::Position<TermPos>,
     /// Start of text selection. Used for highlighting and copying to clipboard.
     selection_start: Option<(u16, usize)>,
     /// Saved cursor position from ascii escape sequence
-    saved_cursor: Option<crate::ui::Position>,
+    pub(crate) saved_cursor: Option<ui::Position<TermPos>>,
     /// End of text selection. Used for highlighting and copying to clipboard.
     selection_end: Option<(u16, usize)>,
     /// Configuration for the maximum amount of lines to keep in memory.
@@ -59,24 +34,44 @@ impl ScreenBuffer {
     /// Constructs a new `ScreenBuffer`.
     ///
     /// Takes the `width` and `height` of the terminal.
-    pub fn new(rect: Rect) -> Self {
+    pub fn new(rect: Rect<TermPos>) -> Self {
         let mut buffer = Self {
             lines: VecDeque::new(),
             view_start: 0,
             rect,
-            cursor: crate::ui::Position::ORIGIN,
+            cursor: ui::Position::ORIGIN,
             saved_cursor: None,
             selection_start: None,
             selection_end: None,
             max_scrollback: MAX_SCROLLBACK,
         };
         // Start with an empty line
-        buffer.lines.push_back(Line::new_empty(rect.width.into()));
+        buffer.lines.push_back(Line::reserve_new(rect.width.into()));
         buffer
     }
 
-    fn width(&self) -> u16 {
+    const fn width(&self) -> u16 {
         self.rect.width
+    }
+
+    pub(crate) fn cursor_is_at_end(&self) -> bool {
+        if self.lines.is_empty() {
+            return self.cursor.x == 0 && self.cursor.y == 0;
+        }
+
+        let bottom_window_line = self.view_start + usize::from(self.rect.height);
+        let final_line = self.lines.len();
+        let line_relative_pos = final_line - self.view_start;
+
+        if final_line > bottom_window_line {
+            false
+        } else {
+            let last_cell_pos = self
+                .lines
+                .get(final_line - 1)
+                .map_or_else(|| 0, |line| line.last_cell_idx());
+            self.cursor.x as usize == last_cell_pos && self.cursor.y as usize == line_relative_pos
+        }
     }
 
     pub(crate) fn line_from_cursor(&mut self) -> usize {
@@ -137,7 +132,8 @@ impl ScreenBuffer {
     }
 
     fn new_line(&mut self) {
-        self.set_cursor_pos((0, self.cursor.y + 1));
+        // TODO: F*X THIS
+        // self.set_cursor_pos((0, self.cursor.y + 1));
 
         if usize::from(self.cursor.y) >= self.lines.len() {
             self.lines
@@ -160,13 +156,6 @@ impl ScreenBuffer {
     pub(crate) fn push_line(&mut self, curr_line: Line) {
         self.lines.push_back(curr_line);
     }
-}
-
-impl ScreenBuffer {
-    /// Sets the cursor position.
-    pub fn set_cursor_pos<P: Into<crate::ui::Position>>(&mut self, position: P) {
-        self.cursor = position.into();
-    }
 
     pub const fn save_cursor_pos(&mut self) {
         self.saved_cursor = Some(self.cursor);
@@ -177,36 +166,5 @@ impl ScreenBuffer {
             self.cursor = saved_cursor;
             self.saved_cursor = None;
         }
-    }
-
-    /// Moves the cursor left by `cells`.
-    pub const fn move_cursor_left(&mut self, cells: u16) {
-        self.cursor.x = self.cursor.x.saturating_sub(cells);
-    }
-
-    /// Moves the cursor right by `cells`.
-    pub const fn move_cursor_right(&mut self, cells: u16) {
-        if self.cursor.x < self.rect.width {
-            self.cursor.x = self.cursor.x.saturating_add(cells);
-        }
-    }
-
-    /// Moves the cursor up by `lines`.
-    pub const fn move_cursor_up(&mut self, lines: u16) {
-        self.cursor.y = self.cursor.y.saturating_sub(lines);
-    }
-
-    /// Moves the cursor down by `lines`.
-    pub fn move_cursor_down(&mut self, lines: u16) {
-        self.cursor.y = self.cursor.y.saturating_add(lines);
-        while usize::from(self.cursor.y) > self.lines.len() {
-            self.lines
-                .push_back(Line::new_default(usize::from(self.width())));
-        }
-    }
-
-    /// Sets the column of the cursor
-    pub const fn set_cursor_col(&mut self, col: u16) {
-        self.cursor.x = col;
     }
 }

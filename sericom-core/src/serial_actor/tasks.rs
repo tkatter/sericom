@@ -1,7 +1,7 @@
 use crate::{
-    screen_buffer::*,
+    screen::{ByteParser, Position, Rect, ScreenBuffer, UIAction, UICommand},
     serial_actor::{SerialEvent, SerialMessage},
-    ui::{ByteParser, Rect, Terminal},
+    ui::Terminal,
 };
 use crossterm::{
     event::{self, Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind},
@@ -35,7 +35,7 @@ pub async fn run_stdout_output(
     let mut screen_buffer = ScreenBuffer::new(Rect {
         width,
         height,
-        origin: crate::ui::Position::ORIGIN,
+        origin: Position::ORIGIN,
     });
     let mut data_buffer = Vec::with_capacity(2048);
     let mut render_timer: Option<tokio::time::Interval> = None;

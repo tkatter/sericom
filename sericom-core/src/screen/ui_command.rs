@@ -1,6 +1,7 @@
-use crate::ui::Position;
+use crate::ui::{Position, TermPos};
 
-use super::{Cursor, Line, ScreenBuffer};
+use super::{Line, ScreenBuffer};
+use crate::ui::Cursor;
 
 /// `UICommand` is used for communication between stdin and the [`ScreenBuffer`].
 #[non_exhaustive]
@@ -15,22 +16,22 @@ pub enum UICommand {
     /// Scrolls to the beginning of the scrollback buffer (oldest line)
     ScrollTop,
     /// Starts text-selection at [`Position`]
-    StartSelection(Position),
+    StartSelection(Position<TermPos>),
     /// Updates text-selection to [`Position`]
-    UpdateSelection(Position),
+    UpdateSelection(Position<TermPos>),
     /// Copies the underlying selected text to the user's clipboard
     CopySelection,
     /// Completely clears the lines in the scrollback buffer
     ClearBuffer,
 }
 
-pub(crate) trait UIAction {
+pub trait UIAction {
     fn scroll_up(&mut self, lines: usize);
     fn scroll_down(&mut self, lines: usize);
     fn scroll_to_bottom(&mut self);
     fn scroll_to_top(&mut self);
-    fn start_selection(&mut self, pos: Position);
-    fn update_selection(&mut self, pos: Position);
+    fn start_selection(&mut self, pos: Position<TermPos>);
+    fn update_selection(&mut self, pos: Position<TermPos>);
     fn clear_selection(&mut self);
     fn copy_to_clipboard(&mut self) -> std::io::Result<()>;
     fn clear_buffer(&mut self);
@@ -73,7 +74,7 @@ impl UIAction for ScreenBuffer {
     /// Sets the position within the screen for the start of a selection.
     /// Where `screen_x` is the x-position of the start of the selection,
     /// and `screen_y` is the y-position (line) of the start of the selection.
-    fn start_selection(&mut self, pos: Position) {
+    fn start_selection(&mut self, pos: Position<TermPos>) {
         let absolute_line = self.view_start + usize::from(pos.y);
         self.clear_selection();
         self.selection_start = Some((pos.x, absolute_line));
@@ -82,7 +83,7 @@ impl UIAction for ScreenBuffer {
 
     /// Update's a selection to include the position passed to it.
     /// Where `screen_x` is the x-position and `screen_y` is the y-position (line).
-    fn update_selection(&mut self, pos: Position) {
+    fn update_selection(&mut self, pos: Position<TermPos>) {
         let absolute_line = self.view_start + usize::from(pos.y);
         self.selection_end = Some((pos.x, absolute_line));
         self.update_selection_highlighting();

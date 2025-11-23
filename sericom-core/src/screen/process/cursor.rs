@@ -1,6 +1,7 @@
 use crate::{
-    screen_buffer::ScreenBuffer,
-    ui::{Position, SEP},
+    screen::ScreenBuffer,
+    screen::process::SEP,
+    ui::{Cursor, Position},
 };
 
 fn ascii_digits_to_integer(body: &[u8]) -> Option<u16> {

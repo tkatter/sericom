@@ -137,6 +137,7 @@ pub fn open_connection(baud: u32, port: &str) -> miette::Result<SerialPort> {
 }
 
 /// Gets the settings for the `port` with the specified `baud`.
+#[allow(clippy::many_single_char_names)]
 pub fn get_settings(baud: u32, port: &str) -> miette::Result<()> {
     // https://www.contec.com/support/basic-knowledge/daq-control/serial-communicatin/
     let mut stdout = io::stdout();
@@ -285,15 +286,15 @@ pub fn list_serial_ports() -> miette::Result<()> {
         "Could not list available ports."
     )?;
     for path in ports {
-        if let Some(path) = path.to_str() {
-            let line = [path, "\r\n"].concat();
-            stdout
-                .write(line.as_bytes())
-                .into_diagnostic()
-                .wrap_err("Failed to write to stdout.".red())?
-        } else {
+        let Some(path) = path.to_str() else {
             continue;
         };
+
+        let line = [path, "\r\n"].concat();
+        stdout
+            .write(line.as_bytes())
+            .into_diagnostic()
+            .wrap_err("Failed to write to stdout.".red())?;
     }
     Ok(())
 }

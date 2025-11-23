@@ -1,13 +1,13 @@
 use crate::ui::{Buffer, Frame};
 
-use super::Rect;
+use crate::screen::{Rect, TermPos};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Terminal {
     buffers: [Buffer; 2],
     current_buffer: usize,
     cursor_hidden: bool,
-    view_area: Rect,
+    view_area: Rect<TermPos>,
 }
 
 impl Terminal {
@@ -34,7 +34,7 @@ impl Terminal {
         1 - self.current_buffer
     }
 
-    pub(crate) const fn area(&self) -> Rect {
+    pub(crate) const fn area(&self) -> Rect<TermPos> {
         self.view_area
     }
 }

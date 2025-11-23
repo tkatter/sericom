@@ -1,8 +1,10 @@
 mod colors;
 mod cursor;
 mod parser;
-pub use colors::*;
-pub mod process;
+
+pub use colors::{ColorState, process_colors};
+pub use cursor::process_cursor;
+pub use parser::{ByteParser, ParseState, ParserEvent};
 
 #[cfg(test)]
 pub(crate) mod test;

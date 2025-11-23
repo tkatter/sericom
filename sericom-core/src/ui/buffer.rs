@@ -1,12 +1,9 @@
 #![allow(unused)]
-use super::Line;
-use super::Rect;
-use crate::ui::Cell;
-use crate::ui::Span;
+use crate::screen::{Cell, Line, Rect, Span, TermPos};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Buffer {
-    area: Rect,
+    area: Rect<TermPos>,
     content: Vec<Line>,
 }
 impl Buffer {
@@ -16,12 +13,12 @@ impl Buffer {
         }
     }
     #[must_use]
-    pub fn empty(area: Rect) -> Self {
+    pub fn empty(area: Rect<TermPos>) -> Self {
         Self::filled(area, Span::default())
     }
 
     #[must_use]
-    pub fn filled(area: Rect, span: Span) -> Self {
+    pub fn filled(area: Rect<TermPos>, span: Span) -> Self {
         let line = Line::new(area.width.into(), span);
         let size = area.height as usize;
         let content = vec![line; size];

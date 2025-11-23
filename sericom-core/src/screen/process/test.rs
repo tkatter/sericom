@@ -5,7 +5,7 @@ use crossterm::style::{Attribute, Attributes, Color};
 use super::*;
 use crate::{
     configs::{ConfigOverride, initialize_config},
-    screen_buffer::*,
+    screen::*,
     ui::{Line, Position, Rect},
 };
 const CONFIG_OVERRIDE: ConfigOverride = ConfigOverride {
@@ -171,6 +171,7 @@ fn test_single_plain_line() {
     let bg = Color::from(&config.appearance.bg);
 
     // Expect one line with one span, fg=default, text padded
+    assert_eq!(sb.cursor, Position { x: 13, y: 1 });
     assert_line_eq!(sb, 1, "Hello, world!");
     assert_span_eq!(sb, 1, 0, fg => fg, bg => bg);
 }
@@ -178,13 +179,14 @@ fn test_single_plain_line() {
 #[test]
 fn test_two_lines_plain_text() {
     setup!(sb, parser, config);
-    let parsed = parser.feed(b"Hello\nWorld\n");
+    let parsed = parser.feed(b"Hello\r\nWorld\r\n");
     sb.process_events(parsed);
     let fg = Color::from(&config.appearance.fg);
     let bg = Color::from(&config.appearance.bg);
 
     // Expected: two lines, one with "Hello" padded, one with "World" padded
     assert_eq!(sb.lines.len(), 3); // initial empty line + 2
+    assert_eq!(sb.cursor, Position { x: 0, y: 2 });
     assert_line_eq!(sb, 1, "Hello");
     assert_line_eq!(sb, 2, "World");
     assert_span_eq!(sb, 1, 0, fg => fg, bg => bg);
@@ -199,6 +201,7 @@ fn test_three_color_spans() {
     let bg = Color::from(&config.appearance.bg);
 
     assert_eq!(sb.lines.len(), 2); // initial empty + 1 line
+    assert_eq!(sb.cursor, Position { x: 12, y: 1 });
     let line = sb.lines.get(1).unwrap();
     assert_eq!(line.len(), 3); // three spans
     assert_span_eq!(sb, 1, 0, expected => "Red", fg => Color::DarkRed, bg => bg);
@@ -216,6 +219,7 @@ fn test_no_newline_incomplete_line() {
 
     // Should still only contain the initial empty line
     assert_eq!(sb.lines.len(), 1);
+    assert_eq!(sb.cursor, Position { x: 5, y: 0 });
     assert_span_eq!(sb, 0, 0, expected => "", fg => fg, bg => bg);
 }
 
@@ -230,6 +234,7 @@ fn test_mixed_plain_and_color() {
     // Expect two spans: "Normal " default, "Red" DarkRed
     let line = sb.lines.get(1).unwrap();
     assert_eq!(line.len(), 2);
+    assert_eq!(sb.cursor, Position { x: 10, y: 1 });
     assert_span_eq!(sb, 1, 0, expected => "Normal ", fg => fg, bg => bg);
     assert_span_eq!(sb, 1, 1, expected => "Red", fg => Color::DarkRed, bg => bg);
 }
