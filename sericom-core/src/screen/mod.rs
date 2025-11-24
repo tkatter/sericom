@@ -16,6 +16,7 @@
 //! connection in a [`VecDeque`]. It is important to note that
 //! currently, the **capacity of the [`VecDeque`] is hardcoded with a value of 10,000
 //! lines with [`MAX_SCROLLBACK`]**.
+#![deny(dead_code)]
 #![allow(unused)]
 
 mod buffer;
@@ -30,8 +31,10 @@ mod ui_command;
 pub use buffer::ScreenBuffer;
 pub use components::{Cell, Line, Span};
 pub use position::{BuffPos, Cursor, PosType, PosY, Position, Scope, TermPos, TranslatePos};
-pub use process::{
-    ByteParser, ColorState, ParseState, ParserEvent, process_colors, process_cursor,
-};
+pub use process::{ByteParser, ColorState, ParseState, ParserEvent};
 pub use rect::Rect;
 pub use ui_command::{UIAction, UICommand};
+
+pub(in crate::screen) use process::{
+    process_colors, process_cursor, process_erase, process_screen,
+};

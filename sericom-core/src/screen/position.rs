@@ -50,24 +50,24 @@ impl Position<TermPos> {
 }
 
 impl<S: Scope + PosType> Position<S> {
-    pub fn set_y(&mut self, y: PosY<S>) {
+    pub const fn set_y(&mut self, y: PosY<S>) {
         self.y = y;
     }
-    pub fn set_x(&mut self, x: u16) {
+    pub const fn set_x(&mut self, x: u16) {
         self.x = x;
     }
-    pub fn set_pos_from<P: Into<Position<S>>>(&mut self, pos: P) {
+    pub fn set_pos_from<P: Into<Self>>(&mut self, pos: P) {
         let p = pos.into();
         self.x = p.x;
         self.y = p.y;
     }
-    pub fn set(&mut self, pos: Self) {
+    pub const fn set(&mut self, pos: Self) {
         *self = pos;
     }
-    pub fn x(&self) -> u16 {
+    pub const fn x(&self) -> u16 {
         self.x
     }
-    pub fn y(&self) -> PosY<S> {
+    pub const fn y(&self) -> PosY<S> {
         self.y
     }
 }
@@ -109,7 +109,7 @@ macro_rules! impl_from {
             fn from((x, y): $from) -> Self {
                 Self {
                     x,
-                    y: y as $as,
+                    y: <$as>::try_from(y).expect("usize is within the height of terminal"),
                     _phantom: PhantomData,
                 }
             }
@@ -119,7 +119,7 @@ macro_rules! impl_from {
         impl From<$from> for $for {
             fn from((x, y): $from) -> Self {
                 Self {
-                    x: x as $as,
+                    x: <$as>::try_from(y).expect("usize is within the width of terminal"),
                     y,
                     _phantom: PhantomData,
                 }
@@ -193,6 +193,7 @@ impl Cursor for ScreenBuffer {
             new_pos.y = bounds.bottom();
         }
 
+        u16::try_from(32_usize);
         self.cursor.set_pos_from(new_pos);
     }
 
@@ -249,6 +250,11 @@ impl TranslatePos for ScreenBuffer {
         let buff_win = self.buff_rect();
 
         let visible_y = pos.y.clamp(buff_win.top(), buff_win.bottom());
+
+        // Casting is fine because the viewport (buff_win) is the size of
+        // a user's terminal and visible_y - buff_win.top() simply returns
+        // a number somewhere within the height of the terminal
+        #[allow(clippy::cast_possible_truncation)]
         let term_y = (visible_y - buff_win.top()) as u16;
 
         let term_x = pos.x.clamp(buff_win.left(), buff_win.right());
@@ -257,8 +263,10 @@ impl TranslatePos for ScreenBuffer {
     }
 
     fn to_buff(&self, pos: Position<TermPos>) -> Position<BuffPos> {
-        let buff_y = (self.view_start as u32 + pos.y as u32).into();
-        let buff_x = pos.x.clamp(0, self.rect.width);
+        let buff_y = (u32::try_from(self.view_start)
+            .expect("ScreenBuffer is less than usize::MAX")
+            + u32::from(pos.y));
+        let buff_x = pos.x.clamp(0, self.width());
 
         Position::<BuffPos>::from((buff_x, buff_y))
     }
@@ -267,9 +275,12 @@ impl TranslatePos for ScreenBuffer {
 impl ScreenBuffer {
     pub(crate) fn buff_rect(&self) -> Rect<BuffPos> {
         Rect::from((
-            (0_u16, self.view_start as u32),
-            self.rect.width,
-            self.rect.height as u32,
+            (
+                0_u16,
+                u32::try_from(self.view_start).expect("ScreenBuffer is less than usize::MAX"),
+            ),
+            self.width(),
+            u32::from(self.rect.height),
         ))
     }
 }

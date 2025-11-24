@@ -1,5 +1,5 @@
 [workspace]
-members = ["sericom", "sericom-core"]
+members = ["sericom", "sericom-core", "test-sericom"]
 resolver = "3"
 
 [workspace.package]

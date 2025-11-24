@@ -1,8 +1,4 @@
-use std::{
-    ffi::CStr,
-    fs::File,
-    os::fd::FromRawFd,
-};
+use std::{ffi::CStr, fs::File, os::fd::FromRawFd};
 
 #[allow(non_camel_case_types)]
 type c_int = i32;

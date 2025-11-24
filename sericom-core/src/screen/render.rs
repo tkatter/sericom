@@ -3,11 +3,9 @@ use crossterm::style::{Attributes, Color, Colors};
 use std::io::BufWriter;
 use tracing::instrument;
 
+use super::{ByteParser, Cell, Line, ParserEvent, Span, process::NL};
 use super::{Cursor, ScreenBuffer, UIAction};
-use crate::{
-    configs::get_config,
-    ui::{ByteParser, Cell, Line, NL, ParserEvent, Span},
-};
+use crate::configs::get_config;
 
 const MIN_RENDER_INTERVAL: tokio::time::Duration = tokio::time::Duration::from_millis(33);
 

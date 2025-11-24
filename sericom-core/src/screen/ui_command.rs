@@ -1,7 +1,5 @@
-use crate::ui::{Position, TermPos};
-
+use super::position::{Cursor, Position, TermPos};
 use super::{Line, ScreenBuffer};
-use crate::ui::Cursor;
 
 /// `UICommand` is used for communication between stdin and the [`ScreenBuffer`].
 #[non_exhaustive]
@@ -77,7 +75,7 @@ impl UIAction for ScreenBuffer {
     fn start_selection(&mut self, pos: Position<TermPos>) {
         let absolute_line = self.view_start + usize::from(pos.y);
         self.clear_selection();
-        self.selection_start = Some((pos.x, absolute_line));
+        // self.selection_start = Some((pos.x, absolute_line));
         // self.needs_render = true;
     }
 
@@ -85,7 +83,7 @@ impl UIAction for ScreenBuffer {
     /// Where `screen_x` is the x-position and `screen_y` is the y-position (line).
     fn update_selection(&mut self, pos: Position<TermPos>) {
         let absolute_line = self.view_start + usize::from(pos.y);
-        self.selection_end = Some((pos.x, absolute_line));
+        // self.selection_end = Some((pos.x, absolute_line));
         self.update_selection_highlighting();
         // self.needs_render = true;
     }
@@ -95,8 +93,8 @@ impl UIAction for ScreenBuffer {
         for line in &mut self.lines {
             line.clear_selection();
         }
-        self.selection_start = None;
-        self.selection_end = None;
+        // self.selection_start = None;
+        // self.selection_end = None;
         // self.needs_render = true;
     }
 
@@ -122,16 +120,14 @@ impl UIAction for ScreenBuffer {
         self.lines.clear();
         self.view_start = 0;
         self.set_cursor_pos((0_u16, 0_usize));
-        self.lines
-            .push_back(Line::new_default(self.rect.width.into()));
+        self.lines.push_back(Line::new_default(self.width().into()));
         // self.needs_render = true;
     }
 
     /// Clears the current *visible* screen while keeping the buffer's history
     fn clear_screen(&mut self) {
         for _ in 0..self.rect.height {
-            self.lines
-                .push_back(Line::new_default(self.rect.width.into()));
+            self.lines.push_back(Line::new_default(self.width().into()));
         }
         self.view_start = self.lines.len().saturating_sub(self.rect.height as usize);
         // self.needs_render = true;
@@ -140,77 +136,78 @@ impl UIAction for ScreenBuffer {
 
 impl ScreenBuffer {
     fn update_selection_highlighting(&mut self) {
-        for line in &mut self.lines {
-            line.clear_selection();
-        }
-
-        if let (Some((start_x, start_line)), Some((end_x, end_line))) =
-            (self.selection_start, self.selection_end)
-        {
-            let (start_line, start_x, end_line, end_x) =
-                // If start < end or if start = end, start x has to be less than end x
-                if start_line < end_line || (start_line == end_line && start_x <= end_x) {
-                    (start_line, start_x, end_line, end_x)
-                } else {
-                    (end_line, end_x, start_line, start_x)
-                };
-
-            for line_idx in start_line..=end_line {
-                if let Some(line) = self.lines.get_mut(line_idx) {
-                    let line_start_x = if line_idx == start_line { start_x } else { 0 };
-                    let line_end_x = if line_idx == end_line {
-                        end_x
-                    } else {
-                        self.rect.width - 1
-                    };
-
-                    // for x in line_start_x..=line_end_x.min(self.width - 1) {
-                    //     if let Some(cell) = line.get_mut_cell(x as usize) {
-                    //         cell.is_selected = true;
-                    //     }
-                    // }
-                }
-            }
-        }
+        // for line in &mut self.lines {
+        //     line.clear_selection();
+        // }
+        //
+        // if let (Some((start_x, start_line)), Some((end_x, end_line))) =
+        //     // (self.selection_start, self.selection_end)
+        // {
+        //     let (start_line, start_x, end_line, end_x) =
+        //         // If start < end or if start = end, start x has to be less than end x
+        //         if start_line < end_line || (start_line == end_line && start_x <= end_x) {
+        //             (start_line, start_x, end_line, end_x)
+        //         } else {
+        //             (end_line, end_x, start_line, start_x)
+        //         };
+        //
+        //     for line_idx in start_line..=end_line {
+        //         if let Some(line) = self.lines.get_mut(line_idx) {
+        //             let line_start_x = if line_idx == start_line { start_x } else { 0 };
+        //             let line_end_x = if line_idx == end_line {
+        //                 end_x
+        //             } else {
+        //                 self.rect.width - 1
+        //             };
+        //
+        //             // for x in line_start_x..=line_end_x.min(self.width - 1) {
+        //             //     if let Some(cell) = line.get_mut_cell(x as usize) {
+        //             //         cell.is_selected = true;
+        //             //     }
+        //             // }
+        //         }
+        //     }
+        // }
     }
 
     fn get_selected_text(&self) -> String {
-        if let (Some((start_x, start_line)), Some((end_x, end_line))) =
-            (self.selection_start, self.selection_end)
-        {
-            let (start_line, start_x, end_line, end_x) =
-                if start_line < end_line || (start_line == end_line && start_x <= end_x) {
-                    (start_line, start_x, end_line, end_x)
-                } else {
-                    (end_line, end_x, start_line, start_x)
-                };
-
-            let mut result = String::new();
-
-            for line_idx in start_line..=end_line {
-                if let Some(line) = self.lines.get(line_idx) {
-                    let line_start_x = if line_idx == start_line { start_x } else { 0 };
-                    let line_end_x = if line_idx == end_line {
-                        end_x
-                    } else {
-                        self.rect.width - 1
-                    };
-
-                    // for x in line_start_x..=line_end_x.min(self.width - 1) {
-                    //     if let Some(cell) = line.get_cell(x as usize) {
-                    //         result.push(cell.character);
-                    //     }
-                    // }
-
-                    if line_idx < end_line {
-                        result.push('\n');
-                    }
-                }
-            }
-
-            result.trim_end().to_string()
-        } else {
-            String::new()
-        }
+        todo!()
+        // if let (Some((start_x, start_line)), Some((end_x, end_line))) =
+        //     (self.selection_start, self.selection_end)
+        // {
+        //     let (start_line, start_x, end_line, end_x) =
+        //         if start_line < end_line || (start_line == end_line && start_x <= end_x) {
+        //             (start_line, start_x, end_line, end_x)
+        //         } else {
+        //             (end_line, end_x, start_line, start_x)
+        //         };
+        //
+        //     let mut result = String::new();
+        //
+        //     for line_idx in start_line..=end_line {
+        //         if let Some(line) = self.lines.get(line_idx) {
+        //             let line_start_x = if line_idx == start_line { start_x } else { 0 };
+        //             let line_end_x = if line_idx == end_line {
+        //                 end_x
+        //             } else {
+        //                 self.rect.width - 1
+        //             };
+        //
+        //             // for x in line_start_x..=line_end_x.min(self.width - 1) {
+        //             //     if let Some(cell) = line.get_cell(x as usize) {
+        //             //         result.push(cell.character);
+        //             //     }
+        //             // }
+        //
+        //             if line_idx < end_line {
+        //                 result.push('\n');
+        //             }
+        //         }
+        //     }
+        //
+        //     result.trim_end().to_string()
+        // } else {
+        //     String::new()
+        // }
     }
 }

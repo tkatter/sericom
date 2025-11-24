@@ -7,7 +7,7 @@ use crate::{
     create_recursive,
     debug::run_debug_output,
     map_miette,
-    screen_buffer::UICommand,
+    screen::UICommand,
     serial_actor::{
         SerialActor, SerialEvent, SerialMessage,
         tasks::{run_file_output, run_stdin_input, run_stdout_output},
@@ -65,31 +65,29 @@ pub async fn interactive_session(
 
     if let Some(maybe_path) = file_path {
         let default_out_dir = PathBuf::from(&config.defaults.out_dir);
-        let file_path = match maybe_path {
-            Some(path) => {
-                // If given an absolute path - override the `default_out_dir`
-                if path.is_absolute() {
-                    let parent = path.parent().unwrap_or(&default_out_dir);
-                    create_recursive!(parent);
-                    path
-                } else {
-                    let joined_path = default_out_dir.join(&path);
-                    let parent_path = joined_path.parent().expect("Does not have root");
-                    create_recursive!(parent_path);
-                    joined_path
-                }
+        let file_path = if let Some(path) = maybe_path {
+            // If given an absolute path - override the `default_out_dir`
+            if path.is_absolute() {
+                let parent = path.parent().unwrap_or(&default_out_dir);
+                create_recursive!(parent);
+                path
+            } else {
+                let joined_path = default_out_dir.join(&path);
+                let parent_path = joined_path.parent().expect("Does not have root");
+                create_recursive!(parent_path);
+                joined_path
             }
-            None => {
-                let default_out_dir = PathBuf::from(&config.defaults.out_dir);
-                compat_port_path!(default_out_dir, port_name)
-            }
+        } else {
+            let default_out_dir = PathBuf::from(&config.defaults.out_dir);
+            compat_port_path!(default_out_dir, port_name)
         };
+
         let file_rx = broadcast_event_tx.subscribe();
         tasks.spawn(async move {
             run_file_output(file_rx, file_path.clone()).await;
             run_file_exit_script(config, file_path);
         });
-    };
+    }
 
     if debug {
         let debug_rx = broadcast_event_tx.subscribe();
@@ -278,7 +276,7 @@ pub fn get_settings(baud: u32, port: &str) -> miette::Result<()> {
 /// Prints a list of available serial ports to stdout.
 ///
 /// Ultimately a wrapper around [`SerialPort::available_ports()`] and may error
-/// if it is called on an unsupported platform as per [`SerialPort::available_ports()]s docs
+/// if it is called on an unsupported platform as per [`SerialPort::available_ports()`]s docs
 pub fn list_serial_ports() -> miette::Result<()> {
     let mut stdout = io::stdout();
     let ports = map_miette!(

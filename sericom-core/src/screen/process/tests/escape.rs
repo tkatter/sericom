@@ -5,8 +5,7 @@ use crossterm::style::{Attribute, Attributes, Color};
 use super::*;
 use crate::{
     configs::{ConfigOverride, initialize_config},
-    screen::*,
-    ui::{Line, Position, Rect},
+    screen::{driver::ScreenDriver, *},
 };
 const CONFIG_OVERRIDE: ConfigOverride = ConfigOverride {
     color: None,
@@ -16,18 +15,20 @@ const CONFIG_OVERRIDE: ConfigOverride = ConfigOverride {
 const TERMINAL_SIZE: (u16, u16) = (80, 24);
 
 macro_rules! setup {
-    ($sb:ident, $parser:ident) => {
+    ($sb:ident, $parser:ident, $stdout:ident) => {
         initialize_config(CONFIG_OVERRIDE).ok();
         let rect = Rect::new(Position::ORIGIN, TERMINAL_SIZE.0, TERMINAL_SIZE.1);
         let mut $sb = ScreenBuffer::new(rect);
         let mut $parser = ByteParser::new();
+        let mut $stdout = std::io::stdout();
     };
-    ($sb:ident, $parser:ident, $config:ident) => {
+    ($sb:ident, $parser:ident, $config:ident, $stdout:ident) => {
         initialize_config(CONFIG_OVERRIDE).ok();
         let rect = Rect::new(Position::ORIGIN, TERMINAL_SIZE.0, TERMINAL_SIZE.1);
         let mut $sb = ScreenBuffer::new(rect);
         let mut $parser = ByteParser::new();
         let $config = $crate::configs::get_config();
+        let mut $stdout = std::io::stdout();
     };
 }
 
@@ -54,7 +55,7 @@ macro_rules! assert_line_eq {
                 "Line {line_idx} mismatch!\n  Expected: {:?}\n  Actual:   {:?}\n\nFull buffer:\n{}",
                 expected,
                 actual,
-                $crate::ui::test::debug_dump(&sb.lines),
+                $crate::screen::process::tests::escape::debug_dump(&sb.lines),
             );
         }
     }};
@@ -96,7 +97,7 @@ macro_rules! assert_span_eq {
                     "Span {span_idx} text mismatch!\n  Expected: {:?}\n  Actual:   {:?}\n\nFull buffer:\n{}",
                     expected_text,
                     actual_text,
-                    $crate::ui::test::debug_dump(&sb.lines),
+                    $crate::screen::process::tests::escape::debug_dump(&sb.lines),
                 );
             }
         )?
@@ -110,7 +111,7 @@ macro_rules! assert_span_eq {
                 span_idx,
                 $fg_color,
                 span.colors.foreground,
-                $crate::ui::test::debug_dump(&sb.lines),
+                $crate::screen::process::tests::escape::debug_dump(&sb.lines),
             );
         )?
         $(
@@ -121,7 +122,7 @@ macro_rules! assert_span_eq {
                 span_idx,
                 $bg_color,
                 span.colors.background,
-                $crate::ui::test::debug_dump(&sb.lines),
+                $crate::screen::process::tests::escape::debug_dump(&sb.lines),
             );
         )?
         $(
@@ -132,7 +133,7 @@ macro_rules! assert_span_eq {
                 span_idx,
                 $attrs,
                 span.attrs,
-                $crate::ui::test::debug_dump(&sb.lines),
+                $crate::screen::process::tests::escape::debug_dump(&sb.lines),
             );
         )?
     }};
@@ -163,97 +164,117 @@ fn debug_dump(lines: &VecDeque<Line>) -> String {
 }
 
 #[test]
-fn test_single_plain_line() {
-    setup!(sb, parser, config);
+fn single_plain_line() {
+    setup!(sb, parser, config, stdout);
     let parsed = parser.feed(b"Hello, world!\n");
-    sb.process_events(parsed);
+    let mut driver = ScreenDriver::new(&mut sb, &mut stdout);
+    driver.process_events(parsed);
     let fg = Color::from(&config.appearance.fg);
     let bg = Color::from(&config.appearance.bg);
 
+    // Changed pos.x == 0 because handling \n like \r\n for now
+    // assert_eq!(sb.cursor, Position::<TermPos>::from((13_u16, 1_u16)));
+    assert_eq!(sb.cursor, Position::<TermPos>::from((0_u16, 1_u16)));
     // Expect one line with one span, fg=default, text padded
-    assert_eq!(sb.cursor, Position { x: 13, y: 1 });
-    assert_line_eq!(sb, 1, "Hello, world!");
-    assert_span_eq!(sb, 1, 0, fg => fg, bg => bg);
+    assert_line_eq!(sb, 0, "Hello, world!");
+    assert_span_eq!(sb, 0, 0, fg => fg, bg => bg);
 }
 
 #[test]
-fn test_two_lines_plain_text() {
-    setup!(sb, parser, config);
+fn two_lines_plain_text() {
+    setup!(sb, parser, config, stdout);
     let parsed = parser.feed(b"Hello\r\nWorld\r\n");
-    sb.process_events(parsed);
+    let mut driver = ScreenDriver::new(&mut sb, &mut stdout);
+    driver.process_events(parsed);
     let fg = Color::from(&config.appearance.fg);
     let bg = Color::from(&config.appearance.bg);
 
     // Expected: two lines, one with "Hello" padded, one with "World" padded
-    assert_eq!(sb.lines.len(), 3); // initial empty line + 2
-    assert_eq!(sb.cursor, Position { x: 0, y: 2 });
-    assert_line_eq!(sb, 1, "Hello");
-    assert_line_eq!(sb, 2, "World");
+    assert_eq!(sb.lines.len(), 3);
+    assert_eq!(sb.cursor, Position::<TermPos>::from((0_u16, 2_u16)));
+    assert_line_eq!(sb, 0, "Hello");
+    assert_line_eq!(sb, 1, "World");
+    assert_span_eq!(sb, 0, 0, fg => fg, bg => bg);
     assert_span_eq!(sb, 1, 0, fg => fg, bg => bg);
-    assert_span_eq!(sb, 2, 0, fg => fg, bg => bg);
 }
 
 #[test]
-fn test_three_color_spans() {
-    setup!(sb, parser, config);
+fn three_color_spans() {
+    setup!(sb, parser, config, stdout);
     let parsed = parser.feed(b"\x1b[31mRed\x1b[32mGreen\x1b[34mBlue\n");
-    sb.process_events(parsed);
+    let mut driver = ScreenDriver::new(&mut sb, &mut stdout);
+    driver.process_events(parsed);
     let bg = Color::from(&config.appearance.bg);
 
-    assert_eq!(sb.lines.len(), 2); // initial empty + 1 line
-    assert_eq!(sb.cursor, Position { x: 12, y: 1 });
-    let line = sb.lines.get(1).unwrap();
+    let line = sb.lines.front().unwrap();
+    eprintln!(
+        "line num_cells: {}, num_spans: {}",
+        line.num_cells(),
+        line.len()
+    );
+    assert_eq!(sb.lines.len(), 2);
+    // Changed pos.x == 0 because handling \n like \r\n for now
+    // assert_eq!(sb.cursor, Position::<TermPos>::from((12_u16, 1_u16)));
+    assert_eq!(sb.cursor, Position::<TermPos>::from((0_u16, 1_u16)));
     assert_eq!(line.len(), 3); // three spans
-    assert_span_eq!(sb, 1, 0, expected => "Red", fg => Color::DarkRed, bg => bg);
-    assert_span_eq!(sb, 1, 1, expected => "Green", fg => Color::DarkGreen, bg => bg);
-    assert_span_eq!(sb, 1, 2, expected => "Blue", fg => Color::DarkBlue, bg => bg);
+    assert_span_eq!(sb, 0, 0, expected => "Red", fg => Color::DarkRed, bg => bg);
+    assert_span_eq!(sb, 0, 1, expected => "Green", fg => Color::DarkGreen, bg => bg);
+    assert_span_eq!(sb, 0, 2, expected => "Blue", fg => Color::DarkBlue, bg => bg);
 }
 
 #[test]
-fn test_no_newline_incomplete_line() {
-    setup!(sb, parser, config);
+fn no_newline_incomplete_line() {
+    setup!(sb, parser, config, stdout);
     let parsed = parser.feed(b"Hello");
-    sb.process_events(parsed);
+    let mut driver = ScreenDriver::new(&mut sb, &mut stdout);
+    driver.process_events(parsed);
     let fg = Color::from(&config.appearance.fg);
     let bg = Color::from(&config.appearance.bg);
 
     // Should still only contain the initial empty line
     assert_eq!(sb.lines.len(), 1);
-    assert_eq!(sb.cursor, Position { x: 5, y: 0 });
-    assert_span_eq!(sb, 0, 0, expected => "", fg => fg, bg => bg);
+    assert_eq!(sb.cursor, Position::<TermPos>::from((5_u16, 0_u16)));
+    assert_span_eq!(sb, 0, 0, expected => "Hello", fg => fg, bg => bg);
 }
 
 #[test]
-fn test_mixed_plain_and_color() {
-    setup!(sb, parser, config);
+fn mixed_plain_and_color() {
+    setup!(sb, parser, config, stdout);
     let parsed = parser.feed(b"Normal \x1b[31mRed\n");
-    sb.process_events(parsed);
+    let mut driver = ScreenDriver::new(&mut sb, &mut stdout);
+    driver.process_events(parsed);
     let fg = Color::from(&config.appearance.fg);
     let bg = Color::from(&config.appearance.bg);
 
     // Expect two spans: "Normal " default, "Red" DarkRed
-    let line = sb.lines.get(1).unwrap();
+    let line = sb.lines.front().unwrap();
+    // 2 lines because of the '\n'
+    assert_eq!(sb.lines.len(), 2);
+    // 2 spans
     assert_eq!(line.len(), 2);
-    assert_eq!(sb.cursor, Position { x: 10, y: 1 });
-    assert_span_eq!(sb, 1, 0, expected => "Normal ", fg => fg, bg => bg);
-    assert_span_eq!(sb, 1, 1, expected => "Red", fg => Color::DarkRed, bg => bg);
+    // Changed pos.x == 0 because handling \n like \r\n for now
+    // assert_eq!(sb.cursor, Position::<TermPos>::from((10_u16, 1_u16)));
+    assert_eq!(sb.cursor, Position::<TermPos>::from((0_u16, 1_u16)));
+    assert_span_eq!(sb, 0, 0, expected => "Normal ", fg => fg, bg => bg);
+    assert_span_eq!(sb, 0, 1, expected => "Red", fg => Color::DarkRed, bg => bg);
 }
 
 #[test]
-fn test_bold_italic_span() {
-    setup!(sb, parser);
+fn bold_italic_span() {
+    setup!(sb, parser, stdout);
 
     let parsed = parser.feed(b"\x1b[1;3mHello\n"); // bold + italic
-    sb.process_events(parsed);
+    let mut driver = ScreenDriver::new(&mut sb, &mut stdout);
+    driver.process_events(parsed);
 
     let span_attrs = Attributes::from(Attribute::Bold) | Attributes::from(Attribute::Italic);
-    assert_span_eq!(sb, 1, 0, attrs => span_attrs);
+    assert_span_eq!(sb, 0, 0, attrs => span_attrs);
 }
 
 #[test]
 #[allow(clippy::cognitive_complexity)]
-fn test_multiline_multicolor() {
-    setup!(sb, parser, config);
+fn multiline_multicolor() {
+    setup!(sb, parser, config, stdout);
     let fg = Color::from(&config.appearance.fg);
     let bg = Color::from(&config.appearance.bg);
 
@@ -276,26 +297,27 @@ fn test_multiline_multicolor() {
     .as_bytes();
 
     let parsed = parser.feed(input);
-    sb.process_events(parsed);
+    let mut driver = ScreenDriver::new(&mut sb, &mut stdout);
+    driver.process_events(parsed);
 
     // Buffer should have initial empty + 3 lines
     assert_eq!(sb.lines.len(), 4);
 
     // Line 1
-    assert_line_eq!(sb, 1, "Red Cyan BoldUnderBlue");
-    assert_span_eq!(sb, 1, 0, expected => "Red", fg => Color::DarkRed, bg => bg);
-    assert_span_eq!(sb, 1, 1, expected => "Cyan", fg => Color::Cyan, bg => bg);
+    assert_line_eq!(sb, 0, "Red Cyan BoldUnderBlue");
+    assert_span_eq!(sb, 0, 0, expected => "Red", fg => Color::DarkRed, bg => bg);
+    assert_span_eq!(sb, 0, 1, expected => "Cyan", fg => Color::Cyan, bg => bg);
     let span_attrs = Attributes::from(Attribute::Bold) | Attributes::from(Attribute::Underlined);
-    assert_span_eq!(sb, 1, 2, expected => "BoldUnderBlue", fg => Color::DarkBlue, bg => bg, attrs => span_attrs);
+    assert_span_eq!(sb, 0, 2, expected => "BoldUnderBlue", fg => Color::DarkBlue, bg => bg, attrs => span_attrs);
 
     // Line 2
-    assert_line_eq!(sb, 2, "OrangeOnBlue ResetHere");
-    assert_span_eq!(sb, 2, 0, expected => "OrangeOnBlue", fg => Color::AnsiValue(202), bg => Color::AnsiValue(27));
-    assert_span_eq!(sb, 2, 1, expected => "ResetHere", fg => fg, bg => bg, attrs => Attributes::default());
+    assert_line_eq!(sb, 1, "OrangeOnBlue ResetHere");
+    assert_span_eq!(sb, 1, 0, expected => "OrangeOnBlue", fg => Color::AnsiValue(202), bg => Color::AnsiValue(27));
+    assert_span_eq!(sb, 1, 1, expected => "ResetHere", fg => fg, bg => bg, attrs => Attributes::default());
 
     // Line 3
-    assert_line_eq!(sb, 3, "TrueColorGreenish BgPinkItalic");
-    assert_span_eq!(sb, 3, 0, expected => "TrueColorGreenish", fg => Color::Rgb { r:128, g:200, b:64 }, bg => bg);
+    assert_line_eq!(sb, 2, "TrueColorGreenish BgPinkItalic");
+    assert_span_eq!(sb, 2, 0, expected => "TrueColorGreenish", fg => Color::Rgb { r:128, g:200, b:64 }, bg => bg);
     let italic = Attributes::from(Attribute::Italic);
-    assert_span_eq!(sb, 3, 1, expected => "BgPinkItalic", fg => Color::Rgb { r:128, g:200, b:64 }, bg => Color::Rgb { r:200, g:64, b:128 }, attrs => italic);
+    assert_span_eq!(sb, 2, 1, expected => "BgPinkItalic", fg => Color::Rgb { r:128, g:200, b:64 }, bg => Color::Rgb { r:200, g:64, b:128 }, attrs => italic);
 }

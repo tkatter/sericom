@@ -14,6 +14,7 @@ pub struct Cell {
 
 impl Cell {
     pub const EMPTY: Self = Self::new(' ');
+    pub const TAB: Self = Self::new('\t');
 
     #[must_use]
     pub const fn new(character: char) -> Self {

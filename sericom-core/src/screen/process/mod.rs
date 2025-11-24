@@ -1,14 +1,15 @@
 mod colors;
 mod cursor;
 mod parser;
+mod screen;
 
 pub use colors::{ColorState, process_colors};
 pub use cursor::process_cursor;
 pub use parser::{ByteParser, ParseState, ParserEvent};
+pub use screen::{process_erase, process_screen};
 
 #[cfg(test)]
-pub(crate) mod test;
-
+pub(crate) mod tests;
 pub(crate) use parser::*;
 
 /// Bracket '['

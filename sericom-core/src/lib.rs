@@ -8,6 +8,8 @@
 //! create an [issue](https://github.com/tkatter/sericom) so I can become aware and work
 //! towards making `sericom-core` a generalized/compatible library that is better suited
 //! for use among other crates.
+#![allow(clippy::missing_errors_doc)]
+#![allow(clippy::missing_panics_doc)]
 
 pub mod cli;
 pub mod configs;

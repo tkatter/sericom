@@ -2,7 +2,7 @@ use std::ops::{Index, IndexMut};
 
 use crossterm::style::{Attribute, Attributes, Color, Colors};
 
-use crate::{configs::get_config, screen::process::ColorState, ui::Cell};
+use crate::{configs::get_config, screen::Cell, screen::process::ColorState};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Span {
@@ -23,13 +23,22 @@ impl Default for Span {
 }
 
 impl Span {
+    pub(crate) fn tab() -> Self {
+        let colors = Self::get_config_colors();
+        Self {
+            cells: vec![Cell::TAB; 1],
+            attrs: Attributes::default(),
+            colors,
+        }
+    }
+
     fn get_config_colors() -> Colors {
         let config = get_config();
         let fg = Color::from(&config.appearance.fg);
         let bg = Color::from(&config.appearance.bg);
         Colors::new(fg, bg)
     }
-    pub(crate) fn set_attrs(&mut self, attrs: Attributes) {
+    pub(crate) const fn set_attrs(&mut self, attrs: Attributes) {
         self.attrs = attrs;
     }
     pub(crate) fn add_attr(&mut self, attr: Attribute) {
@@ -78,13 +87,13 @@ impl Span {
     pub(crate) fn push(&mut self, cell: Cell) {
         self.cells.push(cell);
     }
-    pub(crate) fn len(&self) -> usize {
+    pub(crate) const fn len(&self) -> usize {
         self.cells.len()
     }
-    pub(crate) fn set_colors(&mut self, colors: &ColorState) {
+    pub(crate) const fn set_colors(&mut self, colors: &ColorState) {
         self.colors = colors.get_colors();
     }
-    pub(crate) fn is_empty(&self) -> bool {
+    pub(crate) const fn is_empty(&self) -> bool {
         self.cells.is_empty()
     }
     pub fn iter(&self) -> std::slice::Iter<'_, Cell> {
@@ -94,6 +103,7 @@ impl Span {
         self.cells.iter_mut()
     }
     /// Returns the number of [`Cell`]s in a [`Span`] that are not [`Cell::EMPTY`]
+    #[must_use]
     pub fn num_filled_cells(&self) -> usize {
         self.cells
             .iter()

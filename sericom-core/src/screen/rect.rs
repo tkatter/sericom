@@ -1,7 +1,6 @@
-#![allow(unused)]
 use std::cmp::{max, min};
 
-use super::{BuffPos, PosType, PosY, Position, Scope, TermPos};
+use super::position::{BuffPos, PosType, PosY, Position, Scope, TermPos};
 
 // #[derive(Debug, Clone, Eq, PartialEq)]
 #[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash)]

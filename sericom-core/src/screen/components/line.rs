@@ -1,7 +1,11 @@
 use std::ops::{Index, IndexMut};
 
+use crossterm::style::Attributes;
+
+use crate::screen::ColorState;
+
+use super::Cell;
 use super::Span;
-use crate::ui::Cell;
 
 /// Line is a wrapper around [`Vec<Cell>`] and represents a line within the [`ScreenBuffer`][`super::ScreenBuffer`].
 #[derive(Debug, Clone, Eq, PartialEq, Default)]
@@ -37,9 +41,6 @@ impl Line {
     ///
     /// [`Cell`]: crate::ui::Cell
     #[must_use]
-    // pub fn reserve_new(spans: usize) -> Self {
-    //     Self(Vec::with_capacity(spans))
-    // }
     pub fn reserve_new(width: usize) -> Self {
         Self(vec![Span::reserve_new(width, None, None); 1])
     }
@@ -88,6 +89,7 @@ impl Line {
     }
 
     /// Returns a reference to [`Span`] at `idx`.
+    #[must_use]
     pub fn get_span(&self, idx: usize) -> Option<&Span> {
         self.0.get(idx)
     }
@@ -98,6 +100,7 @@ impl Line {
     }
 
     /// Returns the index of the [`Span`] and the offset within the [`Span`] for `col`
+    #[must_use]
     pub fn span_at_col(&self, col: usize) -> (usize, usize) {
         if self.0.len() == 1 {
             return (0, col);
@@ -114,6 +117,8 @@ impl Line {
         (self.0.len().saturating_sub(1), self.0.last().unwrap().len())
     }
 
+    /// The total number of [`Cell`]s, for all [`Span`]s in [`Line`], where the [`Cell`] != [`Cell::EMPTY`].
+    #[must_use]
     pub fn num_filled_cells(&self) -> usize {
         let mut filled_cells: usize = 0;
         self.0.iter().for_each(|span| {
@@ -122,6 +127,8 @@ impl Line {
         filled_cells
     }
 
+    /// The total number of [`Cell`]s for all [`Span`]s in [`Line`].
+    #[must_use]
     pub fn num_cells(&self) -> usize {
         let mut num_cells = 0;
         self.0.iter().for_each(|span| {
@@ -130,6 +137,8 @@ impl Line {
         num_cells
     }
 
+    /// Whether [`Line`] contains zero _[`Span`]s_.
+    #[must_use]
     pub const fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
@@ -146,20 +155,46 @@ impl Line {
         self.0.push(span);
     }
 
-    /// Returns the index of the last cell within a line where the [`Cell`] != [`Cell::EMPTY`]
-    pub fn last_cell_idx(&self) -> usize {
-        if self.0.is_empty() {
-            return 0;
+    // /// Returns the index of the last cell within a line where the [`Cell`] != [`Cell::EMPTY`]
+    // pub fn last_cell_idx(&self) -> usize {
+    //     if self.0.is_empty() {
+    //         return 0;
+    //     }
+    //     let mut offset = self.0.iter().map(|s| s.cells.len()).sum::<usize>();
+    //     for span in self.0.iter().rev() {
+    //         offset -= span.cells.len();
+    //         if let Some(pos) = span.cells.iter().rposition(|c| *c != Cell::EMPTY) {
+    //             return offset + pos;
+    //         }
+    //     }
+    //     0
+    // }
+
+    /// Shrinks the span at `col` to `span.len()` and creates a new span with
+    /// capacity of `fill_to`, `colors` and `attrs`. See [`Span::reserve_new`].
+    pub fn split_spans(
+        &mut self,
+        colors: &ColorState,
+        attrs: Attributes,
+        col: usize,
+        fill_to: usize,
+    ) {
+        // Handles the case where an ESC[ is the first input for an empty line
+        if self.len() == 1 && self.num_cells() == 0 {
+            let mut span = self.get_mut_span(0).expect("verified line.len() == 1");
+            span.set_colors(colors);
+            span.set_attrs(attrs);
+            return;
         }
 
-        let mut offset = self.0.iter().map(|s| s.cells.len()).sum::<usize>();
-        for span in self.0.iter().rev() {
-            offset -= span.cells.len();
-            if let Some(pos) = span.cells.iter().rposition(|c| *c != Cell::EMPTY) {
-                return offset + pos;
-            }
+        let (span_idx, _) = self.span_at_col(col);
+        match self.get_mut_span(span_idx) {
+            Some(mut span) => span.shrink(),
+            None => self.push(Span::new_empty(fill_to)),
         }
-        0
+
+        let span = Span::reserve_new(fill_to, Some(colors.get_colors()), Some(attrs));
+        self.push(span);
     }
 }
 
@@ -203,85 +238,84 @@ impl IndexMut<usize> for Line {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::ui::Cell;
-
-    #[test]
-    fn empty_single_span() {
-        let span1 = Span::new_empty(80);
-        let line1 = Line(vec![span1]);
-
-        assert_eq!(line1.last_cell_idx(), 0);
-    }
-
-    #[test]
-    fn empty_multi_span() {
-        let span1 = Span::new_empty(20);
-        let span2 = Span::new_empty(20);
-        let span3 = Span::new_empty(20);
-        let span4 = Span::new_empty(20);
-        let line1 = Line(vec![span1, span2, span3, span4]);
-
-        assert_eq!(line1.last_cell_idx(), 0);
-    }
-
-    #[test]
-    fn middle_span_filled() {
-        let span1 = Span::new_empty(20);
-        let span2 = Span::new_empty(20);
-        let mut span3 = Span::new_empty(20);
-        let span4 = Span::new_empty(20);
-
-        let cell = Cell {
-            character: 'a',
-            is_selected: false,
-        };
-
-        *span3.cells.get_mut(10).unwrap() = cell.clone();
-
-        let line1 = Line(vec![span1, span2, span3, span4]);
-
-        assert_eq!(line1.last_cell_idx(), 50);
-        assert_eq!(line1.get_span(2).unwrap().cells.get(10).unwrap(), &cell);
-    }
-
-    #[test]
-    fn last_span_filled() {
-        let span1 = Span::new_empty(20);
-        let span2 = Span::new_empty(20);
-        let mut span3 = Span::new_empty(20);
-
-        let cell = Cell {
-            character: 'a',
-            is_selected: false,
-        };
-
-        *span3.cells.get_mut(10).unwrap() = cell.clone();
-
-        let line1 = Line(vec![span1, span2, span3]);
-
-        assert_eq!(line1.last_cell_idx(), 50);
-        assert_eq!(line1.get_span(2).unwrap().cells.get(10).unwrap(), &cell);
-    }
-
-    #[test]
-    fn first_span_filled() {
-        let mut span1 = Span::new_empty(20);
-        let span2 = Span::new_empty(20);
-        let span3 = Span::new_empty(20);
-
-        let cell = Cell {
-            character: 'a',
-            is_selected: false,
-        };
-
-        *span1.cells.get_mut(10).unwrap() = cell.clone();
-
-        let line1 = Line(vec![span1, span2, span3]);
-
-        assert_eq!(line1.last_cell_idx(), 10);
-        assert_eq!(line1.get_span(0).unwrap().cells.get(10).unwrap(), &cell);
-    }
-}
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
+//
+//     #[test]
+//     fn empty_single_span() {
+//         let span1 = Span::new_empty(80);
+//         let line1 = Line(vec![span1; 1]);
+//
+//         assert_eq!(line1.last_cell_idx(), 0);
+//     }
+//
+//     #[test]
+//     fn empty_multi_span() {
+//         let span1 = Span::new_empty(20);
+//         let span2 = Span::new_empty(20);
+//         let span3 = Span::new_empty(20);
+//         let span4 = Span::new_empty(20);
+//         let line1 = Line(vec![span1, span2, span3, span4]);
+//
+//         assert_eq!(line1.last_cell_idx(), 0);
+//     }
+//
+//     #[test]
+//     fn middle_span_filled() {
+//         let span1 = Span::new_empty(20);
+//         let span2 = Span::new_empty(20);
+//         let mut span3 = Span::new_empty(20);
+//         let span4 = Span::new_empty(20);
+//
+//         let cell = Cell {
+//             character: 'a',
+//             is_selected: false,
+//         };
+//
+//         *span3.cells.get_mut(10).unwrap() = cell.clone();
+//
+//         let line1 = Line(vec![span1, span2, span3, span4]);
+//
+//         assert_eq!(line1.last_cell_idx(), 50);
+//         assert_eq!(line1.get_span(2).unwrap().cells.get(10).unwrap(), &cell);
+//     }
+//
+//     #[test]
+//     fn last_span_filled() {
+//         let span1 = Span::new_empty(20);
+//         let span2 = Span::new_empty(20);
+//         let mut span3 = Span::new_empty(20);
+//
+//         let cell = Cell {
+//             character: 'a',
+//             is_selected: false,
+//         };
+//
+//         *span3.cells.get_mut(10).unwrap() = cell.clone();
+//
+//         let line1 = Line(vec![span1, span2, span3]);
+//
+//         assert_eq!(line1.last_cell_idx(), 50);
+//         assert_eq!(line1.get_span(2).unwrap().cells.get(10).unwrap(), &cell);
+//     }
+//
+//     #[test]
+//     fn first_span_filled() {
+//         let mut span1 = Span::new_empty(20);
+//         let span2 = Span::new_empty(20);
+//         let span3 = Span::new_empty(20);
+//
+//         let cell = Cell {
+//             character: 'a',
+//             is_selected: false,
+//         };
+//
+//         *span1.cells.get_mut(10).unwrap() = cell.clone();
+//
+//         let line1 = Line(vec![span1, span2, span3]);
+//
+//         assert_eq!(line1.last_cell_idx(), 10);
+//         assert_eq!(line1.get_span(0).unwrap().cells.get(10).unwrap(), &cell);
+//     }
+// }

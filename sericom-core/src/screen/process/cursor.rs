@@ -1,7 +1,7 @@
 use crate::{
     screen::ScreenBuffer,
+    screen::position::{Cursor, Position},
     screen::process::SEP,
-    ui::{Cursor, Position},
 };
 
 fn ascii_digits_to_integer(body: &[u8]) -> Option<u16> {
@@ -14,12 +14,17 @@ fn ascii_digits_to_integer(body: &[u8]) -> Option<u16> {
     )
 }
 
-pub fn process_cursor(seq: &[u8], kind: u8, sb: &mut ScreenBuffer) {
+pub fn process_cursor<W: std::io::Write>(
+    seq: &[u8],
+    kind: u8,
+    sb: &mut ScreenBuffer,
+    stdout: &mut W,
+) {
     let body = &seq[2..seq.len() - 1];
 
     // ESC[{row};{col}H
     // move cursor to line # col #
-    if (kind == b'H' && !body.is_empty()) || kind == b'f' {
+    if (kind == b'H' || kind == b'f') && !body.is_empty() {
         let mut parts = body.split(|&b| b == SEP);
         let row = parts.next().and_then(ascii_digits_to_integer);
         let col = parts.next().and_then(ascii_digits_to_integer);
@@ -28,6 +33,7 @@ pub fn process_cursor(seq: &[u8], kind: u8, sb: &mut ScreenBuffer) {
         }
     } else if kind == b'n' && body == [b'6'] {
         // request cursor pos
+        // need to send to device via ESC[row;colR
         todo!();
     } else {
         let nums = ascii_digits_to_integer(body);
@@ -76,8 +82,8 @@ pub fn process_cursor(seq: &[u8], kind: u8, sb: &mut ScreenBuffer) {
                     sb.set_cursor_col(n);
                 }
             }
-            b's' => sb.save_cursor_pos(),
-            b'u' => sb.restore_cursor_pos(),
+            b's' => sb.save_cursor_pos(stdout), // can use crossterm
+            b'u' => sb.restore_cursor_pos(stdout), // can use crossterm
             b'H' => sb.set_cursor_pos(Position::ORIGIN),
             _ => {}
         }

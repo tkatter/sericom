@@ -6,6 +6,7 @@
 use crate::serial_actor::SerialEvent;
 
 /// This function is used for debugging the data that is sent from a device.
+///
 /// It will create a file "debug.txt" and print the data received from the device
 /// as the actual bytes received along with the corresponding ascii characters.
 ///
@@ -34,21 +35,6 @@ pub async fn run_debug_output(mut rx: tokio::sync::broadcast::Receiver<SerialEve
 
         writeln!(writer, "Session started at: {}", chrono::Utc::now()).ok();
         while let Ok(data) = write_rx.recv() {
-            // let control_bytes_for_hex: Vec<u8> = data[..std::cmp::min(20, data.len())]
-            //     .iter()
-            //     .filter(|b| b.is_ascii_control())
-            //     .cloned()
-            //     .collect();
-            // Only prints the bytes of ASCII escape characters
-            // writeln!(
-            //     writer,
-            //     "RX {} bytes: {:02X?}{} UTF8: {}",
-            //     data.len(),
-            //     control_bytes_for_hex,
-            //     if data.len() > 20 { "..." } else { "" },
-            //     String::from_utf8_lossy(&data)
-            // )
-            // .ok();
             // Prints bytes of all characters
             writeln!(
                 writer,
@@ -88,7 +74,6 @@ pub async fn run_debug_output(mut rx: tokio::sync::broadcast::Receiver<SerialEve
                         }
                         Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
                             eprintln!("File writer lagged, skipped {skipped} messages");
-                            continue; // Don't break on lag
                         }
                         _ => break,
                     }

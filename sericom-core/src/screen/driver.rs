@@ -1,22 +1,27 @@
 use crossterm::style::Attributes;
+use tracing::Instrument;
 
-use crate::screen::ScreenBuffer;
-use crate::ui::{BK, BS, CR, ESC, FF, Line, NL, TAB};
-use crate::ui::{Cell, ColorState, Cursor, ParserEvent, Span, TranslatePos};
-use crate::ui::{process_colors, process_cursor};
+use super::ScreenBuffer;
+use super::components::{Cell, Line, Span};
+use super::position::{Cursor, TranslatePos};
+use super::process::{BK, BS, CR, ColorState, ESC, FF, NL, ParserEvent, TAB};
+use super::{process_colors, process_cursor, process_erase, process_screen};
 
-pub struct ScreenDriver<'a> {
+/// The layer between incoming [`ParserEvent`]s and the [`ScreenBuffer`].
+pub struct ScreenDriver<'a, W: std::io::Write> {
     buffer: &'a mut ScreenBuffer,
     color_state: ColorState,
     attrs: Attributes,
+    stdout: &'a mut W,
 }
 
-impl<'a> ScreenDriver<'a> {
-    pub fn new(buffer: &'a mut ScreenBuffer) -> Self {
+impl<'a, W: std::io::Write> ScreenDriver<'a, W> {
+    pub fn new(buffer: &'a mut ScreenBuffer, stdout: &'a mut W) -> Self {
         Self {
             buffer,
             color_state: ColorState::default(),
             attrs: Attributes::default(),
+            stdout,
         }
     }
 
@@ -28,9 +33,10 @@ impl<'a> ScreenDriver<'a> {
                 ParserEvent::EscapeSequence(seq) => self.handle_escape(&seq),
             }
         }
-        todo!()
     }
 
+    // TODO: HANDLE CHECKING TO SEE IF THE CURSOR IS OVER AN EXISTING
+    // SPAN/LINE BEFORE WRITING - IF SO, NEED TO SPLIT APPROPRIATLY
     fn write_text(&mut self, bytes: &[u8]) {
         let chars: Vec<char> = bytes.iter().map(|b| char::from(*b)).collect();
         let num_chars = chars.len();
@@ -40,27 +46,40 @@ impl<'a> ScreenDriver<'a> {
                 span.push(Cell::new(ch));
             }
         });
+
+        // Truncating is unlikely to happen in this scenario, but even so,
+        // `move_cursor_right` will clamp to `self.width` so its ok.
+        #[allow(clippy::cast_possible_truncation)]
         self.buffer.move_cursor_right(num_chars as u16);
     }
 
     fn handle_control(&mut self, ctrl: u8) {
         match ctrl {
             BS => self.buffer.move_cursor_left(1),
-            CR => self.buffer.set_cursor_col(0),
-            // Need to handle creating new empty buffer
-            FF => todo!(),
-            // FF => queue!(writer, Clear(ClearType::All)).into_diagnostic()?,
             NL => {
                 let remainder =
-                    self.buffer.rect.width as usize - (self.buffer.curr_line().num_cells());
+                    self.buffer.width() as usize - (self.buffer.curr_line().num_cells());
                 if remainder != 0 {
                     self.buffer.with_current_span(|span| {
-                        span.fill_to_width(remainder);
+                        let width = remainder + span.cells.len();
+                        span.fill_to_width(width);
                     });
                 }
+                self.buffer
+                    .push_line(Line::reserve_new(self.buffer.width() as usize));
+                self.buffer.set_cursor_col(0);
                 self.buffer.move_cursor_down(1);
             }
-            TAB => todo!(),
+            TAB => self.buffer.with_current_span(|span| {
+                span.push(Cell::TAB);
+            }),
+            // Need to make the events peekable to handle '\r\n' for now
+            // lets just roll with ignoring it and see what happens
+            #[allow(clippy::match_same_arms)]
+            CR => {} // self.buffer.set_cursor_col(0),
+            // Not sure that FF needs to be handled
+            #[allow(clippy::match_same_arms)]
+            FF => {}
             _ => {}
         }
     }
@@ -71,77 +90,33 @@ impl<'a> ScreenDriver<'a> {
         };
         match seq_type {
             EscSequenceType::Cursor(kind) => {
-                // TODO: Figure out span-splitting
-                process_cursor(seq, kind, self.buffer);
+                process_cursor(seq, kind, self.buffer, self.stdout);
             }
-            EscSequenceType::Erase(_kind) => todo!(),
+            EscSequenceType::Erase(kind) => process_erase(seq, kind, self.buffer),
             EscSequenceType::Graphics => {
                 process_colors(seq, &mut self.color_state, &mut self.attrs);
-                self.buffer.with_current_span(|span| {
-                    if !span.is_empty() {
-                        span.shrink();
-                        // self.curr_line.push(curr_span);
-                        // curr_span = Span::reserve_new(
-                        //     span_cap(&self.curr_line, &self.rect),
-                        //     None,
-                        //     None,
-                        // );
-                    }
-                    span.set_attrs(self.attrs);
-                    span.set_colors(&self.color_state);
-                });
+                self.buffer
+                    .handle_span_colors(&self.color_state, self.attrs);
             }
-            EscSequenceType::Screen(_kind) => todo!(),
+            EscSequenceType::Screen(_kind) => {} // process_screen(seq, kind, self.buffer),
         }
     }
 }
 
-impl ScreenBuffer {
-    fn with_current_span<F: FnOnce(&mut Span)>(&mut self, f: F) {
-        let buff_pos = self.to_buff(self.cursor);
-
-        let span = {
-            let line = self.curr_line_mut();
-            let (span_idx, _col_offset) = line.span_at_col(buff_pos.x as usize);
-            line.get_mut_span(span_idx).expect("verified")
-        };
-
-        f(span);
-    }
-
-    fn curr_line(&mut self) -> &Line {
-        let pos_in_lines = self.to_buff(self.cursor);
-        if self.lines.get(pos_in_lines.y as usize).is_some() {
-            self.lines
-                .get(pos_in_lines.y as usize)
-                .expect("verified that line exists")
-        } else {
-            self.push_line(Line::reserve_new(self.rect.width as usize));
-            self.lines.back().expect("is not empty")
-        }
-    }
-
-    fn curr_line_mut(&mut self) -> &mut Line {
-        let pos_in_lines = self.to_buff(self.cursor);
-        if self.lines.get(pos_in_lines.y as usize).is_some() {
-            self.lines
-                .get_mut(pos_in_lines.y as usize)
-                .expect("verified that line exists")
-        } else {
-            self.push_line(Line::reserve_new(self.rect.width as usize));
-            self.lines.back_mut().expect("is not empty")
-        }
-    }
-}
-
-enum EscSequenceType {
+/// The category of escape sequence determined by the last char of the sequence.
+pub enum EscSequenceType {
+    /// Control cursor movement
     Cursor(u8),
+    /// Sequences that clear the screen
     Erase(u8),
+    /// Color changes/modes
     Graphics,
+    /// Set screen modes
     Screen(u8),
 }
 
 fn classify_escape_seq(seq: &[u8]) -> Option<EscSequenceType> {
+    // https://gist.github.com/fnky/458719343aabd01cfb17a3a4f7296797
     // Ensures the sequence resembles: ESC[<sequence>
     if seq.len() < 3 || seq[0] != ESC || seq[1] != BK {
         return None;
