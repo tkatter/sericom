@@ -271,16 +271,3 @@ impl TranslatePos for ScreenBuffer {
         Position::<BuffPos>::from((buff_x, buff_y))
     }
 }
-
-impl ScreenBuffer {
-    pub(crate) fn buff_rect(&self) -> Rect<BuffPos> {
-        Rect::from((
-            (
-                0_u16,
-                u32::try_from(self.view_start).expect("ScreenBuffer is less than usize::MAX"),
-            ),
-            self.width(),
-            u32::from(self.rect.height),
-        ))
-    }
-}

@@ -23,15 +23,6 @@ impl Default for Span {
 }
 
 impl Span {
-    pub(crate) fn tab() -> Self {
-        let colors = Self::get_config_colors();
-        Self {
-            cells: vec![Cell::TAB; 1],
-            attrs: Attributes::default(),
-            colors,
-        }
-    }
-
     fn get_config_colors() -> Colors {
         let config = get_config();
         let fg = Color::from(&config.appearance.fg);
@@ -109,6 +100,33 @@ impl Span {
             .iter()
             .filter(|&cell| *cell != Cell::EMPTY)
             .count()
+    }
+}
+
+impl IntoIterator for Span {
+    type Item = Cell;
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.cells.into_iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a Span {
+    type Item = &'a Cell;
+    type IntoIter = std::slice::Iter<'a, Cell>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.cells.iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a mut Span {
+    type Item = &'a mut Cell;
+    type IntoIter = std::slice::IterMut<'a, Cell>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.cells.iter_mut()
     }
 }
 

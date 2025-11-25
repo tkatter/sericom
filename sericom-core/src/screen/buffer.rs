@@ -1,6 +1,8 @@
 use crossterm::style::Attributes;
 use std::collections::VecDeque;
 
+use crate::screen::BuffPos;
+
 use super::position::{Position, TermPos, TranslatePos};
 use super::{Line, Rect};
 
@@ -55,6 +57,10 @@ impl ScreenBuffer {
         self.rect.width
     }
 
+    pub(crate) const fn height(&self) -> u16 {
+        self.rect.height
+    }
+
     pub(crate) fn push_line(&mut self, line: Line) {
         self.lines.push_back(line);
     }
@@ -79,7 +85,10 @@ impl ScreenBuffer {
         line.split_spans(colors, attrs, curr_col, remainder);
     }
 
-    pub(crate) fn with_current_span<F: FnOnce(&mut super::Span)>(&mut self, f: F) {
+    pub(crate) fn with_current_span<F: FnOnce(&mut super::Span, &Position<BuffPos>)>(
+        &mut self,
+        f: F,
+    ) {
         let buff_pos = self.to_buff(self.cursor);
 
         let span = {
@@ -88,27 +97,22 @@ impl ScreenBuffer {
             line.get_mut_span(span_idx).expect("verified")
         };
 
-        f(span);
+        f(span, &buff_pos);
     }
 
-    pub(crate) fn with_current_line<F: FnOnce(&mut super::Line)>(&mut self, f: F) {
+    pub(crate) fn with_current_line<F: FnOnce(&mut super::Line, &Position<BuffPos>)>(
+        &mut self,
+        f: F,
+    ) {
         let buff_pos = self.to_buff(self.cursor);
-
         let line = self.curr_line_mut();
 
-        f(line);
+        f(line, &buff_pos);
     }
 
-    pub(crate) fn curr_line(&mut self) -> &Line {
+    pub(crate) fn curr_line(&self) -> Option<&Line> {
         let pos_in_lines = self.to_buff(self.cursor);
-        if self.lines.get(pos_in_lines.y as usize).is_some() {
-            self.lines
-                .get(pos_in_lines.y as usize)
-                .expect("verified that line exists")
-        } else {
-            self.push_line(Line::reserve_new(self.width() as usize));
-            self.lines.back().expect("is not empty")
-        }
+        self.lines.get(pos_in_lines.y as usize)
     }
 
     pub(crate) fn curr_line_mut(&mut self) -> &mut Line {
@@ -122,82 +126,15 @@ impl ScreenBuffer {
             self.lines.back_mut().expect("is not empty")
         }
     }
-    // fn clear_from_cursor_to_sol(&mut self) {
-    //     if let Some(line) = self.lines.get_mut(usize::from(self.cursor.y)) {
-    //         // line.reset_to(self.cursor.x as usize);
-    //     }
-    // }
 
-    // fn clear_from_cursor_to_sos(&mut self) {
-    //     self.clear_from_cursor_to_sol();
-    //     for line in self
-    //         .lines
-    //         .range_mut(self.view_start..usize::from(self.cursor.y))
-    //     {
-    //         line.reset();
-    //     }
-    // }
-
-    // fn clear_from_cursor_to_eol(&mut self) {
-    //     if let Some(line) = self.lines.get_mut(usize::from(self.cursor.y)) {
-    //         // line.reset_from(self.cursor.x as usize);
-    //     }
-    // }
-
-    // fn clear_from_cursor_to_eos(&mut self) {
-    //     self.clear_from_cursor_to_eol();
-    //     for line in self.lines.range_mut(usize::from(self.cursor.y) + 1..) {
-    //         line.reset();
-    //     }
-    // }
-
-    // fn clear_whole_line(&mut self) {
-    //     if let Some(line) = self.lines.get_mut(usize::from(self.cursor.y)) {
-    //         line.reset();
-    //     }
-    // }
-
-    // fn new_line(&mut self) {
-    //     // TODO: F*X THIS
-    //     // self.set_cursor_pos((0, self.cursor.y + 1));
-    //
-    //     if usize::from(self.cursor.y) >= self.lines.len() {
-    //         self.lines
-    //             .push_back(Line::new_default(usize::from(self.width())));
-    //     }
-    //
-    //     // Remove old lines if exceeding `ScreenBuffer.max_scrollback`
-    //     while self.lines.len() > self.max_scrollback {
-    //         self.lines.pop_front();
-    //         // Update the view position
-    //         if self.cursor.y > 0 {
-    //             self.cursor.y -= 1;
-    //         }
-    //         if self.view_start > 0 {
-    //             self.view_start -= 1;
-    //         }
-    //     }
-    // }
-
-    // fn set_char_at_cursor(&mut self, ch: char) {
-    //     while usize::from(self.cursor.y) >= self.lines.len() {
-    //         self.lines
-    //             .push_back(Line::new_default(usize::from(self.width())));
-    //     }
-    //
-    //     if let Some(line) = self.lines.get_mut(usize::from(self.cursor.y))
-    //         && (self.cursor.x as usize) < line.len()
-    //     {
-    //         // line.set_char(self.cursor.x as usize, ch);
-    //     }
-    // }
-
-    // pub(crate) fn line_from_cursor(&mut self) -> usize {
-    //     let line_idx = self.view_start + usize::from(self.cursor.y);
-    //     while line_idx > self.lines.len() {
-    //         self.lines
-    //             .push_back(Line::new_empty(usize::from(self.rect.width)));
-    //     }
-    //     line_idx
-    // }
+    pub(crate) fn buff_rect(&self) -> Rect<BuffPos> {
+        Rect::from((
+            (
+                0_u16,
+                u32::try_from(self.view_start).expect("ScreenBuffer is less than usize::MAX"),
+            ),
+            self.width(),
+            u32::from(self.height()),
+        ))
+    }
 }

@@ -30,7 +30,7 @@ impl Line {
 
     /// Create a new line with a single [`Span`] with the length/size of `width`.
     ///
-    /// Filled with [`Span::EMPTY`].
+    /// The [`Span`] is filled with [`Cell::EMPTY`].
     #[must_use]
     pub fn new_empty(width: usize) -> Self {
         Self(vec![Span::new_empty(width); 1])
@@ -55,7 +55,8 @@ impl Line {
     // /// Iterates over the [`Cell`]s to index `idx` within [`Self`]
     // /// and sets them to [`Cell::default()`].
     // pub fn reset_to(&mut self, idx: usize) {
-    //     self.0[..idx]
+    //     let (span, offset) = self.span_at_col(idx);
+    //     self.0[..=span]
     //         .iter_mut()
     //         .for_each(|cell| *cell = Cell::default());
     // }
@@ -319,3 +320,31 @@ impl IndexMut<usize> for Line {
 //         assert_eq!(line1.get_span(0).unwrap().cells.get(10).unwrap(), &cell);
 //     }
 // }
+
+#[test]
+fn flatten_spans_to_cells() {
+    use crate::configs::*;
+
+    const CONF_OR: ConfigOverride = ConfigOverride {
+        color: None,
+        out_dir: None,
+        exit_script: None,
+    };
+
+    initialize_config(CONF_OR).ok();
+
+    let span = Span::new_empty(5);
+    let mut line = Line::new(4, span);
+
+    assert_eq!(line.len(), 4);
+
+    let idx: usize = 12;
+
+    let mut acc = 0;
+    line.iter_mut().flatten().skip(idx).for_each(|mut cell| {
+        cell.character = 'c';
+        dbg!(cell);
+    });
+
+    assert_eq!(3, 4);
+}

@@ -13,7 +13,9 @@ pub struct Cell {
 }
 
 impl Cell {
+    pub const CARRIGE: Self = Self::new('\r');
     pub const EMPTY: Self = Self::new(' ');
+    pub const NEWLINE: Self = Self::new('\n');
     pub const TAB: Self = Self::new('\t');
 
     #[must_use]

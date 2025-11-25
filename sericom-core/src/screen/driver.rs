@@ -12,6 +12,7 @@ pub struct ScreenDriver<'a, W: std::io::Write> {
     buffer: &'a mut ScreenBuffer,
     color_state: ColorState,
     attrs: Attributes,
+    // stdout gives access to call crossterm::execute!/queue!
     stdout: &'a mut W,
 }
 
@@ -38,10 +39,11 @@ impl<'a, W: std::io::Write> ScreenDriver<'a, W> {
     // TODO: HANDLE CHECKING TO SEE IF THE CURSOR IS OVER AN EXISTING
     // SPAN/LINE BEFORE WRITING - IF SO, NEED TO SPLIT APPROPRIATLY
     fn write_text(&mut self, bytes: &[u8]) {
+        self.buffer.curr_line().is_some_and(|line| line.len() > 0);
         let chars: Vec<char> = bytes.iter().map(|b| char::from(*b)).collect();
         let num_chars = chars.len();
 
-        self.buffer.with_current_span(|span| {
+        self.buffer.with_current_span(|span, _| {
             for ch in chars {
                 span.push(Cell::new(ch));
             }
@@ -57,26 +59,35 @@ impl<'a, W: std::io::Write> ScreenDriver<'a, W> {
         match ctrl {
             BS => self.buffer.move_cursor_left(1),
             NL => {
-                let remainder =
-                    self.buffer.width() as usize - (self.buffer.curr_line().num_cells());
-                if remainder != 0 {
-                    self.buffer.with_current_span(|span| {
-                        let width = remainder + span.cells.len();
-                        span.fill_to_width(width);
-                    });
-                }
+                self.buffer.with_current_span(|span, _| {
+                    span.push(Cell::NEWLINE);
+                    span.shrink();
+                });
+                self.buffer.move_cursor_down(1);
                 self.buffer
                     .push_line(Line::reserve_new(self.buffer.width() as usize));
-                self.buffer.set_cursor_col(0);
-                self.buffer.move_cursor_down(1);
+                // let remainder = self.buffer.width() as usize
+                //     - (self.buffer.curr_line().map_or_else(|| 0, Line::num_cells));
+                // if remainder != 0 {
+                //     self.buffer.with_current_span(|span, _| {
+                //         let width = remainder + span.cells.len();
+                //         span.fill_to_width(width);
+                //     });
+                // }
+                // self.buffer
+                //     .push_line(Line::reserve_new(self.buffer.width() as usize));
+                // self.buffer.set_cursor_col(0);
             }
-            TAB => self.buffer.with_current_span(|span| {
+            TAB => self.buffer.with_current_span(|span, _| {
                 span.push(Cell::TAB);
             }),
-            // Need to make the events peekable to handle '\r\n' for now
-            // lets just roll with ignoring it and see what happens
-            #[allow(clippy::match_same_arms)]
-            CR => {} // self.buffer.set_cursor_col(0),
+            CR => {
+                self.buffer.with_current_span(|span, _| {
+                    span.push(Cell::CARRIGE);
+                    span.shrink();
+                });
+                self.buffer.set_cursor_col(0);
+            }
             // Not sure that FF needs to be handled
             #[allow(clippy::match_same_arms)]
             FF => {}
@@ -86,13 +97,13 @@ impl<'a, W: std::io::Write> ScreenDriver<'a, W> {
 
     fn handle_escape(&mut self, seq: &[u8]) {
         let Some(seq_type) = classify_escape_seq(seq) else {
-            todo!();
+            return;
         };
         match seq_type {
             EscSequenceType::Cursor(kind) => {
                 process_cursor(seq, kind, self.buffer, self.stdout);
             }
-            EscSequenceType::Erase(kind) => process_erase(seq, kind, self.buffer),
+            EscSequenceType::Erase(kind) => process_erase(seq, kind, self.buffer, self.stdout),
             EscSequenceType::Graphics => {
                 process_colors(seq, &mut self.color_state, &mut self.attrs);
                 self.buffer
