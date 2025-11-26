@@ -1,3 +1,5 @@
+use std::ops::{Deref, DerefMut};
+
 use crossterm::style::Color;
 
 use crate::configs::get_config;
@@ -24,6 +26,20 @@ impl Cell {
             character,
             is_selected: false,
         }
+    }
+}
+
+impl Deref for Cell {
+    type Target = char;
+
+    fn deref(&self) -> &Self::Target {
+        &self.character
+    }
+}
+
+impl DerefMut for Cell {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.character
     }
 }
 

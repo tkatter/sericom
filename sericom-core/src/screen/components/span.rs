@@ -1,6 +1,11 @@
-use std::ops::{Index, IndexMut};
+use std::{
+    fmt::Formatter,
+    ops::{Deref, Index, IndexMut},
+};
 
-use crossterm::style::{Attribute, Attributes, Color, Colors};
+use crossterm::style::{
+    Attribute, Attributes, Color, Colors, ContentStyle, StyledContent, Stylize,
+};
 
 use crate::{configs::get_config, screen::Cell, screen::process::ColorState};
 
@@ -140,5 +145,27 @@ impl Index<usize> for Span {
 impl IndexMut<usize> for Span {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         &mut self.cells[index]
+    }
+}
+
+impl Span {
+    fn content_style(&self) -> ContentStyle {
+        ContentStyle {
+            foreground_color: self.colors.foreground,
+            background_color: self.colors.background,
+            underline_color: None,
+            attributes: self.attrs,
+        }
+    }
+
+    pub(crate) fn styled(&self) -> StyledContent<String> {
+        let s = String::from_iter(self.cells.iter());
+        self.content_style().apply(s)
+    }
+}
+
+impl<'a> FromIterator<&'a Cell> for std::string::String {
+    fn from_iter<T: IntoIterator<Item = &'a Cell>>(iter: T) -> Self {
+        iter.into_iter().map(Deref::deref).collect::<Self>()
     }
 }

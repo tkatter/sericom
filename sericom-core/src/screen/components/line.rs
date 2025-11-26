@@ -1,8 +1,10 @@
+use std::fmt::Display;
 use std::ops::{Index, IndexMut};
 
 use crossterm::style::Attributes;
 
 use crate::screen::ColorState;
+use crossterm::csi;
 
 use super::Cell;
 use super::Span;
@@ -10,6 +12,17 @@ use super::Span;
 /// Line is a wrapper around [`Vec<Cell>`] and represents a line within the [`ScreenBuffer`][`super::ScreenBuffer`].
 #[derive(Debug, Clone, Eq, PartialEq, Default)]
 pub struct Line(pub Vec<Span>);
+
+impl crossterm::Command for Line {
+    fn write_ansi(&self, f: &mut impl std::fmt::Write) -> std::fmt::Result {
+        use crossterm::style::PrintStyledContent;
+        for span in self.iter() {
+            PrintStyledContent(span.styled()).write_ansi(f)?;
+        }
+
+        Ok(())
+    }
+}
 
 impl Line {
     /// Create a new line with the length/size of `width`.
@@ -348,3 +361,13 @@ fn flatten_spans_to_cells() {
 
     assert_eq!(3, 4);
 }
+
+// impl std::fmt::Display for Line {
+//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//         use crossterm::QueueableCommand;
+//         use crossterm::style::{PrintStyledContent, StyledContent};
+//         let v: Vec<StyledContent<String>> = self.iter().map(Span::styled).collect();
+//         let mut out = std::io::stdout();
+//         todo!();
+//     }
+// }
