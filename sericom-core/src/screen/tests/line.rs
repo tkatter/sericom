@@ -63,3 +63,15 @@ fn line_as_command() {
 
     assert_eq!(writer.buffer, cmp);
 }
+
+#[test]
+fn overwriting_span() {
+    let mut span = vec![Cell::EMPTY; 10];
+    let chars = vec!['a'; 10];
+
+    for (cell, ch) in span.iter_mut().skip(5).zip(chars) {
+        cell.character = ch;
+    }
+
+    assert_eq!(span, [[Cell::EMPTY; 5], [Cell::new('a'); 5]].concat());
+}

@@ -49,7 +49,7 @@ impl ScreenBuffer {
             max_scrollback: MAX_SCROLLBACK,
         };
         // Start with an empty line
-        buffer.lines.push_back(Line::reserve_new(rect.width.into()));
+        buffer.lines.push_back(Line::new_empty(rect.width.into()));
         buffer
     }
 
@@ -76,28 +76,26 @@ impl ScreenBuffer {
     }
 
     pub(crate) fn handle_span_colors(&mut self, colors: &super::ColorState, attrs: Attributes) {
-        let curr_col = self.cursor.x as usize;
-        let width = self.width() as usize;
+        let (curr_col, width): (usize, usize);
+        curr_col = self.cursor.x.into();
+        width = self.width().into();
 
         let line = self.curr_line_mut();
-        let remainder = width - line.num_cells();
+        let remainder = width.saturating_sub(line.last_filled_idx());
 
         line.split_spans(colors, attrs, curr_col, remainder);
     }
 
-    pub(crate) fn with_current_span<F: FnOnce(&mut super::Span, &Position<BuffPos>)>(
-        &mut self,
-        f: F,
-    ) {
+    pub(crate) fn with_current_span<F: FnOnce(&mut super::Span, usize)>(&mut self, f: F) {
         let buff_pos = self.to_buff(self.cursor);
 
-        let span = {
+        let (span, offset) = {
             let line = self.curr_line_mut();
-            let (span_idx, _col_offset) = line.span_at_col(buff_pos.x as usize);
-            line.get_mut_span(span_idx).expect("verified")
+            let (span_idx, col_offset) = line.span_at_col(buff_pos.x as usize);
+            (line.get_mut_span(span_idx).expect("verified"), col_offset)
         };
 
-        f(span, &buff_pos);
+        f(span, offset);
     }
 
     pub(crate) fn with_current_line<F: FnOnce(&mut super::Line, &Position<BuffPos>)>(
@@ -123,7 +121,7 @@ impl ScreenBuffer {
                 .get_mut(pos_in_lines.y as usize)
                 .expect("verified that line exists")
         } else {
-            self.push_line(Line::reserve_new(self.width() as usize));
+            self.push_line(Line::new_empty(self.width() as usize));
             self.lines.back_mut().expect("is not empty")
         }
     }

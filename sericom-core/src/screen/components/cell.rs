@@ -8,7 +8,7 @@ use crate::configs::get_config;
 ///
 /// Used to hold rendering state for all the cells within the [`ScreenBuffer`][`super::ScreenBuffer`].
 /// Each line within [`ScreenBuffer`][`super::ScreenBuffer`] is represented by a `Vec<Cell>`.
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct Cell {
     pub(crate) character: char,
     pub(crate) is_selected: bool,

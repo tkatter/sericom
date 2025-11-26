@@ -61,6 +61,20 @@ impl Span {
         }
     }
 
+    pub(crate) fn new_empty_colors(
+        width: usize,
+        colors: Option<Colors>,
+        attrs: Option<Attributes>,
+    ) -> Self {
+        let colors = colors.unwrap_or_else(Self::get_config_colors);
+        let attrs = attrs.unwrap_or_default();
+        Self {
+            cells: vec![Cell::EMPTY; width],
+            attrs,
+            colors,
+        }
+    }
+
     /// Creates a new [`Span`] and reserves space for `width` of [`Cell`]s.
     ///
     /// This calls [`Vec::with_capacity()`] and does not create any [`Cell`]s.

@@ -1,5 +1,9 @@
+use std::fmt::{self, Debug, Write};
+
 use crossterm::style::Attributes;
 use tracing::Instrument;
+
+use crate::screen::process::SEP;
 
 use super::ScreenBuffer;
 use super::components::{Cell, Line, Span};
@@ -28,7 +32,7 @@ impl<'a, W: std::io::Write> ScreenDriver<'a, W> {
 
     pub fn process_events(&mut self, events: Vec<ParserEvent>) {
         for ev in events {
-            eprintln!("{ev}");
+            tracing::trace!(target: "parser", event=%ev, "Processing event");
             match ev {
                 ParserEvent::Text(bytes) => self.write_text(&bytes),
                 ParserEvent::Control(ctrl) => self.handle_control(ctrl),
@@ -38,23 +42,17 @@ impl<'a, W: std::io::Write> ScreenDriver<'a, W> {
     }
 
     fn write_text(&mut self, bytes: &[u8]) {
-        let chars: Vec<char> = bytes.iter().map(|b| char::from(*b)).collect();
-        let num_chars = chars.len();
-
-        self.buffer.with_current_span(|span, cursor| {
-            if !span.is_empty() {
-                span.cells.truncate(cursor.x.into());
-            }
-
-            for ch in chars {
-                span.push(Cell::new(ch));
+        self.buffer.with_current_span(|span, offset| {
+            for (cell, ch) in span.cells.iter_mut().skip(offset).zip(bytes) {
+                // can cast ch as char because the parse will only pass utf-8
+                cell.character = *ch as char;
             }
         });
 
         // Truncating is unlikely to happen in this scenario, but even so,
         // `move_cursor_right` will clamp to `self.width` so its ok.
         #[allow(clippy::cast_possible_truncation)]
-        self.buffer.move_cursor_right(num_chars as u16);
+        self.buffer.move_cursor_right(bytes.len() as u16);
     }
 
     fn handle_control(&mut self, ctrl: u8) {
@@ -67,15 +65,17 @@ impl<'a, W: std::io::Write> ScreenDriver<'a, W> {
                     // pushing to the end of line unconditionally because
                     // NL is always the end of a line, and if received a CR
                     // before NL, then `with_current_span` would behave incorrect
-                    if let Some(span) = line.0.last_mut() {
-                        span.push(Cell::NEWLINE);
+                    if let Some(span) = line.0.last_mut()
+                        && let Some(cell) = span.cells.last_mut()
+                    {
+                        cell.character = NL as char;
                         span.shrink();
                     }
                 });
                 self.buffer.set_cursor_col(0);
                 self.buffer.move_cursor_down(1);
                 self.buffer
-                    .push_line(Line::reserve_new(self.buffer.width() as usize));
+                    .push_line(Line::new_empty(self.buffer.width() as usize));
                 // }
                 // #[cfg(feature = "gui")] // fills span to ScreenBuffer::width()
                 // {
@@ -114,6 +114,19 @@ impl<'a, W: std::io::Write> ScreenDriver<'a, W> {
 
     fn handle_escape(&mut self, seq: &[u8]) {
         let Some(seq_type) = classify_escape_seq(seq) else {
+            let s = seq.iter().fold(String::new(), |mut output, b| {
+                if *b == ESC {
+                    let _ = write!(output, "ESC");
+                } else if *b == BK {
+                    let _ = write!(output, "[");
+                } else if *b == SEP {
+                    let _ = write!(output, ";");
+                } else {
+                    let _ = write!(output, "{}", *b as char);
+                }
+                output
+            });
+            tracing::trace!(target: "parser", sequence=%s, "Failed to classify escape sequence");
             return;
         };
         match seq_type {

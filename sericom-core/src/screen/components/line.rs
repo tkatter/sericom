@@ -78,21 +78,22 @@ impl Line {
     /// The total number of [`Cell`]s, for all [`Span`]s in [`Line`], where the [`Cell`] != [`Cell::EMPTY`].
     #[must_use]
     pub fn num_filled_cells(&self) -> usize {
-        let mut filled_cells: usize = 0;
-        self.0.iter().for_each(|span| {
-            filled_cells += span.num_filled_cells();
-        });
-        filled_cells
+        self.iter().flatten().filter(|c| **c != Cell::EMPTY).count()
     }
 
     /// The total number of [`Cell`]s for all [`Span`]s in [`Line`].
     #[must_use]
     pub fn num_cells(&self) -> usize {
-        let mut num_cells = 0;
-        self.0.iter().for_each(|span| {
-            num_cells += span.len();
-        });
-        num_cells
+        self.iter().flatten().count()
+    }
+
+    #[must_use]
+    pub fn last_filled_idx(&self) -> usize {
+        self.iter()
+            .flatten()
+            .rev()
+            .position(|c| c.character != ' ')
+            .unwrap_or(0)
     }
 
     /// Whether [`Line`] contains zero _[`Span`]s_.
@@ -123,8 +124,10 @@ impl Line {
         fill_to: usize,
     ) {
         // Handles the case where an ESC[ is the first input for an empty line
-        if self.len() == 1 && self.num_cells() == 0 {
-            let mut span = self.get_mut_span(0).expect("verified line.len() == 1");
+        if self.len() == 1
+            && let Some(span) = self.get_mut_span(0)
+            && span.is_empty()
+        {
             span.set_colors(colors);
             span.set_attrs(attrs);
             return;
@@ -132,11 +135,13 @@ impl Line {
 
         let (span_idx, _) = self.span_at_col(col);
         match self.get_mut_span(span_idx) {
-            Some(mut span) => span.shrink(),
+            Some(mut span) => {
+                span.shrink();
+            }
             None => self.push(Span::new_empty(fill_to)),
         }
 
-        let span = Span::reserve_new(fill_to, Some(colors.get_colors()), Some(attrs));
+        let span = Span::new_empty_colors(fill_to, Some(colors.get_colors()), Some(attrs));
         self.push(span);
     }
 }
