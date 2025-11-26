@@ -1,3 +1,8 @@
+// #[cfg(feature = "cli")]
+// use crossterm::{
+//     execute,
+//     terminal::{Clear, ClearType},
+// };
 use std::ops::{Range, RangeInclusive};
 
 use crate::screen::{Line, Position, ScreenBuffer, TermPos, TranslatePos};
@@ -13,6 +18,8 @@ pub fn process_erase<W: std::io::Write>(
     match (kind, body) {
         // erase from cursor until end of screen
         (b'J', [] | [b'0']) => {
+            // #[cfg(feature = "gui")]
+            // {
             let buff_range = Range {
                 start: (sb.to_buff(sb.cursor).y + 1) as usize,
                 end: (sb.buff_rect().bottom() + 1) as usize,
@@ -20,10 +27,18 @@ pub fn process_erase<W: std::io::Write>(
 
             sb.clear_line_from_cursor();
             sb.clear_lines(buff_range);
+            // }
+            //
+            // #[cfg(feature = "cli")]
+            // execute!(stdout, Clear(ClearType::FromCursorDown));
         }
         // erase from cursor to beginning of screen
         (b'J', [b'1']) => {
-            // clear from beginning of screen to current line
+            // #[cfg(feature = "cli")]
+            // execute!(stdout, Clear(ClearType::FromCursorUp));
+            //
+            // #[cfg(feature = "gui")]
+            // {
             let buff_range = Range {
                 start: sb.view_start,
                 end: sb.to_buff(sb.cursor).y as usize,
@@ -31,6 +46,7 @@ pub fn process_erase<W: std::io::Write>(
 
             sb.clear_lines(buff_range);
             sb.clear_line_to_cursor();
+            // }
         }
         // erase entire screen - move cursor to ORIGIN
         // erase saved lines - same as erase entire screen
@@ -39,6 +55,9 @@ pub fn process_erase<W: std::io::Write>(
             sb.lines.push_back(Line::new_empty(usize::from(sb.width())));
             sb.view_start = sb.lines.len().saturating_sub(1);
             sb.cursor = Position::<TermPos>::ORIGIN;
+
+            // #[cfg(feature = "cli")]
+            // execute!(stdout, Clear(ClearType::All));
         }
         // erase from cursor until end of line
         (b'K', [] | [b'0']) => sb.clear_line_from_cursor(),
@@ -46,11 +65,17 @@ pub fn process_erase<W: std::io::Write>(
         (b'K', [b'1']) => sb.clear_line_to_cursor(),
         // erase the entire line
         (b'K', [b'2']) => {
+            // #[cfg(feature = "cli")]
+            // execute!(stdout, Clear(ClearType::CurrentLine));
+            //
+            // #[cfg(feature = "gui")]
+            // {
             sb.with_current_line(|line, _| {
                 line.iter_mut().flatten().for_each(|mut cell| {
                     cell.character = ' ';
                 });
             });
+            // }
         }
         _ => {}
     }
@@ -72,12 +97,13 @@ impl ScreenBuffer {
             line.iter_mut()
                 .flatten()
                 .skip(usize::from(cursor.x))
-                .for_each(|mut cell| {
+                .for_each(|cell| {
                     cell.character = ' ';
                 });
         });
     }
 
+    // #[cfg(feature = "gui")]
     pub(crate) fn clear_lines(&mut self, range: Range<usize>) {
         for line in self.lines.range_mut(range) {
             line.iter_mut().flatten().for_each(|cell| {

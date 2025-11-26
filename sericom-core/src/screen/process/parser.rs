@@ -7,6 +7,58 @@ pub enum ParserEvent {
     EscapeSequence(Vec<u8>),
 }
 
+impl std::fmt::Display for ParserEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use crate::screen::driver::EscSequenceType;
+        use crate::screen::driver::classify_escape_seq;
+        match self {
+            Self::Text(items) => {
+                let s = str::from_utf8(items).expect("parsed text is utf-8");
+                f.write_fmt(format_args!("Text( {s} )"))
+            }
+            Self::Control(b) => f.write_fmt(format_args!("Control( {b:#X} )")),
+            Self::EscapeSequence(items) => {
+                let Some(etype) = classify_escape_seq(items) else {
+                    return f.write_str("INVALID ESC SEQ");
+                };
+
+                let s = match etype {
+                    EscSequenceType::Cursor(_) => {
+                        let mut s = String::new();
+                        for b in &items[2..items.len()] {
+                            s.push(char::from(*b));
+                        }
+                        format!("Cursor( ESC[{s} )")
+                    }
+                    EscSequenceType::Erase(_) => {
+                        let mut s = String::new();
+                        for b in &items[2..items.len()] {
+                            s.push(char::from(*b));
+                        }
+                        format!("Erase( ESC[{s} )")
+                    }
+                    EscSequenceType::Graphics => {
+                        let mut s = String::new();
+                        for b in &items[2..items.len()] {
+                            s.push(char::from(*b));
+                        }
+                        format!("Graphics( ESC[{s} )")
+                    }
+                    EscSequenceType::Screen(_) => {
+                        let mut s = String::new();
+                        for b in &items[2..items.len()] {
+                            s.push(char::from(*b));
+                        }
+                        format!("Screen( ESC[{s} )")
+                    }
+                };
+
+                f.write_str(&s)
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ParseState {
     Normal,

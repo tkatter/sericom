@@ -1,7 +1,7 @@
-use crate::{
-    screen::ScreenBuffer,
-    screen::position::{Cursor, Position},
-    screen::process::SEP,
+use crate::screen::{
+    ScreenBuffer, TermPos,
+    position::{Cursor, Position},
+    process::SEP,
 };
 
 fn ascii_digits_to_integer(body: &[u8]) -> Option<u16> {
@@ -28,8 +28,8 @@ pub fn process_cursor<W: std::io::Write>(
         let mut parts = body.split(|&b| b == SEP);
         let row = parts.next().and_then(ascii_digits_to_integer);
         let col = parts.next().and_then(ascii_digits_to_integer);
-        if let (Some(r), Some(c)) = (row, col) {
-            sb.set_cursor_pos((r, c));
+        if let (Some(c), Some(r)) = (col, row) {
+            sb.set_cursor_pos((c, r));
         }
     } else if kind == b'n' && body == [b'6'] {
         // request cursor pos

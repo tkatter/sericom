@@ -8,8 +8,6 @@ pub use cursor::process_cursor;
 pub use parser::{ByteParser, ParseState, ParserEvent};
 pub use screen::{process_erase, process_screen};
 
-#[cfg(test)]
-pub(crate) mod tests;
 pub(crate) use parser::*;
 
 /// Bracket '['

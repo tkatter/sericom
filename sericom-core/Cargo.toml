@@ -8,12 +8,17 @@ edition.workspace = true
 exclude.workspace = true
 repository.workspace = true
 
+[features]
+default = ["cli"]
+cli = ["dep:crossterm"]
+gui = []
+
 [dependencies]
 serde = { version = "1.0.228", features = ["derive"] }
 thiserror = "2.0.17"
 toml = "0.9.8"
 chrono.workspace = true
-crossterm.workspace = true
+crossterm = { workspace = true, optional = true }
 miette.workspace = true
 serial2-tokio.workspace = true
 tokio.workspace = true

@@ -1,5 +1,7 @@
 use std::{fmt::Display, marker::PhantomData};
 
+use crate::screen::Line;
+
 use super::Rect;
 use super::ScreenBuffer;
 
@@ -50,6 +52,10 @@ impl Position<TermPos> {
 }
 
 impl<S: Scope + PosType> Position<S> {
+    pub const fn tab(&mut self) {
+        let tab_width = 8;
+        let tab = tab_width - (self.x % tab_width);
+    }
     pub const fn set_y(&mut self, y: PosY<S>) {
         self.y = y;
     }
@@ -193,7 +199,6 @@ impl Cursor for ScreenBuffer {
             new_pos.y = bounds.bottom();
         }
 
-        u16::try_from(32_usize);
         self.cursor.set_pos_from(new_pos);
     }
 
@@ -214,15 +219,14 @@ impl Cursor for ScreenBuffer {
         self.cursor.y = self.cursor.y.saturating_sub(lines);
     }
 
-    // TODO: Add in logic for pushing empty/new lines to ScreenBuffer::lines
-    // if the cursor is trying to go past ScreenBuffer::lines.len()
     fn move_cursor_down(&mut self, lines: u16) {
         let bounds = self.bounds();
         let mut new_y = self.cursor.y.saturating_add(lines);
-        if new_y > bounds.bottom() {
-            new_y = bounds.bottom();
+
+        // TODO: FIGURE OUT LINE PUSHING
+        if new_y <= bounds.bottom() {
+            self.cursor.y = new_y;
         }
-        self.cursor.y = new_y;
     }
 
     fn set_cursor_col(&mut self, col: u16) {

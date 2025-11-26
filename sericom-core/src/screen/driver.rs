@@ -28,6 +28,7 @@ impl<'a, W: std::io::Write> ScreenDriver<'a, W> {
 
     pub fn process_events(&mut self, events: Vec<ParserEvent>) {
         for ev in events {
+            eprintln!("{ev}");
             match ev {
                 ParserEvent::Text(bytes) => self.write_text(&bytes),
                 ParserEvent::Control(ctrl) => self.handle_control(ctrl),
@@ -36,14 +37,15 @@ impl<'a, W: std::io::Write> ScreenDriver<'a, W> {
         }
     }
 
-    // TODO: HANDLE CHECKING TO SEE IF THE CURSOR IS OVER AN EXISTING
-    // SPAN/LINE BEFORE WRITING - IF SO, NEED TO SPLIT APPROPRIATLY
     fn write_text(&mut self, bytes: &[u8]) {
-        self.buffer.curr_line().is_some_and(|line| line.len() > 0);
         let chars: Vec<char> = bytes.iter().map(|b| char::from(*b)).collect();
         let num_chars = chars.len();
 
-        self.buffer.with_current_span(|span, _| {
+        self.buffer.with_current_span(|span, cursor| {
+            if !span.is_empty() {
+                span.cells.truncate(cursor.x.into());
+            }
+
             for ch in chars {
                 span.push(Cell::new(ch));
             }
@@ -59,28 +61,43 @@ impl<'a, W: std::io::Write> ScreenDriver<'a, W> {
         match ctrl {
             BS => self.buffer.move_cursor_left(1),
             NL => {
-                self.buffer.with_current_span(|span, _| {
-                    span.push(Cell::NEWLINE);
-                    span.shrink();
+                // #[cfg(feature = "cli")]
+                // {
+                self.buffer.with_current_line(|line, _| {
+                    // pushing to the end of line unconditionally because
+                    // NL is always the end of a line, and if received a CR
+                    // before NL, then `with_current_span` would behave incorrect
+                    if let Some(span) = line.0.last_mut() {
+                        span.push(Cell::NEWLINE);
+                        span.shrink();
+                    }
                 });
+                self.buffer.set_cursor_col(0);
                 self.buffer.move_cursor_down(1);
                 self.buffer
                     .push_line(Line::reserve_new(self.buffer.width() as usize));
-                // let remainder = self.buffer.width() as usize
-                //     - (self.buffer.curr_line().map_or_else(|| 0, Line::num_cells));
-                // if remainder != 0 {
-                //     self.buffer.with_current_span(|span, _| {
-                //         let width = remainder + span.cells.len();
-                //         span.fill_to_width(width);
-                //     });
                 // }
-                // self.buffer
-                //     .push_line(Line::reserve_new(self.buffer.width() as usize));
-                // self.buffer.set_cursor_col(0);
+                // #[cfg(feature = "gui")] // fills span to ScreenBuffer::width()
+                // {
+                //     let remainder = self.buffer.width() as usize
+                //         - (self.buffer.curr_line().map_or_else(|| 0, Line::num_cells));
+                //     if remainder != 0 {
+                //         self.buffer.with_current_span(|span, _| {
+                //             let width = remainder + span.cells.len();
+                //             span.fill_to_width(width);
+                //         });
+                //     }
+                //     self.buffer
+                //         .push_line(Line::reserve_new(self.buffer.width() as usize));
+                //     self.buffer.set_cursor_col(0);
+                // }
             }
-            TAB => self.buffer.with_current_span(|span, _| {
-                span.push(Cell::TAB);
-            }),
+            TAB => {
+                self.buffer.with_current_span(|span, _| {
+                    span.push(Cell::TAB);
+                });
+                self.buffer.cursor.tab();
+            }
             CR => {
                 self.buffer.with_current_span(|span, _| {
                     span.push(Cell::CARRIGE);
@@ -109,7 +126,7 @@ impl<'a, W: std::io::Write> ScreenDriver<'a, W> {
                 self.buffer
                     .handle_span_colors(&self.color_state, self.attrs);
             }
-            EscSequenceType::Screen(_kind) => {} // process_screen(seq, kind, self.buffer),
+            EscSequenceType::Screen(_kind) => { /* process_screen(seq, kind, self.buffer) */ }
         }
     }
 }
@@ -126,7 +143,18 @@ pub enum EscSequenceType {
     Screen(u8),
 }
 
-fn classify_escape_seq(seq: &[u8]) -> Option<EscSequenceType> {
+impl std::fmt::Display for EscSequenceType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Cursor(b) => todo!(),
+            Self::Erase(b) => todo!(),
+            Self::Graphics => todo!(),
+            Self::Screen(b) => todo!(),
+        }
+    }
+}
+
+pub(crate) fn classify_escape_seq(seq: &[u8]) -> Option<EscSequenceType> {
     // https://gist.github.com/fnky/458719343aabd01cfb17a3a4f7296797
     // Ensures the sequence resembles: ESC[<sequence>
     if seq.len() < 3 || seq[0] != ESC || seq[1] != BK {

@@ -1,7 +1,7 @@
 use std::fmt::Display;
 use std::ops::{Index, IndexMut};
 
-use crossterm::style::Attributes;
+use crossterm::style::{Attributes, Colors, SetAttributes, SetColors};
 
 use crate::screen::ColorState;
 use crossterm::csi;
@@ -13,34 +13,7 @@ use super::Span;
 #[derive(Debug, Clone, Eq, PartialEq, Default)]
 pub struct Line(pub Vec<Span>);
 
-impl crossterm::Command for Line {
-    fn write_ansi(&self, f: &mut impl std::fmt::Write) -> std::fmt::Result {
-        use crossterm::style::PrintStyledContent;
-        for span in self.iter() {
-            PrintStyledContent(span.styled()).write_ansi(f)?;
-        }
-
-        Ok(())
-    }
-}
-
 impl Line {
-    /// Create a new line with the length/size of `width`.
-    ///
-    /// Filled with `span`.
-    #[must_use]
-    pub fn new(width: usize, span: Span) -> Self {
-        Self(vec![span; width])
-    }
-
-    /// Create a new line with the length/size of `width`.
-    ///
-    /// Filled with [`Cell::default()`].
-    #[must_use]
-    pub fn new_default(width: usize) -> Self {
-        Self(vec![Span::default(); width])
-    }
-
     /// Create a new line with a single [`Span`] with the length/size of `width`.
     ///
     /// The [`Span`] is filled with [`Cell::EMPTY`].
@@ -58,36 +31,6 @@ impl Line {
         Self(vec![Span::reserve_new(width, None, None); 1])
     }
 
-    /// Iterates over all the [`Cell`]s within the line and sets them to [`Cell::default()`].
-    pub fn reset(&mut self) {
-        self.0.iter_mut().for_each(|span| {
-            span.reset();
-        });
-    }
-
-    // /// Iterates over the [`Cell`]s to index `idx` within [`Self`]
-    // /// and sets them to [`Cell::default()`].
-    // pub fn reset_to(&mut self, idx: usize) {
-    //     let (span, offset) = self.span_at_col(idx);
-    //     self.0[..=span]
-    //         .iter_mut()
-    //         .for_each(|cell| *cell = Cell::default());
-    // }
-
-    // /// Iterates over the [`Cell`]s from index `idx` within [`Self`]
-    // /// to the end of [`Self`] and sets them to [`Cell::default()`].
-    // pub fn reset_from(&mut self, idx: usize) {
-    //     self.0
-    //         .iter_mut()
-    //         .skip(idx)
-    //         .for_each(|cell| *cell = Cell::default());
-    // }
-    //
-    // /// Sets the character in [`Cell`] at [`Self`]\[`idx`\] to `ch`.
-    // pub fn set_char(&mut self, idx: usize, ch: char) {
-    //     self.0[idx].character = ch;
-    // }
-
     /// Util function to return the length of [`Self`].
     #[must_use]
     #[allow(clippy::len_without_is_empty)]
@@ -99,7 +42,8 @@ impl Line {
     pub fn clear_selection(&mut self) {
         self.0
             .iter_mut()
-            .for_each(|span| span.iter_mut().for_each(|cell| cell.is_selected = false));
+            .flatten()
+            .for_each(|cell| cell.is_selected = false);
     }
 
     /// Returns a reference to [`Span`] at `idx`.
@@ -169,21 +113,6 @@ impl Line {
         self.0.push(span);
     }
 
-    // /// Returns the index of the last cell within a line where the [`Cell`] != [`Cell::EMPTY`]
-    // pub fn last_cell_idx(&self) -> usize {
-    //     if self.0.is_empty() {
-    //         return 0;
-    //     }
-    //     let mut offset = self.0.iter().map(|s| s.cells.len()).sum::<usize>();
-    //     for span in self.0.iter().rev() {
-    //         offset -= span.cells.len();
-    //         if let Some(pos) = span.cells.iter().rposition(|c| *c != Cell::EMPTY) {
-    //             return offset + pos;
-    //         }
-    //     }
-    //     0
-    // }
-
     /// Shrinks the span at `col` to `span.len()` and creates a new span with
     /// capacity of `fill_to`, `colors` and `attrs`. See [`Span::reserve_new`].
     pub fn split_spans(
@@ -251,6 +180,94 @@ impl IndexMut<usize> for Line {
         &mut self.0[index]
     }
 }
+
+impl crossterm::Command for Line {
+    fn write_ansi(&self, f: &mut impl std::fmt::Write) -> std::fmt::Result {
+        use crossterm::style::PrintStyledContent;
+        let mut spans = self.iter();
+        let Some(first) = spans.next() else {
+            return Ok(());
+        };
+
+        let mut colors = first.colors;
+        let mut attrs = first.attrs;
+
+        SetColors(colors).write_ansi(f)?;
+        SetAttributes(attrs).write_ansi(f)?;
+        first.write_ansi(f)?;
+
+        for span in spans {
+            if span.colors != colors {
+                SetColors(span.colors).write_ansi(f)?;
+                colors = span.colors;
+            }
+
+            if span.attrs != attrs {
+                SetAttributes(span.attrs).write_ansi(f)?;
+                attrs = span.attrs;
+            }
+
+            span.write_ansi(f)?;
+        }
+
+        Ok(())
+    }
+}
+
+// impl Line {
+// /// Create a new line with the length/size of `width`.
+// ///
+// /// Filled with `span`.
+// #[must_use]
+// pub fn new(width: usize, span: Span) -> Self {
+//     Self(vec![span; width])
+// }
+
+// /// Iterates over all the [`Cell`]s within the line and sets them to [`Cell::default()`].
+// pub fn reset(&mut self) {
+//     self.0.iter_mut().for_each(|span| {
+//         span.reset();
+//     });
+// }
+
+// /// Iterates over the [`Cell`]s to index `idx` within [`Self`]
+// /// and sets them to [`Cell::default()`].
+// pub fn reset_to(&mut self, idx: usize) {
+//     let (span, offset) = self.span_at_col(idx);
+//     self.0[..=span]
+//         .iter_mut()
+//         .for_each(|cell| *cell = Cell::default());
+// }
+
+// /// Iterates over the [`Cell`]s from index `idx` within [`Self`]
+// /// to the end of [`Self`] and sets them to [`Cell::default()`].
+// pub fn reset_from(&mut self, idx: usize) {
+//     self.0
+//         .iter_mut()
+//         .skip(idx)
+//         .for_each(|cell| *cell = Cell::default());
+// }
+//
+// /// Sets the character in [`Cell`] at [`Self`]\[`idx`\] to `ch`.
+// pub fn set_char(&mut self, idx: usize, ch: char) {
+//     self.0[idx].character = ch;
+// }
+
+// /// Returns the index of the last cell within a line where the [`Cell`] != [`Cell::EMPTY`]
+// pub fn last_cell_idx(&self) -> usize {
+//     if self.0.is_empty() {
+//         return 0;
+//     }
+//     let mut offset = self.0.iter().map(|s| s.cells.len()).sum::<usize>();
+//     for span in self.0.iter().rev() {
+//         offset -= span.cells.len();
+//         if let Some(pos) = span.cells.iter().rposition(|c| *c != Cell::EMPTY) {
+//             return offset + pos;
+//         }
+//     }
+//     0
+// }
+// }
 
 // #[cfg(test)]
 // mod tests {
@@ -331,43 +348,5 @@ impl IndexMut<usize> for Line {
 //
 //         assert_eq!(line1.last_cell_idx(), 10);
 //         assert_eq!(line1.get_span(0).unwrap().cells.get(10).unwrap(), &cell);
-//     }
-// }
-
-#[test]
-fn flatten_spans_to_cells() {
-    use crate::configs::*;
-
-    const CONF_OR: ConfigOverride = ConfigOverride {
-        color: None,
-        out_dir: None,
-        exit_script: None,
-    };
-
-    initialize_config(CONF_OR).ok();
-
-    let span = Span::new_empty(5);
-    let mut line = Line::new(4, span);
-
-    assert_eq!(line.len(), 4);
-
-    let idx: usize = 12;
-
-    let mut acc = 0;
-    line.iter_mut().flatten().skip(idx).for_each(|mut cell| {
-        cell.character = 'c';
-        dbg!(cell);
-    });
-
-    assert_eq!(3, 4);
-}
-
-// impl std::fmt::Display for Line {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         use crossterm::QueueableCommand;
-//         use crossterm::style::{PrintStyledContent, StyledContent};
-//         let v: Vec<StyledContent<String>> = self.iter().map(Span::styled).collect();
-//         let mut out = std::io::stdout();
-//         todo!();
 //     }
 // }

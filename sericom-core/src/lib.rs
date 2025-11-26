@@ -11,6 +11,9 @@
 #![allow(clippy::missing_errors_doc)]
 #![allow(clippy::missing_panics_doc)]
 
+#[cfg(all(feature = "cli", feature = "gui"))]
+compile_error!("features `cli` and `gui` cannot be enabled simultaneosly");
+
 pub mod cli;
 pub mod configs;
 pub mod debug;

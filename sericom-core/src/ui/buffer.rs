@@ -8,9 +8,9 @@ pub struct Buffer {
 }
 impl Buffer {
     pub fn reset(&mut self) {
-        for line in &mut self.content {
-            line.reset();
-        }
+        // for line in &mut self.content {
+        //     line.reset();
+        // }
     }
     #[must_use]
     pub fn empty(area: Rect<TermPos>) -> Self {
@@ -19,7 +19,8 @@ impl Buffer {
 
     #[must_use]
     pub fn filled(area: Rect<TermPos>, span: Span) -> Self {
-        let line = Line::new(area.width.into(), span);
+        // let line = Line::new(area.width.into(), span);
+        let line = Line::reserve_new(area.width.into());
         let size = area.height as usize;
         let content = vec![line; size];
         Self { area, content }

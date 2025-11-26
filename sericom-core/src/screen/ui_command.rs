@@ -120,14 +120,16 @@ impl UIAction for ScreenBuffer {
         self.lines.clear();
         self.view_start = 0;
         self.set_cursor_pos((0_u16, 0_usize));
-        self.lines.push_back(Line::new_default(self.width().into()));
+        self.lines
+            .push_back(Line::reserve_new(usize::from(self.width())));
         // self.needs_render = true;
     }
 
     /// Clears the current *visible* screen while keeping the buffer's history
     fn clear_screen(&mut self) {
         for _ in 0..self.rect.height {
-            self.lines.push_back(Line::new_default(self.width().into()));
+            self.lines
+                .push_back(Line::reserve_new(usize::from(self.width())));
         }
         self.view_start = self.lines.len().saturating_sub(self.rect.height as usize);
         // self.needs_render = true;

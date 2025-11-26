@@ -3,8 +3,9 @@ use std::{
     ops::{Deref, Index, IndexMut},
 };
 
-use crossterm::style::{
-    Attribute, Attributes, Color, Colors, ContentStyle, StyledContent, Stylize,
+use crossterm::{
+    Command,
+    style::{Attribute, Attributes, Color, Colors, ContentStyle, StyledContent, Stylize},
 };
 
 use crate::{configs::get_config, screen::Cell, screen::process::ColorState};
@@ -34,12 +35,15 @@ impl Span {
         let bg = Color::from(&config.appearance.bg);
         Colors::new(fg, bg)
     }
+
     pub(crate) const fn set_attrs(&mut self, attrs: Attributes) {
         self.attrs = attrs;
     }
+
     pub(crate) fn add_attr(&mut self, attr: Attribute) {
         self.attrs.set(attr);
     }
+
     pub(crate) fn reset(&mut self) {
         self.cells.iter_mut().for_each(|cell| {
             *cell = Cell::EMPTY;
@@ -47,6 +51,7 @@ impl Span {
         self.attrs = Attributes::default();
         self.colors = Self::get_config_colors();
     }
+
     pub(crate) fn new_empty(width: usize) -> Self {
         let colors = Self::get_config_colors();
         Self {
@@ -55,6 +60,7 @@ impl Span {
             colors,
         }
     }
+
     /// Creates a new [`Span`] and reserves space for `width` of [`Cell`]s.
     ///
     /// This calls [`Vec::with_capacity()`] and does not create any [`Cell`]s.
@@ -73,31 +79,40 @@ impl Span {
             colors,
         }
     }
+
     pub(crate) fn fill_to_width(&mut self, width: usize) {
         self.cells.resize(width, Cell::EMPTY);
     }
+
     pub(crate) fn shrink(&mut self) {
         let size = self.cells.len();
         self.cells.shrink_to(size);
     }
+
     pub(crate) fn push(&mut self, cell: Cell) {
         self.cells.push(cell);
     }
+
     pub(crate) const fn len(&self) -> usize {
         self.cells.len()
     }
+
     pub(crate) const fn set_colors(&mut self, colors: &ColorState) {
         self.colors = colors.get_colors();
     }
+
     pub(crate) const fn is_empty(&self) -> bool {
         self.cells.is_empty()
     }
+
     pub fn iter(&self) -> std::slice::Iter<'_, Cell> {
         self.cells.iter()
     }
+
     pub fn iter_mut(&mut self) -> std::slice::IterMut<'_, Cell> {
         self.cells.iter_mut()
     }
+
     /// Returns the number of [`Cell`]s in a [`Span`] that are not [`Cell::EMPTY`]
     #[must_use]
     pub fn num_filled_cells(&self) -> usize {
@@ -105,6 +120,34 @@ impl Span {
             .iter()
             .filter(|&cell| *cell != Cell::EMPTY)
             .count()
+    }
+
+    const fn content_style(&self) -> ContentStyle {
+        ContentStyle {
+            foreground_color: self.colors.foreground,
+            background_color: self.colors.background,
+            underline_color: None,
+            attributes: self.attrs,
+        }
+    }
+
+    pub(crate) const fn colors(&self) -> Colors {
+        self.colors
+    }
+
+    pub(crate) const fn attrs(&self) -> Attributes {
+        self.attrs
+    }
+
+    pub(crate) fn styled(&self) -> StyledContent<String> {
+        let s = String::from_iter(&self.cells);
+        self.content_style().apply(s)
+    }
+}
+
+impl Command for Span {
+    fn write_ansi(&self, f: &mut impl std::fmt::Write) -> std::fmt::Result {
+        f.write_str(&String::from_iter(&self.cells))
     }
 }
 
@@ -148,19 +191,14 @@ impl IndexMut<usize> for Span {
     }
 }
 
-impl Span {
-    fn content_style(&self) -> ContentStyle {
-        ContentStyle {
-            foreground_color: self.colors.foreground,
-            background_color: self.colors.background,
-            underline_color: None,
-            attributes: self.attrs,
+impl FromIterator<char> for Span {
+    fn from_iter<T: IntoIterator<Item = char>>(iter: T) -> Self {
+        let colors = Self::get_config_colors();
+        Self {
+            cells: iter.into_iter().map(Cell::from).collect(),
+            colors,
+            attrs: Attributes::default(),
         }
-    }
-
-    pub(crate) fn styled(&self) -> StyledContent<String> {
-        let s = String::from_iter(self.cells.iter());
-        self.content_style().apply(s)
     }
 }
 

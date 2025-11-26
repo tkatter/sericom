@@ -49,6 +49,12 @@ impl From<char> for Cell {
     }
 }
 
+impl From<&char> for Cell {
+    fn from(value: &char) -> Self {
+        Self::new(*value)
+    }
+}
+
 impl From<Cell> for char {
     fn from(value: Cell) -> Self {
         value.character

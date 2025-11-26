@@ -105,6 +105,7 @@ impl ScreenBuffer {
         f: F,
     ) {
         let buff_pos = self.to_buff(self.cursor);
+        eprintln!("buffer pos: {buff_pos:?}");
         let line = self.curr_line_mut();
 
         f(line, &buff_pos);
