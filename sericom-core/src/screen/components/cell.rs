@@ -1,9 +1,5 @@
 use std::ops::{Deref, DerefMut};
 
-use crossterm::style::Color;
-
-use crate::configs::get_config;
-
 /// `Cell` represents a cell within the terminal's window/frame.
 ///
 /// Used to hold rendering state for all the cells within the [`ScreenBuffer`][`super::ScreenBuffer`].
@@ -69,5 +65,11 @@ impl Default for Cell {
             character: ' ',
             is_selected: false,
         }
+    }
+}
+
+impl<'a> FromIterator<&'a Cell> for std::string::String {
+    fn from_iter<T: IntoIterator<Item = &'a Cell>>(iter: T) -> Self {
+        iter.into_iter().map(Deref::deref).collect::<Self>()
     }
 }

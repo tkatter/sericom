@@ -20,7 +20,7 @@ impl Buffer {
     #[must_use]
     pub fn filled(area: Rect<TermPos>, span: Span) -> Self {
         // let line = Line::new(area.width.into(), span);
-        let line = Line::reserve_new(area.width.into());
+        let line = Line::new_empty(area.width.into());
         let size = area.height as usize;
         let content = vec![line; size];
         Self { area, content }

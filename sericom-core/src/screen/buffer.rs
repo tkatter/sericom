@@ -67,23 +67,19 @@ impl ScreenBuffer {
 
     pub fn save_cursor_pos<W: std::io::Write>(&mut self, stdout: &mut W) {
         use crossterm::cursor::SavePosition;
-        crossterm::execute!(stdout, SavePosition);
+        let _ = crossterm::execute!(stdout, SavePosition);
     }
 
     pub fn restore_cursor_pos<W: std::io::Write>(&mut self, stdout: &mut W) {
         use crossterm::cursor::RestorePosition;
-        crossterm::execute!(stdout, RestorePosition);
+        let _ = crossterm::execute!(stdout, RestorePosition);
     }
 
     pub(crate) fn handle_span_colors(&mut self, colors: &super::ColorState, attrs: Attributes) {
-        let (curr_col, width): (usize, usize);
-        curr_col = self.cursor.x.into();
-        width = self.width().into();
+        let curr_col = self.cursor.x.into();
 
         let line = self.curr_line_mut();
-        let remainder = width.saturating_sub(line.last_filled_idx());
-
-        line.split_spans(colors, attrs, curr_col, remainder);
+        line.split_spans(colors, attrs, curr_col);
     }
 
     pub(crate) fn with_current_span<F: FnOnce(&mut super::Span, usize)>(&mut self, f: F) {
@@ -103,7 +99,6 @@ impl ScreenBuffer {
         f: F,
     ) {
         let buff_pos = self.to_buff(self.cursor);
-        eprintln!("buffer pos: {buff_pos:?}");
         let line = self.curr_line_mut();
 
         f(line, &buff_pos);

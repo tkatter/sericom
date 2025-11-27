@@ -109,7 +109,7 @@ fn bold_italic_span() {
     assert_span_eq!(sb, 0, 0, attrs => span_attrs);
 }
 
-#[test]
+#[test_log::test]
 #[allow(clippy::cognitive_complexity)]
 fn multiline_multicolor() {
     setup!(sb, parser, config, stdout);

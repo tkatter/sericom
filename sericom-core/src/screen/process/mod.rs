@@ -6,9 +6,7 @@ mod screen;
 pub use colors::{ColorState, process_colors};
 pub use cursor::process_cursor;
 pub use parser::{ByteParser, ParseState, ParserEvent};
-pub use screen::{process_erase, process_screen};
-
-pub(crate) use parser::*;
+pub use screen::process_erase;
 
 /// Bracket '['
 pub(crate) const BK: u8 = b'[';

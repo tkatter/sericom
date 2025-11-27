@@ -1,21 +1,24 @@
-use std::fmt::{self, Debug, Write};
+use std::fmt::Write;
 
 use crossterm::style::Attributes;
-use tracing::Instrument;
 
 use crate::screen::process::SEP;
 
 use super::ScreenBuffer;
-use super::components::{Cell, Line, Span};
-use super::position::{Cursor, TranslatePos};
+use super::components::{Cell, Line};
+use super::position::Cursor;
 use super::process::{BK, BS, CR, ColorState, ESC, FF, NL, ParserEvent, TAB};
-use super::{process_colors, process_cursor, process_erase, process_screen};
+use super::{process_colors, process_cursor, process_erase};
 
 /// The layer between incoming [`ParserEvent`]s and the [`ScreenBuffer`].
 pub struct ScreenDriver<'a, W: std::io::Write> {
     buffer: &'a mut ScreenBuffer,
     color_state: ColorState,
     attrs: Attributes,
+    // TODO: Figure out if this is necessary, implemented Command for Line and
+    // Span, so the only thing I can think that this would be useful for is
+    // clearing the screen.
+    //
     // stdout gives access to call crossterm::execute!/queue!
     stdout: &'a mut W,
 }
@@ -31,9 +34,9 @@ impl<'a, W: std::io::Write> ScreenDriver<'a, W> {
     }
 
     pub fn process_events(&mut self, events: Vec<ParserEvent>) {
-        for ev in events {
-            tracing::trace!(target: "parser", event=%ev, "Processing event");
-            match ev {
+        for event in events {
+            tracing::trace!(target: "parser::events", %event);
+            match event {
                 ParserEvent::Text(bytes) => self.write_text(&bytes),
                 ParserEvent::Control(ctrl) => self.handle_control(ctrl),
                 ParserEvent::EscapeSequence(seq) => self.handle_escape(&seq),
@@ -44,7 +47,7 @@ impl<'a, W: std::io::Write> ScreenDriver<'a, W> {
     fn write_text(&mut self, bytes: &[u8]) {
         self.buffer.with_current_span(|span, offset| {
             for (cell, ch) in span.cells.iter_mut().skip(offset).zip(bytes) {
-                // can cast ch as char because the parse will only pass utf-8
+                // can cast ch as char because the parser will only pass utf-8
                 cell.character = *ch as char;
             }
         });
@@ -59,38 +62,23 @@ impl<'a, W: std::io::Write> ScreenDriver<'a, W> {
         match ctrl {
             BS => self.buffer.move_cursor_left(1),
             NL => {
-                // #[cfg(feature = "cli")]
-                // {
                 self.buffer.with_current_line(|line, _| {
                     // pushing to the end of line unconditionally because
                     // NL is always the end of a line, and if received a CR
                     // before NL, then `with_current_span` would behave incorrect
-                    if let Some(span) = line.0.last_mut()
-                        && let Some(cell) = span.cells.last_mut()
-                    {
-                        cell.character = NL as char;
-                        span.shrink();
+                    if let Some(span) = line.0.last_mut() {
+                        let last = span.last_filled_idx();
+                        span.cells
+                            .get_mut(last)
+                            .expect("span len is greater than last filled cell")
+                            .character = '\n';
                     }
+                    tracing::trace!(target: "parser::newline", ?line);
                 });
                 self.buffer.set_cursor_col(0);
                 self.buffer.move_cursor_down(1);
                 self.buffer
                     .push_line(Line::new_empty(self.buffer.width() as usize));
-                // }
-                // #[cfg(feature = "gui")] // fills span to ScreenBuffer::width()
-                // {
-                //     let remainder = self.buffer.width() as usize
-                //         - (self.buffer.curr_line().map_or_else(|| 0, Line::num_cells));
-                //     if remainder != 0 {
-                //         self.buffer.with_current_span(|span, _| {
-                //             let width = remainder + span.cells.len();
-                //             span.fill_to_width(width);
-                //         });
-                //     }
-                //     self.buffer
-                //         .push_line(Line::reserve_new(self.buffer.width() as usize));
-                //     self.buffer.set_cursor_col(0);
-                // }
             }
             TAB => {
                 self.buffer.with_current_span(|span, _| {
@@ -98,13 +86,7 @@ impl<'a, W: std::io::Write> ScreenDriver<'a, W> {
                 });
                 self.buffer.cursor.tab();
             }
-            CR => {
-                self.buffer.with_current_span(|span, _| {
-                    span.push(Cell::CARRIGE);
-                    span.shrink();
-                });
-                self.buffer.set_cursor_col(0);
-            }
+            CR => self.buffer.set_cursor_col(0),
             // Not sure that FF needs to be handled
             #[allow(clippy::match_same_arms)]
             FF => {}
@@ -121,12 +103,11 @@ impl<'a, W: std::io::Write> ScreenDriver<'a, W> {
                     let _ = write!(output, "[");
                 } else if *b == SEP {
                     let _ = write!(output, ";");
-                } else {
-                    let _ = write!(output, "{}", *b as char);
                 }
+                let _ = write!(output, "{}", *b as char);
                 output
             });
-            tracing::trace!(target: "parser", sequence=%s, "Failed to classify escape sequence");
+            tracing::debug!(target: "parser::escape", sequence=%s, "Failed to classify escape sequence");
             return;
         };
         match seq_type {
@@ -156,18 +137,7 @@ pub enum EscSequenceType {
     Screen(u8),
 }
 
-impl std::fmt::Display for EscSequenceType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Cursor(b) => todo!(),
-            Self::Erase(b) => todo!(),
-            Self::Graphics => todo!(),
-            Self::Screen(b) => todo!(),
-        }
-    }
-}
-
-pub(crate) fn classify_escape_seq(seq: &[u8]) -> Option<EscSequenceType> {
+pub fn classify_escape_seq(seq: &[u8]) -> Option<EscSequenceType> {
     // https://gist.github.com/fnky/458719343aabd01cfb17a3a4f7296797
     // Ensures the sequence resembles: ESC[<sequence>
     if seq.len() < 3 || seq[0] != ESC || seq[1] != BK {

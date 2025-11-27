@@ -22,7 +22,7 @@ const RESET: &[u8] = &[ESC, BK, b'0', b'm'];
 
 #[test]
 fn clear_line_from_cursor() {
-    setup!(sb, parser, config, stdout);
+    setup!(sb, parser, _config, stdout);
     let s = "This is the first line\nThis is the second line\nThis is the third line\n";
     let s = [
         s.as_bytes(),
@@ -42,7 +42,7 @@ fn clear_line_from_cursor() {
 
 #[test]
 fn clear_from_cursor_to_top() {
-    setup!(sb, parser, config, stdout);
+    setup!(sb, parser, _config, stdout);
     let s = "This is the first line\n".to_owned()
         + "This is the second line\n"
         + "This is the third line\n"
@@ -70,7 +70,7 @@ fn clear_from_cursor_to_top() {
 
 #[test]
 fn clear_and_overwrite() {
-    setup!(sb, parser, config, stdout);
+    setup!(sb, parser, _config, stdout);
     let s = "This is the first line\n".to_owned()
         + "This is the second line\n"
         + "This is the third line\n"

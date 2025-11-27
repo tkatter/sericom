@@ -16,7 +16,7 @@ impl std::fmt::Display for ParserEvent {
                 let s = str::from_utf8(items).expect("parsed text is utf-8");
                 f.write_fmt(format_args!("Text( {s} )"))
             }
-            Self::Control(b) => f.write_fmt(format_args!("Control( {b:#X} )")),
+            Self::Control(b) => f.write_fmt(format_args!("Control( {b:#02X} )")),
             Self::EscapeSequence(items) => {
                 let Some(etype) = classify_escape_seq(items) else {
                     return f.write_str("INVALID ESC SEQ");

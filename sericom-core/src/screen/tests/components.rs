@@ -75,3 +75,55 @@ fn overwriting_span() {
 
     assert_eq!(span, [[Cell::EMPTY; 5], [Cell::new('a'); 5]].concat());
 }
+
+#[test]
+fn span_newline() {
+    initialize_config(CONFIG_OVERRIDE);
+
+    let mut span: Span = "my test span       ".chars().collect();
+    let res = span.last_filled_idx();
+    assert_eq!(12, res);
+    {
+        let c = span
+            .cells
+            .get_mut(res)
+            .expect("span len is greater than last filled cell");
+        c.character = '\n';
+    }
+
+    let res = span.last_filled_idx();
+    assert_eq!(13, res);
+
+    span.shrink();
+
+    assert_eq!(span.cells.capacity(), 13);
+    assert_eq!(span.cells.len(), 13);
+}
+
+#[test]
+fn line_last_filled() {
+    initialize_config(CONFIG_OVERRIDE);
+
+    let mut span1: Span = "first span".chars().collect();
+    let mut span2: Span = "second span       ".chars().collect();
+    let line = Line(vec![span1, span2]);
+
+    assert_eq!(line.last_filled_idx(), 20);
+    assert_eq!(line.iter().flatten().nth(20), Some(&Cell::new('n')));
+}
+
+#[test]
+fn line_num_filled() {
+    initialize_config(CONFIG_OVERRIDE);
+
+    let mut span1: Span = "first span".chars().collect();
+    let mut span2: Span = "second span       ".chars().collect();
+    let line = Line(vec![span1, span2]);
+
+    assert_eq!(line.filled_cells(), 21);
+
+    let mut span: Span = "                  ".chars().collect();
+    let line = Line(vec![span]);
+
+    assert_eq!(line.filled_cells(), 0);
+}

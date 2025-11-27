@@ -1,7 +1,5 @@
 use std::{fmt::Display, marker::PhantomData};
 
-use crate::screen::Line;
-
 use super::Rect;
 use super::ScreenBuffer;
 
@@ -55,6 +53,7 @@ impl<S: Scope + PosType> Position<S> {
     pub const fn tab(&mut self) {
         let tab_width = 8;
         let tab = tab_width - (self.x % tab_width);
+        self.x += tab;
     }
     pub const fn set_y(&mut self, y: PosY<S>) {
         self.y = y;
@@ -125,7 +124,7 @@ macro_rules! impl_from {
         impl From<$from> for $for {
             fn from((x, y): $from) -> Self {
                 Self {
-                    x: <$as>::try_from(y).expect("usize is within the width of terminal"),
+                    x: <$as>::try_from(x).expect("usize is within the width of terminal"),
                     y,
                     _phantom: PhantomData,
                 }
@@ -141,6 +140,7 @@ impl_from!((usize, u16), Position<TermPos>, x_as = u16);
 
 // -- BuffPos --//
 impl_from!((u16, u32), Position<BuffPos>);
+impl_from!((u16, usize), Position<BuffPos>, y_as = u32);
 
 pub trait HasBounds {
     type Bounds;
@@ -221,7 +221,7 @@ impl Cursor for ScreenBuffer {
 
     fn move_cursor_down(&mut self, lines: u16) {
         let bounds = self.bounds();
-        let mut new_y = self.cursor.y.saturating_add(lines);
+        let new_y = self.cursor.y.saturating_add(lines);
 
         // TODO: FIGURE OUT LINE PUSHING
         if new_y <= bounds.bottom() {
@@ -267,9 +267,8 @@ impl TranslatePos for ScreenBuffer {
     }
 
     fn to_buff(&self, pos: Position<TermPos>) -> Position<BuffPos> {
-        let buff_y = (u32::try_from(self.view_start)
-            .expect("ScreenBuffer is less than usize::MAX")
-            + u32::from(pos.y));
+        let buff_y = u32::try_from(self.view_start).expect("ScreenBuffer is less than usize::MAX")
+            + u32::from(pos.y);
         let buff_x = pos.x.clamp(0, self.width());
 
         Position::<BuffPos>::from((buff_x, buff_y))

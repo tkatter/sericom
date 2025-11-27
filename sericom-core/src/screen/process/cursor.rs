@@ -1,5 +1,5 @@
 use crate::screen::{
-    ScreenBuffer, TermPos,
+    ScreenBuffer,
     position::{Cursor, Position},
     process::SEP,
 };

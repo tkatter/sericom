@@ -1,16 +1,16 @@
-use std::{
-    fmt::Formatter,
-    ops::{Deref, Index, IndexMut},
-};
+use std::ops::{Index, IndexMut};
 
 use crossterm::{
     Command,
-    style::{Attribute, Attributes, Color, Colors, ContentStyle, StyledContent, Stylize},
+    style::{Attribute, Attributes, Color, Colors},
 };
 
-use crate::{configs::get_config, screen::Cell, screen::process::ColorState};
+use crate::{
+    configs::get_config,
+    screen::{Cell, process::ColorState},
+};
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct Span {
     pub(crate) cells: Vec<Cell>,
     pub(crate) attrs: Attributes,
@@ -29,6 +29,28 @@ impl Default for Span {
 }
 
 impl Span {
+    /// Splits `self` [0, idx) and returns a new [`Span`] [idx, len).
+    ///
+    /// The returned [`Span`] has the same properties (colors and attributes) as `self`.
+    pub(crate) fn split_at(&mut self, idx: usize) -> Self {
+        Self {
+            cells: self.cells.split_off(idx),
+            colors: self.colors,
+            attrs: self.attrs,
+        }
+    }
+
+    /// The index of the last [`Cell`] in `self` that is not whitespace.
+    #[must_use]
+    pub fn last_filled_idx(&self) -> usize {
+        self.len()
+            - self
+                .iter()
+                .rev()
+                .position(|c| c.character != ' ')
+                .unwrap_or(0)
+    }
+
     fn get_config_colors() -> Colors {
         let config = get_config();
         let fg = Color::from(&config.appearance.fg);
@@ -36,14 +58,22 @@ impl Span {
         Colors::new(fg, bg)
     }
 
+    /// Set the [`Attributes`] for `self`.
     pub(crate) const fn set_attrs(&mut self, attrs: Attributes) {
         self.attrs = attrs;
     }
 
+    /// Add an [`Attribute`] to [`Self`], if already set this does nothing.
     pub(crate) fn add_attr(&mut self, attr: Attribute) {
         self.attrs.set(attr);
     }
 
+    /// Reset all [`Cell`]s within `self`.
+    ///
+    /// Sets every [`Cell`] in [`Self`] to [`Cell::EMPTY`], sets [`Attributes`]
+    /// to [`Attributes::default()`] and [`Colors`] to those from [`Config::appearance`].
+    ///
+    /// [`Config::appearance`]: `crate::configs::Config::appearance`
     pub(crate) fn reset(&mut self) {
         self.cells.iter_mut().for_each(|cell| {
             *cell = Cell::EMPTY;
@@ -52,20 +82,11 @@ impl Span {
         self.colors = Self::get_config_colors();
     }
 
-    pub(crate) fn new_empty(width: usize) -> Self {
-        let colors = Self::get_config_colors();
-        Self {
-            cells: vec![Cell::EMPTY; width],
-            attrs: Attributes::default(),
-            colors,
-        }
-    }
-
-    pub(crate) fn new_empty_colors(
-        width: usize,
-        colors: Option<Colors>,
-        attrs: Option<Attributes>,
-    ) -> Self {
+    /// Creates a new [`Span`] filled with [`Cell::EMPTY`] to `width`.
+    ///
+    /// Create the [`Span`] with [`Colors`] and/or [`Attributes`]. If `None`,
+    /// uses colors from config file ([`get_config()`]) and [`Attributes::default()`].
+    pub fn new_empty(width: usize, colors: Option<Colors>, attrs: Option<Attributes>) -> Self {
         let colors = colors.unwrap_or_else(Self::get_config_colors);
         let attrs = attrs.unwrap_or_default();
         Self {
@@ -94,23 +115,35 @@ impl Span {
         }
     }
 
+    /// Resizes `self` to `width` with [`Cell::EMPTY`].
     pub(crate) fn fill_to_width(&mut self, width: usize) {
         self.cells.resize(width, Cell::EMPTY);
     }
 
-    pub(crate) fn shrink(&mut self) {
-        let size = self.cells.len();
+    /// Shrinks `self` to the last filled [`Cell`], think [`str::trim_end()`].
+    ///
+    /// Finds the last [`Cell`] in `self` that is not whitespace and truncates
+    /// `self` to that index, dropping any [`Cell`]s past it, and then calls
+    /// [`shrink_to()`] that same index to then truncate `self`s capacity.
+    ///
+    /// [`shrink_to()`]: `Vec::shrink_to()`
+    pub fn shrink(&mut self) {
+        let size = self.last_filled_idx();
+        self.cells.truncate(size);
         self.cells.shrink_to(size);
     }
 
+    /// Push a [`Cell`] to `self`.
     pub(crate) fn push(&mut self, cell: Cell) {
         self.cells.push(cell);
     }
 
+    /// Length of [`Cell`]s in `self`.
     pub(crate) const fn len(&self) -> usize {
         self.cells.len()
     }
 
+    /// Set the [`Colors`] for `self`.
     pub(crate) const fn set_colors(&mut self, colors: &ColorState) {
         self.colors = colors.get_colors();
     }
@@ -127,35 +160,12 @@ impl Span {
         self.cells.iter_mut()
     }
 
-    /// Returns the number of [`Cell`]s in a [`Span`] that are not [`Cell::EMPTY`]
-    #[must_use]
-    pub fn num_filled_cells(&self) -> usize {
-        self.cells
-            .iter()
-            .filter(|&cell| *cell != Cell::EMPTY)
-            .count()
-    }
-
-    const fn content_style(&self) -> ContentStyle {
-        ContentStyle {
-            foreground_color: self.colors.foreground,
-            background_color: self.colors.background,
-            underline_color: None,
-            attributes: self.attrs,
-        }
-    }
-
     pub(crate) const fn colors(&self) -> Colors {
         self.colors
     }
 
     pub(crate) const fn attrs(&self) -> Attributes {
         self.attrs
-    }
-
-    pub(crate) fn styled(&self) -> StyledContent<String> {
-        let s = String::from_iter(&self.cells);
-        self.content_style().apply(s)
     }
 }
 
@@ -216,8 +226,33 @@ impl FromIterator<char> for Span {
     }
 }
 
-impl<'a> FromIterator<&'a Cell> for std::string::String {
-    fn from_iter<T: IntoIterator<Item = &'a Cell>>(iter: T) -> Self {
-        iter.into_iter().map(Deref::deref).collect::<Self>()
+impl FromIterator<Cell> for Span {
+    fn from_iter<T: IntoIterator<Item = Cell>>(iter: T) -> Self {
+        let colors = Self::get_config_colors();
+        Self {
+            cells: iter.into_iter().collect(),
+            colors,
+            attrs: Attributes::default(),
+        }
+    }
+}
+
+impl std::fmt::Debug for Span {
+    /// Prints "Span[fg: {:?}, bg: {:?}, attrs: {:?}, len: {}, cap: {}] ( {cells} )"
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use std::fmt::Write;
+        use std::ops::Deref;
+
+        let mut s = format!(
+            "Span[fg: {:?}, bg: {:?}, attrs: {:?}, len: {}, cap: {}] ( ",
+            self.colors.foreground.unwrap(),
+            self.colors.background.unwrap(),
+            self.attrs,
+            self.cells.len(),
+            self.cells.capacity()
+        );
+        s.extend(self.cells.iter().map(Deref::deref));
+        s.push(')');
+        f.write_str(&s)
     }
 }

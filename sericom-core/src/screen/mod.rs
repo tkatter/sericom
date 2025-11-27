@@ -16,7 +16,7 @@
 //! connection in a [`VecDeque`]. It is important to note that
 //! currently, the **capacity of the [`VecDeque`] is hardcoded with a value of 10,000
 //! lines with [`MAX_SCROLLBACK`]**.
-#![deny(dead_code)]
+#![allow(dead_code)]
 #![allow(unused)]
 
 mod buffer;
@@ -38,6 +38,4 @@ pub use ui_command::{UIAction, UICommand};
 #[cfg(test)]
 pub(crate) mod tests;
 
-pub(in crate::screen) use process::{
-    process_colors, process_cursor, process_erase, process_screen,
-};
+pub(in crate::screen) use process::{process_colors, process_cursor, process_erase};

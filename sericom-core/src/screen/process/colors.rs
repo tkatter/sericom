@@ -43,15 +43,18 @@ impl ColorState {
         self.colors = Colors::new(Color::Reset, Color::Reset);
     }
     pub fn set_colors(&mut self, ascii_str: &str) {
+        use tracing::debug;
+
         self.colors = if let Some(colored) = Colored::parse_ansi(ascii_str) {
             eprintln!("{colored:#?}");
             self.colors.then(&colored.into())
         } else {
-            match Color::parse_ansi(ascii_str) {
-                Some(color) => eprintln!("Second try got: {color:#?}"),
-                None => eprintln!("Failed to parse ascii_str second time"),
+            if let Some(color) = Color::parse_ansi(ascii_str) {
+                debug!(target: "parser::colors", "Second try got: {color:#?}");
+            } else {
+                debug!("Failed to parse ascii_str second time");
             }
-            eprintln!("Failed to parse ascii_str");
+            debug!(target: "parser::colors", "Failed to parse ascii_str");
             self.colors
         };
     }
@@ -76,9 +79,6 @@ pub fn process_colors(seq: &[u8], color_state: &mut ColorState, attrs: &mut Attr
                     let part_str_len = part.len() + 1 + ident.len() + 1 + color.len();
                     let slice = &body[body_idx..body_idx + part_str_len];
 
-                    #[cfg(test)]
-                    eprintln!("slice: {}", str::from_utf8(slice).unwrap());
-
                     if let Ok(s) = std::str::from_utf8(slice) {
                         color_state.set_colors(s);
                     }
@@ -94,9 +94,6 @@ pub fn process_colors(seq: &[u8], color_state: &mut ColorState, attrs: &mut Attr
                     let part_str_len =
                         part.len() + 1 + ident.len() + 1 + r.len() + 1 + g.len() + 1 + b.len();
                     let slice = &body[body_idx..body_idx + part_str_len];
-
-                    #[cfg(test)]
-                    eprintln!("slice: {}", str::from_utf8(slice).unwrap());
 
                     if let Ok(s) = std::str::from_utf8(slice) {
                         color_state.set_colors(s);

@@ -1,37 +1,27 @@
-use std::fmt::Display;
 use std::ops::{Index, IndexMut};
 
-use crossterm::style::{Attributes, Colors, SetAttributes, SetColors};
+use crossterm::style::{Attributes, SetAttributes, SetColors};
 
 use crate::screen::ColorState;
-use crossterm::csi;
 
-use super::Cell;
 use super::Span;
 
-/// Line is a wrapper around [`Vec<Cell>`] and represents a line within the [`ScreenBuffer`][`super::ScreenBuffer`].
-#[derive(Debug, Clone, Eq, PartialEq, Default)]
+/// Line is a wrapper around [`Vec<Cell>`] and represents a line within the [`ScreenBuffer`][`super::super::ScreenBuffer`].
+#[derive(Clone, Eq, PartialEq, Default)]
 pub struct Line(pub Vec<Span>);
 
 impl Line {
-    /// Create a new line with a single [`Span`] with the length/size of `width`.
+    /// Create a new [`Line`] with a single [`Span`] with the length of `width`.
     ///
-    /// The [`Span`] is filled with [`Cell::EMPTY`].
+    /// The [`Span`] is filled with [`Cell::EMPTY`], default [`Attributes`] and [`Colors`].
     #[must_use]
     pub fn new_empty(width: usize) -> Self {
-        Self(vec![Span::new_empty(width); 1])
+        Self(vec![Span::new_empty(width, None, None); 1])
     }
 
-    /// Create a new line with a single [`Span`] reserved with a capacity of
-    /// `width`, does not fill [`Self`] with any [`Cell`]s, just reserves space.
+    /// Util function to return the length of `self`.
     ///
-    /// [`Cell`]: crate::ui::Cell
-    #[must_use]
-    pub fn reserve_new(width: usize) -> Self {
-        Self(vec![Span::reserve_new(width, None, None); 1])
-    }
-
-    /// Util function to return the length of [`Self`].
+    /// **Note:** This returns the length as in the number of [`Span`]s _not_ [`Cell`]s.
     #[must_use]
     #[allow(clippy::len_without_is_empty)]
     pub const fn len(&self) -> usize {
@@ -46,13 +36,13 @@ impl Line {
             .for_each(|cell| cell.is_selected = false);
     }
 
-    /// Returns a reference to [`Span`] at `idx`.
+    /// Returns a reference to the [`Span`] at `idx`.
     #[must_use]
     pub fn get_span(&self, idx: usize) -> Option<&Span> {
         self.0.get(idx)
     }
 
-    /// Returns a mutable reference to [`Span`] at `idx`.
+    /// Returns a mutable reference to the [`Span`] at `idx`.
     pub fn get_mut_span(&mut self, idx: usize) -> Option<&mut Span> {
         self.0.get_mut(idx)
     }
@@ -75,25 +65,32 @@ impl Line {
         (self.0.len().saturating_sub(1), self.0.last().unwrap().len())
     }
 
-    /// The total number of [`Cell`]s, for all [`Span`]s in [`Line`], where the [`Cell`] != [`Cell::EMPTY`].
+    /// The total number of [`Cell`]s in `self`, where [`Cell`] != ' '.
+    ///
+    /// **Note:** This number includes whitespace between words since that is
+    /// generally the desired behavior.
     #[must_use]
-    pub fn num_filled_cells(&self) -> usize {
-        self.iter().flatten().filter(|c| **c != Cell::EMPTY).count()
+    pub fn filled_cells(&self) -> usize {
+        let last = self.last_filled_idx() + 1;
+        if self.num_cells() == last { 0 } else { last }
     }
 
-    /// The total number of [`Cell`]s for all [`Span`]s in [`Line`].
+    /// The total number of [`Cell`]s in `self`.
     #[must_use]
     pub fn num_cells(&self) -> usize {
         self.iter().flatten().count()
     }
 
+    /// The index of the last [`Cell`] in `self` where [`Cell`] != ' ' (whitespace).
     #[must_use]
     pub fn last_filled_idx(&self) -> usize {
-        self.iter()
-            .flatten()
-            .rev()
-            .position(|c| c.character != ' ')
-            .unwrap_or(0)
+        (self.num_cells() - 1)
+            - self
+                .iter()
+                .flatten()
+                .rev()
+                .position(|c| c.character != ' ')
+                .unwrap_or(0)
     }
 
     /// Whether [`Line`] contains zero _[`Span`]s_.
@@ -110,39 +107,38 @@ impl Line {
         self.0.iter_mut()
     }
 
+    /// Push a [`Span`] to `self`.
     pub fn push(&mut self, span: Span) {
         self.0.push(span);
     }
 
-    /// Shrinks the span at `col` to `span.len()` and creates a new span with
-    /// capacity of `fill_to`, `colors` and `attrs`. See [`Span::reserve_new`].
-    pub fn split_spans(
-        &mut self,
-        colors: &ColorState,
-        attrs: Attributes,
-        col: usize,
-        fill_to: usize,
-    ) {
+    /// Splits the [`Span`] at `col` and applies `colors` && `attrs` to the new [`Span`].
+    ///
+    /// If there is only a single [`Span`] in `self` and [`Self::num_filled_cells()`] == 0
+    /// then this will not split the [`Span`] or create a new one. Instead it will
+    /// just apply the [`ColorState`] and [`Attributes`] to that [`Span`].
+    pub fn split_spans(&mut self, colors: &ColorState, attrs: Attributes, col: usize) {
         // Handles the case where an ESC[ is the first input for an empty line
         if self.len() == 1
+            && self.filled_cells() == 0
             && let Some(span) = self.get_mut_span(0)
-            && span.is_empty()
         {
             span.set_colors(colors);
             span.set_attrs(attrs);
+            tracing::trace!(target: "line::split::first", ?span);
             return;
         }
 
-        let (span_idx, _) = self.span_at_col(col);
-        match self.get_mut_span(span_idx) {
-            Some(mut span) => {
-                span.shrink();
-            }
-            None => self.push(Span::new_empty(fill_to)),
-        }
-
-        let span = Span::new_empty_colors(fill_to, Some(colors.get_colors()), Some(attrs));
-        self.push(span);
+        let (span_idx, offset) = self.span_at_col(col);
+        let Some(span) = self.get_mut_span(span_idx) else {
+            tracing::trace!(target: "line::split", %col, %span_idx, "FAILED TO GET SPAN");
+            return;
+        };
+        tracing::trace!(target: "line::split::rest", ?span);
+        let mut new = span.split_at(offset);
+        new.set_colors(colors);
+        new.set_attrs(attrs);
+        self.push(new);
     }
 }
 
@@ -188,7 +184,6 @@ impl IndexMut<usize> for Line {
 
 impl crossterm::Command for Line {
     fn write_ansi(&self, f: &mut impl std::fmt::Write) -> std::fmt::Result {
-        use crossterm::style::PrintStyledContent;
         let mut spans = self.iter();
         let Some(first) = spans.next() else {
             return Ok(());
@@ -219,6 +214,20 @@ impl crossterm::Command for Line {
     }
 }
 
+impl std::fmt::Debug for Line {
+    /// Prints "Line [cells: {#}] ( {spans} )"
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use std::fmt::Write;
+
+        let mut s = format!("Line [cells: {}] ( ", self.num_cells());
+        for span in self {
+            let _ = write!(s, "{span:?}");
+        }
+        s.push_str(" )");
+        f.write_str(&s)
+    }
+}
+
 // impl Line {
 // /// Create a new line with the length/size of `width`.
 // ///
@@ -233,6 +242,15 @@ impl crossterm::Command for Line {
 //     self.0.iter_mut().for_each(|span| {
 //         span.reset();
 //     });
+// }
+
+// /// Create a new line with a single [`Span`] reserved with a capacity of
+// /// `width`, does not fill [`Self`] with any [`Cell`]s, just reserves space.
+// ///
+// /// [`Cell`]: crate::ui::Cell
+// #[must_use]
+// pub fn reserve_new(width: usize) -> Self {
+//     Self(vec![Span::reserve_new(width, None, None); 1])
 // }
 
 // /// Iterates over the [`Cell`]s to index `idx` within [`Self`]

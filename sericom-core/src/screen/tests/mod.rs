@@ -1,7 +1,7 @@
 mod colors;
+mod components;
 mod cursor;
 mod escape;
-mod line;
 
 pub use crate::{
     configs::{ConfigOverride, initialize_config},

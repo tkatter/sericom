@@ -3,7 +3,7 @@
 //     execute,
 //     terminal::{Clear, ClearType},
 // };
-use std::ops::{Range, RangeInclusive};
+use std::ops::Range;
 
 use crate::screen::{Line, Position, ScreenBuffer, TermPos, TranslatePos};
 
@@ -11,7 +11,7 @@ pub fn process_erase<W: std::io::Write>(
     seq: &[u8],
     kind: u8,
     sb: &mut ScreenBuffer,
-    stdout: &mut W,
+    _stdout: &mut W,
 ) {
     let body = &seq[2..seq.len() - 1];
 
@@ -71,7 +71,7 @@ pub fn process_erase<W: std::io::Write>(
             // #[cfg(feature = "gui")]
             // {
             sb.with_current_line(|line, _| {
-                line.iter_mut().flatten().for_each(|mut cell| {
+                line.iter_mut().flatten().for_each(|cell| {
                     cell.character = ' ';
                 });
             });
@@ -113,8 +113,8 @@ impl ScreenBuffer {
     }
 }
 
-pub fn process_screen(seq: &[u8], kind: u8, sb: &mut ScreenBuffer) {
-    let body = &seq[2..seq.len() - 1];
+pub fn _process_screen(seq: &[u8], _kind: u8, _sb: &mut ScreenBuffer) {
+    let _body = &seq[2..seq.len() - 1];
     // ESC[={value}h Changes the screen width or type to the mode specified by value
     todo!()
 }
