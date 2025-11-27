@@ -1,9 +1,11 @@
 alias l := lint
 alias c := check
 alias t := test
+alias tt := test-trace
 alias b := build
 alias br := build-release
 
+default-trace := 'sericom-core'
 default-tests := ''
 
 default: check lint
@@ -41,5 +43,8 @@ testseri:
 run-trace:
   cargo run -- /dev/ttyUSB0 -d
 
-test target=default-tests:
-  cargo test {{target}} --no-fail-fast --lib
+test tests=default-tests:
+  cargo test {{tests}} --no-fail-fast --lib
+
+test-trace target=default-trace tests=default-tests:
+  RUST_LOG='{{target}}=trace' cargo test {{tests}} --no-fail-fast --lib -- --nocapture
