@@ -13,7 +13,6 @@
 
 pub mod cli;
 pub mod configs;
-pub mod debug;
 pub mod path_utils;
 pub mod screen;
 pub mod serial_actor;

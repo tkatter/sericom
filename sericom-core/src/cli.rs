@@ -4,9 +4,7 @@
 use crate::{
     compat_port_path,
     configs::get_config,
-    create_recursive,
-    debug::run_debug_output,
-    map_miette,
+    create_recursive, map_miette,
     screen::UICommand,
     serial_actor::{
         SerialActor, SerialEvent, SerialMessage,
@@ -30,7 +28,6 @@ use tracing::{Level, trace};
 pub async fn interactive_session(
     connection: SerialPort,
     file_path: Option<Option<PathBuf>>,
-    debug: bool,
     port_name: &str,
 ) -> miette::Result<()> {
     let span = tracing::span!(Level::TRACE, "Interactive Session");
@@ -87,11 +84,6 @@ pub async fn interactive_session(
             run_file_output(file_rx, file_path.clone()).await;
             run_file_exit_script(config, file_path);
         });
-    }
-
-    if debug {
-        let debug_rx = broadcast_event_tx.subscribe();
-        tasks.spawn(run_debug_output(debug_rx));
     }
 
     let actor = SerialActor::new(connection, command_rx, broadcast_event_tx);

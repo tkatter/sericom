@@ -217,7 +217,7 @@ async fn handle_cmds(cmd: Commands) -> miette::Result<()> {
             } else {
                 None
             };
-            interactive_session(connection, file, debug, &port).await?;
+            interactive_session(connection, file, &port).await?;
             Ok(())
         }
         Commands::Bauds => {
