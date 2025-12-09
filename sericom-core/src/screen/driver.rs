@@ -11,25 +11,18 @@ use super::process::{BK, BS, CR, ColorState, ESC, FF, NL, ParserEvent, TAB};
 use super::{process_colors, process_cursor, process_erase};
 
 /// The layer between incoming [`ParserEvent`]s and the [`ScreenBuffer`].
-pub struct ScreenDriver<'a, W: std::io::Write> {
+pub struct ScreenDriver<'a> {
     buffer: &'a mut ScreenBuffer,
     color_state: ColorState,
     attrs: Attributes,
-    // TODO: Figure out if this is necessary, implemented Command for Line and
-    // Span, so the only thing I can think that this would be useful for is
-    // clearing the screen.
-    //
-    // stdout gives access to call crossterm::execute!/queue!
-    stdout: &'a mut W,
 }
 
-impl<'a, W: std::io::Write> ScreenDriver<'a, W> {
-    pub fn new(buffer: &'a mut ScreenBuffer, stdout: &'a mut W) -> Self {
+impl<'a> ScreenDriver<'a> {
+    pub fn new(buffer: &'a mut ScreenBuffer) -> Self {
         Self {
             buffer,
             color_state: ColorState::default(),
             attrs: Attributes::default(),
-            stdout,
         }
     }
 
@@ -112,9 +105,9 @@ impl<'a, W: std::io::Write> ScreenDriver<'a, W> {
         };
         match seq_type {
             EscSequenceType::Cursor(kind) => {
-                process_cursor(seq, kind, self.buffer, self.stdout);
+                process_cursor(seq, kind, self.buffer);
             }
-            EscSequenceType::Erase(kind) => process_erase(seq, kind, self.buffer, self.stdout),
+            EscSequenceType::Erase(kind) => process_erase(seq, kind, self.buffer),
             EscSequenceType::Graphics => {
                 process_colors(seq, &mut self.color_state, &mut self.attrs);
                 self.buffer

@@ -14,12 +14,7 @@ fn ascii_digits_to_integer(body: &[u8]) -> Option<u16> {
     )
 }
 
-pub fn process_cursor<W: std::io::Write>(
-    seq: &[u8],
-    kind: u8,
-    sb: &mut ScreenBuffer,
-    stdout: &mut W,
-) {
+pub fn process_cursor(seq: &[u8], kind: u8, sb: &mut ScreenBuffer) {
     let body = &seq[2..seq.len() - 1];
 
     // ESC[{row};{col}H
@@ -82,8 +77,8 @@ pub fn process_cursor<W: std::io::Write>(
                     sb.set_cursor_col(n);
                 }
             }
-            b's' => sb.save_cursor_pos(stdout), // can use crossterm
-            b'u' => sb.restore_cursor_pos(stdout), // can use crossterm
+            b's' => todo!(), // sb.save_cursor_pos(stdout), // can use crossterm
+            b'u' => todo!(), // sb.restore_cursor_pos(stdout), // can use crossterm
             b'H' => sb.set_cursor_pos(Position::ORIGIN),
             _ => {}
         }

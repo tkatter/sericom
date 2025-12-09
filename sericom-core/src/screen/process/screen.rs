@@ -7,12 +7,7 @@ use std::ops::Range;
 
 use crate::screen::{Line, Position, ScreenBuffer, TermPos, TranslatePos};
 
-pub fn process_erase<W: std::io::Write>(
-    seq: &[u8],
-    kind: u8,
-    sb: &mut ScreenBuffer,
-    _stdout: &mut W,
-) {
+pub fn process_erase(seq: &[u8], kind: u8, sb: &mut ScreenBuffer) {
     let body = &seq[2..seq.len() - 1];
 
     match (kind, body) {
