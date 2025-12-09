@@ -24,25 +24,15 @@ use std::{
     path::{Path, PathBuf},
 };
 
+const RED: &str = "\x1b\x5b31m";
+const BOLD: &str = "\x1b\x5b1m";
+const UNBOLD: &str = "\x1b\x5b22m";
+const RESET: &str = "\x1b\x5b0m";
+
 #[derive(Parser)]
 #[command(name = "sericom", version, about, long_about = None)]
 #[command(propagate_version = true)]
 struct Cli {
-    /// The path to a serial port.
-    ///
-    /// For Linux/MacOS something like `/dev/tty1`, Windows `COM1`.
-    port: Option<String>,
-    /// Baud rate for the serial connection.
-    #[arg(short, long, value_parser = valid_baud_rate, default_value_t = 9600)]
-    baud: u32,
-    #[clap(flatten)]
-    config_override: ConfigOverrides,
-    /// Path to a file for the output.
-    #[arg(short, long)]
-    file: Option<Option<PathBuf>>,
-    /// Display debug output
-    #[arg(short, long)]
-    debug: bool,
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -50,6 +40,25 @@ struct Cli {
 #[allow(clippy::enum_variant_names)]
 #[derive(Subcommand)]
 enum Commands {
+    /// Connect to a serial port
+    #[command(alias = "c")]
+    Connect {
+        /// The path to a serial port.
+        ///
+        /// For Linux/MacOS something like `/dev/ttyUSB0`, Windows `COM1`.
+        port: String,
+        /// Baud rate for the serial connection.
+        #[arg(short, long, value_parser = valid_baud_rate, default_value_t = 9600)]
+        baud: u32,
+        #[clap(flatten)]
+        config_override: ConfigOverrides,
+        /// Path to a file for the output.
+        #[arg(short, long)]
+        file: Option<Option<PathBuf>>,
+        /// Display debug output
+        #[arg(short, long)]
+        debug: bool,
+    },
     /// Lists valid baud rates
     Bauds,
     /// Lists all available serial ports
@@ -89,75 +98,143 @@ impl From<ConfigOverrides> for sericom_core::configs::ConfigOverride {
     }
 }
 
+async fn run_repl() -> miette::Result<()> {
+    let conf = rustyline::Config::builder()
+        .history_ignore_space(true)
+        .build();
+    let mut rl = rustyline::DefaultEditor::with_config(conf).expect("Failed to create REPL");
+    let history_path = std::env::home_dir()
+        .unwrap_or(PathBuf::from("./"))
+        .join(".repl_history");
+
+    if rl.load_history(&history_path).is_err() {
+        println!("No previous history");
+    }
+
+    println!("Welcome to the sericom, type 'exit' to quit.");
+
+    loop {
+        let readline = rl.readline(">> ");
+        match readline {
+            Ok(line) => {
+                let line = line.trim();
+                if line.is_empty() {
+                    continue;
+                }
+
+                rl.add_history_entry(line).ok();
+
+                if line == "exit" {
+                    break;
+                }
+
+                if line.contains('?') {
+                    handle_help(line);
+                    continue;
+                }
+
+                let args = format!("sericom {}", line);
+                let cli = Cli::try_parse_from(args.split_whitespace());
+                match cli {
+                    Ok(cli) => {
+                        if let Some(cmd) = cli.command {
+                            handle_cmds(cmd).await?
+                        }
+                    }
+                    Err(e) => eprintln!("{e}"),
+                }
+            }
+            Err(_) => break,
+        }
+    }
+
+    rl.save_history(&history_path).ok();
+    Ok(())
+}
+
+fn handle_help(line: &str) {
+    let mut cmd = Cli::command();
+    let tokens: Vec<&str> = line.split_whitespace().collect();
+    if tokens.is_empty() || tokens == ["?"] {
+        cmd.print_help().unwrap();
+        println!();
+        return;
+    }
+
+    if let Some((sub, rest)) = tokens.split_first()
+        && *rest == ["?"]
+        && let Some(mut sub_cmd) = cmd
+            .get_subcommands_mut()
+            .find(|s| s.get_name() == *sub)
+            .cloned()
+    {
+        sub_cmd.print_help().ok();
+        println!();
+        return;
+    }
+
+    println!("{RED}No help found for '{BOLD}{line}{UNBOLD}'.{RESET}");
+}
+
 #[tokio::main]
 async fn main() -> miette::Result<()> {
     let cli = Cli::parse();
 
-    if cli.port.is_none() && cli.command.is_none() {
-        let mut cmd = Cli::command();
-        cmd.error(
-            clap::error::ErrorKind::MissingRequiredArgument,
-            "Missing either PORT or COMMAND.",
-        )
-        .exit();
-    }
-
-    if cli.port.is_some() && cli.command.is_some() {
-        let mut cmd = Cli::command();
-        cmd.error(
-            clap::error::ErrorKind::ArgumentConflict,
-            "Must specify either PORT or SUBCOMMAND, not both.",
-        )
-        .exit();
-    }
-
-    if let Some(ref port) = cli.port {
-        let connection = open_connection(cli.baud, port)?;
-        let overrides: sericom_core::configs::ConfigOverride = cli.config_override.into();
-
-        if let Some(Some(path)) = &cli.file
-            && path.is_dir()
-        {
-            return Err(miette::miette!(
-                "Could not create file at: '{}' because it is a directory.",
-                path.display()
-            ));
-        }
-        initialize_config(overrides)?;
-        // Need to hold the guard in `main`'s scope
-        let _guard: Option<tracing_appender::non_blocking::WorkerGuard> = if let Some(ref port) =
-            cli.port
-            && cli.debug
-        {
-            let config = get_config();
-            let out_dir = config.defaults.debug_dir.as_path();
-            init_tracing(out_dir, port)?
-        } else {
-            None
-        };
-        interactive_session(connection, cli.file, cli.debug, port).await?;
-    } else if let Some(cmd) = cli.command {
-        match cmd {
-            Commands::Bauds => {
-                let mut stdout = io::stdout();
-                write!(stdout, "Valid baud rates:\r\n")
-                    .into_diagnostic()
-                    .wrap_err("Failed to write to stdout.".red())?;
-                for baud in serial2_tokio::COMMON_BAUD_RATES {
-                    write!(stdout, "{baud}\r\n")
-                        .into_diagnostic()
-                        .wrap_err("Failed to write to stdout.".red())?;
-                }
-            }
-            Commands::Ports => {
-                list_serial_ports()?;
-            }
-            Commands::Settings { baud, port } => {
-                get_settings(baud, &port)?;
-            }
-        }
+    if let Some(cmd) = cli.command {
+        handle_cmds(cmd).await?
+    } else {
+        run_repl().await?
     }
     Ok(())
+}
+
+async fn handle_cmds(cmd: Commands) -> miette::Result<()> {
+    match cmd {
+        Commands::Connect {
+            port,
+            baud,
+            config_override,
+            file,
+            debug,
+        } => {
+            let connection = open_connection(baud, &port)?;
+            let overrides: sericom_core::configs::ConfigOverride = config_override.into();
+
+            if let Some(Some(path)) = &file
+                && path.is_dir()
+            {
+                return Err(miette::miette!(
+                    "Could not create file at: '{}' because it is a directory.",
+                    path.display()
+                ));
+            }
+            initialize_config(overrides)?;
+            // Need to hold the guard in `main`'s scope
+            let _guard: Option<tracing_appender::non_blocking::WorkerGuard> = if debug {
+                let config = get_config();
+                let out_dir = config.defaults.debug_dir.as_path();
+                init_tracing(out_dir, &port)?
+            } else {
+                None
+            };
+            interactive_session(connection, file, debug, &port).await?;
+            Ok(())
+        }
+        Commands::Bauds => {
+            let mut stdout = io::stdout();
+            write!(stdout, "Valid baud rates:\r\n")
+                .into_diagnostic()
+                .wrap_err("Failed to write to stdout.".red())?;
+            for baud in serial2_tokio::COMMON_BAUD_RATES {
+                write!(stdout, "{baud}\r\n")
+                    .into_diagnostic()
+                    .wrap_err("Failed to write to stdout.".red())?;
+            }
+            Ok(())
+        }
+        Commands::Ports => list_serial_ports(),
+        Commands::Settings { baud, port } => get_settings(baud, &port),
+    }
 }
 
 fn init_tracing<S>(

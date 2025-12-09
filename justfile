@@ -32,7 +32,7 @@ list-tests:
   cargo test -- --list
 
 run:
-  cargo run -- /dev/ttyUSB0
+  cargo run -p sericom
 
 run-file:
   cargo run -- /dev/ttyUSB0 -f
