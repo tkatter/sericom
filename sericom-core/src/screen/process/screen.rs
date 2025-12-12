@@ -42,7 +42,7 @@ pub fn process_erase(seq: &[u8], kind: u8, sb: &mut ScreenBuffer) {
         (b'K', [b'2']) => {
             sb.with_current_line(|line, _| {
                 line.iter_mut().flatten().for_each(|cell| {
-                    cell.character = ' ';
+                    cell.character = b' ';
                 });
             });
         }
@@ -55,7 +55,7 @@ impl ScreenBuffer {
         self.with_current_line(|line, cursor| {
             for (idx, cell) in line.iter_mut().flatten().enumerate() {
                 if idx < usize::from(cursor.x) {
-                    cell.character = ' ';
+                    cell.character = b' ';
                 }
             }
         });
@@ -67,7 +67,7 @@ impl ScreenBuffer {
                 .flatten()
                 .skip(usize::from(cursor.x))
                 .for_each(|cell| {
-                    cell.character = ' ';
+                    cell.character = b' ';
                 });
         });
     }
@@ -75,7 +75,7 @@ impl ScreenBuffer {
     pub(crate) fn clear_lines(&mut self, range: Range<usize>) {
         for line in self.lines.range_mut(range) {
             line.iter_mut().flatten().for_each(|cell| {
-                cell.character = ' ';
+                cell.character = b' ';
             });
         }
     }

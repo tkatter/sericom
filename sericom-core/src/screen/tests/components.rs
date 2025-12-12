@@ -53,12 +53,20 @@ fn line_as_command() {
     execute!(writer, line);
 
     let mut cmp = String::new();
-    write!(cmp, "{}", SetColors(Colors::new(Color::Cyan, Color::Reset)));
+    write!(
+        cmp,
+        "{}",
+        SetColors(Colors::new(Color::Green, Color::Reset))
+    );
     write!(cmp, "first span");
     write!(cmp, "{}", SetColors(Colors::new(Color::Red, Color::Reset)));
     write!(cmp, "{}", SetAttribute(Attribute::Bold));
     write!(cmp, "second span");
-    write!(cmp, "{}", SetColors(Colors::new(Color::Cyan, Color::Reset)));
+    write!(
+        cmp,
+        "{}",
+        SetColors(Colors::new(Color::Green, Color::Reset))
+    );
     writeln!(cmp, "third span");
 
     assert_eq!(writer.buffer, cmp);
@@ -67,13 +75,13 @@ fn line_as_command() {
 #[test]
 fn overwriting_span() {
     let mut span = vec![Cell::EMPTY; 10];
-    let chars = vec!['a'; 10];
+    let chars = vec![b'a'; 10];
 
     for (cell, ch) in span.iter_mut().skip(5).zip(chars) {
         cell.character = ch;
     }
 
-    assert_eq!(span, [[Cell::EMPTY; 5], [Cell::new('a'); 5]].concat());
+    assert_eq!(span, [[Cell::EMPTY; 5], [Cell::new(b'a'); 5]].concat());
 }
 
 #[test]
@@ -88,7 +96,7 @@ fn span_newline() {
             .cells
             .get_mut(res)
             .expect("span len is greater than last filled cell");
-        c.character = '\n';
+        c.character = b'\n';
     }
 
     let res = span.last_filled_idx();
@@ -109,7 +117,7 @@ fn line_last_filled() {
     let line = Line(vec![span1, span2]);
 
     assert_eq!(line.last_filled_idx(), 20);
-    assert_eq!(line.iter().flatten().nth(20), Some(&Cell::new('n')));
+    assert_eq!(line.iter().flatten().nth(20), Some(&Cell::new(b'n')));
 }
 
 #[test]

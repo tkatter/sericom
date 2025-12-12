@@ -47,7 +47,7 @@ impl Span {
             - self
                 .iter()
                 .rev()
-                .position(|c| c.character != ' ')
+                .position(|c| c.character != b' ')
                 .unwrap_or(0)
     }
 
@@ -251,7 +251,7 @@ impl std::fmt::Debug for Span {
             self.cells.len(),
             self.cells.capacity()
         );
-        s.extend(self.cells.iter().map(Deref::deref));
+        s.extend(self.cells.iter().map(|c| c.character as char));
         s.push(')');
         f.write_str(&s)
     }

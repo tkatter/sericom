@@ -40,8 +40,7 @@ impl<'a> ScreenDriver<'a> {
     fn write_text(&mut self, bytes: &[u8]) {
         self.buffer.with_current_span(|span, offset| {
             for (cell, ch) in span.cells.iter_mut().skip(offset).zip(bytes) {
-                // can cast ch as char because the parser will only pass utf-8
-                cell.character = *ch as char;
+                cell.character = *ch;
             }
         });
 
@@ -64,7 +63,7 @@ impl<'a> ScreenDriver<'a> {
                         span.cells
                             .get_mut(last)
                             .expect("span len is greater than last filled cell")
-                            .character = '\n';
+                            .character = b'\n';
                     }
                     tracing::trace!(target: "parser::newline", ?line);
                 });

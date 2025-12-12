@@ -32,7 +32,7 @@ fn clear_line_from_cursor() {
     .concat();
 
     let parsed = parser.feed(&s);
-    let mut driver = ScreenDriver::new(&mut sb, &mut stdout);
+    let mut driver = ScreenDriver::new(&mut sb);
     driver.process_events(parsed);
 
     assert_eq!(sb.lines.len(), 4);
@@ -56,7 +56,7 @@ fn clear_from_cursor_to_top() {
     .concat();
 
     let parsed = parser.feed(&s);
-    let mut driver = ScreenDriver::new(&mut sb, &mut stdout);
+    let mut driver = ScreenDriver::new(&mut sb);
     driver.process_events(parsed);
 
     assert_eq!(sb.lines.len(), 6);
@@ -85,7 +85,7 @@ fn clear_and_overwrite() {
     .concat();
 
     let parsed = parser.feed(&s);
-    let mut driver = ScreenDriver::new(&mut sb, &mut stdout);
+    let mut driver = ScreenDriver::new(&mut sb);
     driver.process_events(parsed);
 
     assert_eq!(sb.lines.len(), 6);

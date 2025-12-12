@@ -89,7 +89,7 @@ impl Line {
                 .iter()
                 .flatten()
                 .rev()
-                .position(|c| c.character != ' ')
+                .position(|c| c.character != b' ')
                 .unwrap_or(0)
     }
 

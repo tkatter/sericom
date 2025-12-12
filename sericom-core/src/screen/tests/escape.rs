@@ -5,7 +5,7 @@ use crate::{assert_line_eq, assert_span_eq, setup};
 fn single_plain_line() {
     setup!(sb, parser, config, stdout);
     let parsed = parser.feed(b"Hello, world!\n");
-    let mut driver = ScreenDriver::new(&mut sb, &mut stdout);
+    let mut driver = ScreenDriver::new(&mut sb);
     driver.process_events(parsed);
     let fg = Color::from(&config.appearance.fg);
     let bg = Color::from(&config.appearance.bg);
@@ -22,7 +22,7 @@ fn single_plain_line() {
 fn two_lines_plain_text() {
     setup!(sb, parser, config, stdout);
     let parsed = parser.feed(b"Hello\r\nWorld\r\n");
-    let mut driver = ScreenDriver::new(&mut sb, &mut stdout);
+    let mut driver = ScreenDriver::new(&mut sb);
     driver.process_events(parsed);
     let fg = Color::from(&config.appearance.fg);
     let bg = Color::from(&config.appearance.bg);
@@ -40,7 +40,7 @@ fn two_lines_plain_text() {
 fn three_color_spans() {
     setup!(sb, parser, config, stdout);
     let parsed = parser.feed(b"\x1b[31mRed\x1b[32mGreen\x1b[34mBlue\n");
-    let mut driver = ScreenDriver::new(&mut sb, &mut stdout);
+    let mut driver = ScreenDriver::new(&mut sb);
     driver.process_events(parsed);
     let bg = Color::from(&config.appearance.bg);
 
@@ -64,7 +64,7 @@ fn three_color_spans() {
 fn no_newline_incomplete_line() {
     setup!(sb, parser, config, stdout);
     let parsed = parser.feed(b"Hello");
-    let mut driver = ScreenDriver::new(&mut sb, &mut stdout);
+    let mut driver = ScreenDriver::new(&mut sb);
     driver.process_events(parsed);
     let fg = Color::from(&config.appearance.fg);
     let bg = Color::from(&config.appearance.bg);
@@ -79,7 +79,7 @@ fn no_newline_incomplete_line() {
 fn mixed_plain_and_color() {
     setup!(sb, parser, config, stdout);
     let parsed = parser.feed(b"Normal \x1b[31mRed\n");
-    let mut driver = ScreenDriver::new(&mut sb, &mut stdout);
+    let mut driver = ScreenDriver::new(&mut sb);
     driver.process_events(parsed);
     let fg = Color::from(&config.appearance.fg);
     let bg = Color::from(&config.appearance.bg);
@@ -102,7 +102,7 @@ fn bold_italic_span() {
     setup!(sb, parser, stdout);
 
     let parsed = parser.feed(b"\x1b[1;3mHello\n"); // bold + italic
-    let mut driver = ScreenDriver::new(&mut sb, &mut stdout);
+    let mut driver = ScreenDriver::new(&mut sb);
     driver.process_events(parsed);
 
     let span_attrs = Attributes::from(Attribute::Bold) | Attributes::from(Attribute::Italic);
@@ -135,7 +135,7 @@ fn multiline_multicolor() {
     .as_bytes();
 
     let parsed = parser.feed(input);
-    let mut driver = ScreenDriver::new(&mut sb, &mut stdout);
+    let mut driver = ScreenDriver::new(&mut sb);
     driver.process_events(parsed);
 
     // Buffer should have initial empty + 3 lines

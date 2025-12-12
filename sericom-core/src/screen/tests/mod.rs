@@ -149,7 +149,7 @@ pub fn debug_dump(lines: &VecDeque<Line>) -> String {
         writeln!(&mut out, "Line {i}:").unwrap();
 
         for (j, span) in line.iter().enumerate() {
-            let text: String = span.iter().map(|c| c.character).collect();
+            let text: String = span.iter().map(|c| c.character as char).collect();
             writeln!(
                 &mut out,
                 "  Span {}: \"{}\" (len = {}, attrs = {:?}, colors = {:?})",
