@@ -3,8 +3,7 @@
 
 pub mod tasks;
 
-/// Represents messages/commands that are sent from worker tasks
-/// to the [`SerialActor`] to process.
+/// Represents messages/commands that are sent from worker tasks to the [`SerialActor`] to process.
 #[non_exhaustive]
 #[derive(Debug)]
 pub enum SerialMessage {
@@ -26,6 +25,11 @@ pub enum SerialEvent {
     /// Sends the error message received by the [`SerialActor`] to its tasks to handle.
     Error(String),
     /// Tells the [`SerialActor`]s tasks that the serial connection has been closed.
+    ///
+    /// This serves a different purpose from [`SerialMessage::Shutdown`] where
+    /// [`SerialMessage::Shutdown`] is mean to instruct the [`SerialActor`] to
+    /// shutdown the connection. `ConnectionClosed` is used for the [`SerialActor`]
+    /// to broadcast to listeners that the connection has been shutdown by the device.
     ConnectionClosed,
 }
 
@@ -45,7 +49,8 @@ pub struct SerialActor {
 impl SerialActor {
     /// Constructs a [`SerialActor`] Takes a serial port connection,
     /// receiver to a command channel, and a sender to a broadcast channel.
-    pub fn new(
+    #[must_use]
+    pub const fn new(
         connection: serial2_tokio::SerialPort,
         command_rx: tokio::sync::mpsc::Receiver<SerialMessage>,
         broadcast_channel: tokio::sync::broadcast::Sender<SerialEvent>,
@@ -67,6 +72,7 @@ impl SerialActor {
     /// Since data is sent byte-by-byte over a serial connection, `run` will
     /// batch the data before sending it to other tasks to reduce the number of syscalls.
     pub async fn run(mut self) {
+        tracing::trace!(target: "session::actor", "running SerialActor");
         let mut buffer = vec![0u8; 4096];
         loop {
             tokio::select! {
@@ -79,9 +85,11 @@ impl SerialActor {
                             }
                         }
                         Some(SerialMessage::Shutdown) => {
+                            tracing::debug!(target: "session::actor", "recieved shutdown command");
                             self.broadcast_channel.send(SerialEvent::ConnectionClosed).ok();
                         }
                         Some(SerialMessage::SendBreak) => {
+                            tracing::debug!(target: "session::actor", "sending break signal");
                             self.send_break().await;
                         }
                         None => break,
@@ -91,6 +99,7 @@ impl SerialActor {
                 read_result = self.connection.read(&mut buffer) => {
                     match read_result {
                         Ok(0) => {
+                            tracing::debug!(target: "session::actor", "no bytes read - connection closed");
                             self.broadcast_channel.send(SerialEvent::ConnectionClosed).ok();
                             break;
                         }
@@ -99,6 +108,7 @@ impl SerialActor {
                             self.broadcast_channel.send(SerialEvent::Data(data)).ok();
                         }
                         Err(e) => {
+                            tracing::warn!(target: "session::actor", "error reading from connection.");
                             self.broadcast_channel.send(SerialEvent::Error(e.to_string())).ok();
                             break;
                         }
@@ -108,7 +118,7 @@ impl SerialActor {
         }
     }
 
-    async fn send_break(&mut self) {
+    async fn send_break(&self) {
         use tokio::time::{Duration, sleep};
         let _ = self.connection.set_break(true);
         sleep(Duration::from_millis(500)).await;

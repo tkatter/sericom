@@ -1,9 +1,11 @@
-alias l := lint
-alias c := check
-alias t := test
-alias tt := test-trace
 alias b := build
 alias br := build-release
+alias c := check
+alias f := fmt
+alias l := lint
+alias r := run
+alias t := test
+alias tt := test-trace
 
 default-trace := 'sericom-core'
 default-tests := ''
@@ -24,6 +26,9 @@ check-win:
 
 clean:
   cargo clean
+
+fmt:
+  cargo fmt
 
 lint:
   cargo clippy
