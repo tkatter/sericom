@@ -8,25 +8,18 @@
 //! configuration, resetting, getting statistics, etc.
 
 use clap::{CommandFactory, Parser, Subcommand};
-use crossterm::style::Stylize;
 use miette::{Context, IntoDiagnostic};
 use sericom_core::{
-    cli::{
-        color_parser, get_settings, interactive_session, list_serial_ports, open_connection,
-        valid_baud_rate,
-    },
+    cli::{color_parser, list_serial_ports, valid_baud_rate},
     configs::{get_config, initialize_config},
     path_utils::{is_script, validate_dir},
 };
-use std::{
-    fmt::Display,
-    io::{self, Write},
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 const RED: &str = "\x1b\x5b31m";
 const BOLD: &str = "\x1b\x5b1m";
 const UNBOLD: &str = "\x1b\x5b22m";
+const DIM: &str = "\x1b\x5b2m";
 const RESET: &str = "\x1b\x5b0m";
 
 #[derive(Parser)]
@@ -34,14 +27,14 @@ const RESET: &str = "\x1b\x5b0m";
 #[command(propagate_version = true)]
 struct Cli {
     #[command(subcommand)]
-    command: Option<Commands>,
+    command: Commands,
 }
 
 #[allow(clippy::enum_variant_names)]
 #[derive(Subcommand)]
 enum Commands {
     /// Connect to a serial port
-    #[command(alias = "c")]
+    #[command(alias = "c", alias = "con")]
     Connect {
         /// The path to a serial port.
         ///
@@ -55,22 +48,44 @@ enum Commands {
         /// Path to a file for the output.
         #[arg(short, long)]
         file: Option<Option<PathBuf>>,
-        /// Display debug output
+        /// Start the session in the background (headless)
+        #[arg(long)]
+        bg: bool,
+        /// Write debug output
         #[arg(short, long)]
         debug: bool,
     },
-    /// Lists valid baud rates
-    Bauds,
-    /// Lists all available serial ports
-    Ports,
-    /// Gets the settings for a serial port
-    Settings {
-        #[arg(short, long, value_parser = valid_baud_rate, default_value_t = 9600)]
-        baud: u32,
-        /// Path to the port to open
-        #[arg(short, long)]
-        port: String,
+    /// List helpful information like valid baud rates, available serial ports, and sessions.
+    #[command(alias = "ls", alias = "l")]
+    List {
+        #[command(subcommand)]
+        cmd: ListCmds,
     },
+    // TODO: Use this to print user settings like `git config --list`
+    // Set {
+    // Stuff to set settings
+    // }
+    // Settings {
+    //     #[arg(short, long, value_parser = valid_baud_rate, default_value_t = 9600)]
+    //     baud: u32,
+    //     /// Path to the port to open
+    //     #[arg(short, long)]
+    //     port: String,
+    // },
+}
+
+#[derive(Subcommand)]
+enum ListCmds {
+    /// List available serial ports.
+    #[command(alias = "p")]
+    Ports,
+    /// List valid baud rates.
+    #[command(alias = "b")]
+    Bauds,
+    #[command(alias = "s", alias = "sess")]
+    Sessions,
+    #[command(alias = "set")]
+    Settings,
 }
 
 #[derive(Parser, Debug)]
@@ -98,17 +113,45 @@ impl From<ConfigOverrides> for sericom_core::configs::ConfigOverride {
     }
 }
 
-async fn run_repl() -> miette::Result<()> {
+const CONFIG_OVERRIDE: sericom_core::configs::ConfigOverride =
+    sericom_core::configs::ConfigOverride {
+        color: None,
+        out_dir: None,
+        exit_script: None,
+    };
+
+#[tokio::main]
+async fn main() -> miette::Result<()> {
+    let mut manager = sericom_core::session::SessionManager::new();
+    initialize_config(CONFIG_OVERRIDE)?;
+    let _trace_guard: Option<tracing_appender::non_blocking::WorkerGuard> = {
+        let config = get_config();
+        let out_dir = config.defaults.debug_dir.as_path();
+        init_tracing(out_dir, false)? // TODO: GET DEBUG CLI FLAG HERE
+    };
+
+    tokio::select! {
+        result = run_repl(&mut manager) => result,
+        () = shutdown_signal() => {
+            tracing::info!("got shutdown signal");
+            manager.graceful_shutdown().await
+        }
+    }
+}
+
+async fn run_repl(mut manager: &mut sericom_core::session::SessionManager) -> miette::Result<()> {
     let conf = rustyline::Config::builder()
         .history_ignore_space(true)
         .build();
-    let mut rl = rustyline::DefaultEditor::with_config(conf).expect("Failed to create REPL");
+    let mut rl = rustyline::DefaultEditor::with_config(conf)
+        .into_diagnostic()
+        .wrap_err("Failed to create REPL")?;
     let history_path = std::env::home_dir()
         .unwrap_or(PathBuf::from("./"))
-        .join(".repl_history");
+        .join(".sericom_history");
 
     if rl.load_history(&history_path).is_err() {
-        println!("No previous history");
+        println!("{DIM}No previous history{RESET}");
     }
 
     println!("Welcome to the sericom, type 'exit' to quit.");
@@ -124,7 +167,7 @@ async fn run_repl() -> miette::Result<()> {
 
                 rl.add_history_entry(line).ok();
 
-                if line == "exit" {
+                if line == "exit" || line == "q" || line == "quit" {
                     break;
                 }
 
@@ -136,12 +179,10 @@ async fn run_repl() -> miette::Result<()> {
                 let args = format!("sericom {}", line);
                 let cli = Cli::try_parse_from(args.split_whitespace());
                 match cli {
-                    Ok(cli) => {
-                        if let Some(cmd) = cli.command {
-                            handle_cmds(cmd).await?
-                        }
+                    Ok(cli) => handle_cmds(cli.command, &mut manager).await?,
+                    Err(e) => {
+                        print!("{e}");
                     }
-                    Err(e) => eprintln!("{e}"),
                 }
             }
             Err(_) => break,
@@ -150,6 +191,65 @@ async fn run_repl() -> miette::Result<()> {
 
     rl.save_history(&history_path).ok();
     Ok(())
+}
+
+async fn handle_cmds(
+    cmd: Commands,
+    manager: &mut sericom_core::session::SessionManager,
+) -> miette::Result<()> {
+    let mut stdout = std::io::stdout();
+    match cmd {
+        Commands::Connect {
+            port,
+            baud,
+            config_override,
+            file,
+            bg,
+            debug,
+        } => {
+            manager
+                .spawn(&port, baud)
+                .wrap_err("Failed to set subscriber")?;
+            // let connection = open_connection(baud, &port)?;
+            // let overrides: sericom_core::configs::ConfigOverride = config_override.into();
+            //
+            // if let Some(Some(path)) = &file
+            //     && path.is_dir()
+            // {
+            //     return Err(miette::miette!(
+            //         "Could not create file at: '{}' because it is a directory.",
+            //         path.display()
+            //     ));
+            // }
+            // initialize_config(overrides)?;
+            // // Need to hold the guard in `main`'s scope
+            // let _guard: Option<tracing_appender::non_blocking::WorkerGuard> = if debug {
+            //     let config = get_config();
+            //     let out_dir = config.defaults.debug_dir.as_path();
+            //     init_tracing(out_dir)?
+            // } else {
+            //     None
+            // };
+            // interactive_session(connection, file, &port).await?;
+            Ok(())
+        }
+        Commands::List { cmd } => match cmd {
+            ListCmds::Ports => list_serial_ports(),
+            ListCmds::Bauds => {
+                println!("Valid baud rates:");
+                for baud in serial2_tokio::COMMON_BAUD_RATES {
+                    println!("{baud}");
+                }
+                Ok(())
+            }
+            ListCmds::Sessions => {
+                manager.list(&mut stdout);
+                Ok(())
+            }
+            ListCmds::Settings => todo!(),
+        },
+        // Commands::Settings { baud, port } => get_settings(baud, &port),
+    }
 }
 
 fn handle_help(line: &str) {
@@ -176,77 +276,13 @@ fn handle_help(line: &str) {
     println!("{RED}No help found for '{BOLD}{line}{UNBOLD}'.{RESET}");
 }
 
-#[tokio::main]
-async fn main() -> miette::Result<()> {
-    let cli = Cli::parse();
-
-    if let Some(cmd) = cli.command {
-        handle_cmds(cmd).await?
-    } else {
-        run_repl().await?
-    }
-    Ok(())
-}
-
-async fn handle_cmds(cmd: Commands) -> miette::Result<()> {
-    match cmd {
-        Commands::Connect {
-            port,
-            baud,
-            config_override,
-            file,
-            debug,
-        } => {
-            let connection = open_connection(baud, &port)?;
-            let overrides: sericom_core::configs::ConfigOverride = config_override.into();
-
-            if let Some(Some(path)) = &file
-                && path.is_dir()
-            {
-                return Err(miette::miette!(
-                    "Could not create file at: '{}' because it is a directory.",
-                    path.display()
-                ));
-            }
-            initialize_config(overrides)?;
-            // Need to hold the guard in `main`'s scope
-            let _guard: Option<tracing_appender::non_blocking::WorkerGuard> = if debug {
-                let config = get_config();
-                let out_dir = config.defaults.debug_dir.as_path();
-                init_tracing(out_dir, &port)?
-            } else {
-                None
-            };
-            interactive_session(connection, file, &port).await?;
-            Ok(())
-        }
-        Commands::Bauds => {
-            let mut stdout = io::stdout();
-            write!(stdout, "Valid baud rates:\r\n")
-                .into_diagnostic()
-                .wrap_err("Failed to write to stdout.".red())?;
-            for baud in serial2_tokio::COMMON_BAUD_RATES {
-                write!(stdout, "{baud}\r\n")
-                    .into_diagnostic()
-                    .wrap_err("Failed to write to stdout.".red())?;
-            }
-            Ok(())
-        }
-        Commands::Ports => list_serial_ports(),
-        Commands::Settings { baud, port } => get_settings(baud, &port),
-    }
-}
-
-fn init_tracing<S>(
+fn init_tracing(
     out_dir: &Path,
-    port: S,
-) -> miette::Result<Option<tracing_appender::non_blocking::WorkerGuard>>
-where
-    S: AsRef<str> + Display + Into<PathBuf>,
-{
+    _debug: bool,
+) -> miette::Result<Option<tracing_appender::non_blocking::WorkerGuard>> {
     use sericom_core::compat_port_path;
 
-    let path = compat_port_path!(out_dir, port, prefix = "trace");
+    let path = compat_port_path!(out_dir);
     let file = std::fs::File::options()
         .write(true)
         .create(true)
@@ -254,16 +290,60 @@ where
         .open(&path)
         .into_diagnostic()
         .wrap_err_with(|| format!("Failed to create '{}'", path.display()))?;
+
     let (non_blocking, guard) = tracing_appender::non_blocking(file);
     let subscriber = tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::DEBUG)
+        .with_max_level({
+            #[cfg(debug_assertions)]
+            {
+                tracing::Level::TRACE
+            }
+            #[cfg(not(debug_assertions))]
+            {
+                if _debug {
+                    tracing::Level::DEBUG
+                } else {
+                    tracing::Level::INFO
+                }
+            }
+        })
         .with_writer(non_blocking)
-        // .without_time()
         .with_line_number(false)
-        .with_target(false)
+        .with_target(true)
         .finish();
+
     tracing::subscriber::set_global_default(subscriber)
         .into_diagnostic()
         .wrap_err("Failed to set subscriber")?;
     Ok(Some(guard))
+}
+
+async fn shutdown_signal() {
+    use tokio::signal::{self, unix::SignalKind};
+
+    let ctrl_c = async {
+        signal::ctrl_c()
+            .await
+            .expect("Failed to install Ctrl+C handler");
+    };
+
+    let terminate = async {
+        signal::unix::signal(SignalKind::terminate())
+            .expect("Failed to install signal handler")
+            .recv()
+            .await
+    };
+
+    let quit = async {
+        signal::unix::signal(SignalKind::quit())
+            .expect("Failed to install signal handler")
+            .recv()
+            .await
+    };
+
+    tokio::select! {
+        () = ctrl_c => {},
+        _ = terminate => {},
+        _ = quit => {},
+    }
 }
