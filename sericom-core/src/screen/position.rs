@@ -267,8 +267,7 @@ impl TranslatePos for ScreenBuffer {
     }
 
     fn to_buff(&self, pos: Position<TermPos>) -> Position<BuffPos> {
-        let buff_y = u32::try_from(self.view_start).expect("ScreenBuffer is less than usize::MAX")
-            + u32::from(pos.y);
+        let buff_y: u32 = self.view_start + u32::from(pos.y);
         let buff_x = pos.x.clamp(0, self.width());
 
         Position::<BuffPos>::from((buff_x, buff_y))

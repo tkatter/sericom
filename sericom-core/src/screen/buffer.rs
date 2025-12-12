@@ -7,7 +7,7 @@ use super::position::{Position, TermPos, TranslatePos};
 use super::{Line, Rect};
 
 /// The maximum number of lines stored in memory in [`ScreenBuffer`].
-pub const MAX_SCROLLBACK: usize = 10000;
+pub const MAX_SCROLLBACK: u32 = 10000;
 
 /// The `ScreenBuffer` holds rendering state for the entire terminal's window/frame.
 ///
@@ -20,17 +20,17 @@ pub struct ScreenBuffer {
     pub(crate) lines: VecDeque<Line>,
     /// Current view into the buffer.
     /// Denotes which line is at the top of the screen.
-    pub(crate) view_start: usize,
+    pub(crate) view_start: u32,
     /// The terminal's dimensions
     pub(crate) rect: Rect<TermPos>,
     /// Position of the cursor within the `ScreenBuffer`.
     pub(crate) cursor: Position<TermPos>,
     /// Start of text selection. Used for highlighting and copying to clipboard.
-    selection_start: Option<(u16, usize)>,
+    selection_start: Option<(u16, u32)>,
     /// End of text selection. Used for highlighting and copying to clipboard.
-    selection_end: Option<(u16, usize)>,
+    selection_end: Option<(u16, u32)>,
     /// Configuration for the maximum amount of lines to keep in memory.
-    max_scrollback: usize,
+    max_scrollback: u32,
 }
 
 impl ScreenBuffer {

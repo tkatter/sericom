@@ -53,20 +53,12 @@ fn line_as_command() {
     execute!(writer, line);
 
     let mut cmp = String::new();
-    write!(
-        cmp,
-        "{}",
-        SetColors(Colors::new(Color::Green, Color::Reset))
-    );
+    write!(cmp, "{}", SetColors(Colors::new(Color::Cyan, Color::Reset)));
     write!(cmp, "first span");
     write!(cmp, "{}", SetColors(Colors::new(Color::Red, Color::Reset)));
     write!(cmp, "{}", SetAttribute(Attribute::Bold));
     write!(cmp, "second span");
-    write!(
-        cmp,
-        "{}",
-        SetColors(Colors::new(Color::Green, Color::Reset))
-    );
+    write!(cmp, "{}", SetColors(Colors::new(Color::Cyan, Color::Reset)));
     writeln!(cmp, "third span");
 
     assert_eq!(writer.buffer, cmp);

@@ -6,9 +6,9 @@ use super::{Line, ScreenBuffer};
 #[derive(Clone, Debug)]
 pub enum UICommand {
     /// Scrolls up by `usize` lines
-    ScrollUp(usize),
+    ScrollUp(u32),
     /// Scrolls down by `usize` lines
-    ScrollDown(usize),
+    ScrollDown(u32),
     /// Scrolls to the last line (most recent)
     ScrollBottom,
     /// Scrolls to the beginning of the scrollback buffer (oldest line)
@@ -24,8 +24,8 @@ pub enum UICommand {
 }
 
 pub trait UIAction {
-    fn scroll_up(&mut self, lines: usize);
-    fn scroll_down(&mut self, lines: usize);
+    fn scroll_up(&mut self, lines: u32);
+    fn scroll_down(&mut self, lines: u32);
     fn scroll_to_bottom(&mut self);
     fn scroll_to_top(&mut self);
     fn start_selection(&mut self, pos: Position<TermPos>);
@@ -38,7 +38,7 @@ pub trait UIAction {
 
 impl UIAction for ScreenBuffer {
     /// Called to scroll the terminal up by `lines`.
-    fn scroll_up(&mut self, lines: usize) {
+    fn scroll_up(&mut self, lines: u32) {
         if self.view_start >= lines {
             self.view_start -= lines;
         } else {
@@ -49,8 +49,11 @@ impl UIAction for ScreenBuffer {
     }
 
     /// Called to scroll the terminal down by `lines`.
-    fn scroll_down(&mut self, lines: usize) {
-        let max_view_start = self.lines.len().saturating_sub(self.rect.height as usize);
+    fn scroll_down(&mut self, lines: u32) {
+        // Cast is fine cause MAX_SCROLLBACK is u32 so lines can't be > u32::MAX
+        let max_view_start: u32 = (self.lines.len() as u32)
+            .saturating_sub(self.rect.height.into())
+            .into();
         self.view_start = (self.view_start + lines).min(max_view_start);
         self.clear_selection();
         // self.needs_render = true;
@@ -59,7 +62,8 @@ impl UIAction for ScreenBuffer {
     /// Scrolls to the bottom of the screen. The bottom of the screen is
     /// the same as the most recent lines received from the serial connection
     fn scroll_to_bottom(&mut self) {
-        self.view_start = self.lines.len().saturating_sub(self.rect.height as usize);
+        // Cast is fine cause MAX_SCROLLBACK is u32 so lines can't be > u32::MAX
+        self.view_start = (self.lines.len() as u32).saturating_sub(self.rect.height.into());
         // self.needs_render = true;
     }
 
@@ -73,7 +77,8 @@ impl UIAction for ScreenBuffer {
     /// Where `screen_x` is the x-position of the start of the selection,
     /// and `screen_y` is the y-position (line) of the start of the selection.
     fn start_selection(&mut self, pos: Position<TermPos>) {
-        let absolute_line = self.view_start + usize::from(pos.y);
+        use super::TranslatePos;
+        self.to_buff(pos);
         self.clear_selection();
         // self.selection_start = Some((pos.x, absolute_line));
         // self.needs_render = true;
@@ -82,7 +87,8 @@ impl UIAction for ScreenBuffer {
     /// Update's a selection to include the position passed to it.
     /// Where `screen_x` is the x-position and `screen_y` is the y-position (line).
     fn update_selection(&mut self, pos: Position<TermPos>) {
-        let absolute_line = self.view_start + usize::from(pos.y);
+        use super::TranslatePos;
+        self.to_buff(pos);
         // self.selection_end = Some((pos.x, absolute_line));
         self.update_selection_highlighting();
         // self.needs_render = true;
@@ -129,7 +135,7 @@ impl UIAction for ScreenBuffer {
         for _ in 0..self.rect.height {
             self.lines.push_back(Line::new_empty(self.width().into()));
         }
-        self.view_start = self.lines.len().saturating_sub(self.rect.height as usize);
+        self.view_start = (self.lines.len() as u32).saturating_sub(self.rect.height.into());
         // self.needs_render = true;
     }
 }

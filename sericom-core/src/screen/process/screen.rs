@@ -2,6 +2,7 @@ use std::ops::Range;
 
 use crate::screen::{Line, Position, ScreenBuffer, TermPos, TranslatePos};
 
+#[expect(clippy::cast_possible_truncation)]
 pub fn process_erase(seq: &[u8], kind: u8, sb: &mut ScreenBuffer) {
     let body = &seq[2..seq.len() - 1];
 
@@ -19,7 +20,7 @@ pub fn process_erase(seq: &[u8], kind: u8, sb: &mut ScreenBuffer) {
         // erase from cursor to beginning of screen
         (b'J', [b'1']) => {
             let buff_range = Range {
-                start: sb.view_start,
+                start: sb.view_start as usize,
                 end: sb.to_buff(sb.cursor).y as usize,
             };
 
@@ -31,7 +32,9 @@ pub fn process_erase(seq: &[u8], kind: u8, sb: &mut ScreenBuffer) {
         // to preserve user scrollback history
         (b'J', [b'2' | b'3']) => {
             sb.lines.push_back(Line::new_empty(usize::from(sb.width())));
-            sb.view_start = sb.lines.len().saturating_sub(1);
+            // Casting to u32 from usize is fine because sb.lines should never
+            // exceed MAX_SCROLLBACK which is < usize::MAX
+            sb.view_start = (sb.lines.len() as u32).saturating_sub(1);
             sb.cursor = Position::<TermPos>::ORIGIN;
         }
         // erase from cursor until end of line

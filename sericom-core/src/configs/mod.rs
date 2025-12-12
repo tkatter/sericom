@@ -26,7 +26,7 @@ pub static CONFIG: OnceLock<Config> = OnceLock::new();
 /// Represents the entire `config.toml` configuration file.
 ///
 /// See [`Appearance`] and [`Defaults`]
-#[derive(Default, Debug, Deserialize, PartialEq)]
+#[derive(Default, Debug, Deserialize, PartialEq, Eq)]
 pub struct Config {
     #[serde(default)]
     pub appearance: Appearance,
