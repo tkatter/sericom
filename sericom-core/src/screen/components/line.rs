@@ -183,6 +183,7 @@ impl IndexMut<usize> for Line {
 }
 
 impl crossterm::Command for Line {
+    fn execute_winapi(&self) -> Result<(), std::io::Error> { todo!() }
     fn write_ansi(&self, f: &mut impl std::fmt::Write) -> std::fmt::Result {
         let mut spans = self.iter();
         let Some(first) = spans.next() else {

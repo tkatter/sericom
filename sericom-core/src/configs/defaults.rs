@@ -52,7 +52,12 @@ impl Default for Defaults {
 
 fn default_out_dir() -> PathBuf {
     use std::env::current_dir;
-    current_dir().unwrap_or_else(|_| PathBuf::from("./"))
+    current_dir().unwrap_or_else(|_| {
+        #[cfg(not(windows))]
+        return PathBuf::from("./");
+        #[cfg(windows)]
+        return PathBuf::from(".\\");
+    })
 }
 
 fn validate_dir<'de, D>(deserializer: D) -> Result<PathBuf, D::Error>

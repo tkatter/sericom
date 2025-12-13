@@ -114,7 +114,7 @@ pub fn open_connection(baud: u32, port: &str) -> miette::Result<SerialPort> {
         SerialPort::open(port, settings),
         format!("Failed to open port '{}'", port),
         help = format!(
-            "To see available ports, try `{}`.",
+            "Is the port already open?\nTo see available ports, try `{}`.",
             "list ports".bold().cyan()
         )
     )?;

@@ -5,10 +5,14 @@ use std::{
     time::Duration,
 };
 
+#[cfg(unix)]
 mod pts;
+#[cfg(unix)]
 use pts::get_pts_pair;
 
 fn main() -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
     let (mut master, slave) = get_pts_pair()?;
     println!("Got slave: {slave}");
 
@@ -33,6 +37,7 @@ fn main() -> std::io::Result<()> {
 
     thread::sleep(Duration::from_secs(5));
     seri_guard.wait();
+    }
     Ok(())
 }
 

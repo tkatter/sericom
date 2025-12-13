@@ -182,11 +182,19 @@ macro_rules! compat_port_path {
         use chrono;
 
         let path_port = $crate::path_utils::get_compat_port_path($port)?;
-        PathBuf::from(format!(
-            "./{}-{}.txt",
-            path_port.display(),
-            chrono::Utc::now().format("%m%d%H%M"),
-        ))
+        if path_port.is_absolute() {
+            PathBuf::from(format!(
+                "{}-{}.txt",
+                path_port.display(),
+                chrono::Utc::now().format("%m%d%H%M"),
+            ))
+        } else {
+            PathBuf::from(format!(
+                "./{}-{}.txt",
+                path_port.display(),
+                chrono::Utc::now().format("%m%d%H%M"),
+            ))
+        }
     }};
 }
 

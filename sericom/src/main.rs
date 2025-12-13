@@ -280,7 +280,8 @@ fn init_tracing(
 ) -> miette::Result<Option<tracing_appender::non_blocking::WorkerGuard>> {
     use sericom_core::compat_port_path;
 
-    let path = compat_port_path!(out_dir);
+    let path =
+        compat_port_path!(get_config().unwrap().defaults.debug_dir.clone());
     let file = std::fs::File::options()
         .write(true)
         .create(true)
