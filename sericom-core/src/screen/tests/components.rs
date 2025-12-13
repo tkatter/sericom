@@ -33,7 +33,7 @@ impl io::Write for FakeWrite {
 
 #[test]
 fn line_as_command() {
-    initialize_config(CONFIG_OVERRIDE).ok();
+    initialize_config(Some(CONFIG_OVERRIDE));
     let mut writer = FakeWrite {
         buffer: String::new(),
         flushed: false,
@@ -53,12 +53,20 @@ fn line_as_command() {
     execute!(writer, line);
 
     let mut cmp = String::new();
-    write!(cmp, "{}", SetColors(Colors::new(Color::Cyan, Color::Reset)));
+    write!(
+        cmp,
+        "{}",
+        SetColors(Colors::new(Color::Green, Color::Reset))
+    );
     write!(cmp, "first span");
     write!(cmp, "{}", SetColors(Colors::new(Color::Red, Color::Reset)));
     write!(cmp, "{}", SetAttribute(Attribute::Bold));
     write!(cmp, "second span");
-    write!(cmp, "{}", SetColors(Colors::new(Color::Cyan, Color::Reset)));
+    write!(
+        cmp,
+        "{}",
+        SetColors(Colors::new(Color::Green, Color::Reset))
+    );
     writeln!(cmp, "third span");
 
     assert_eq!(writer.buffer, cmp);
@@ -78,7 +86,7 @@ fn overwriting_span() {
 
 #[test]
 fn span_newline() {
-    initialize_config(CONFIG_OVERRIDE);
+    initialize_config(Some(CONFIG_OVERRIDE));
 
     let mut span: Span = "my test span       ".chars().collect();
     let res = span.last_filled_idx();
@@ -102,7 +110,7 @@ fn span_newline() {
 
 #[test]
 fn line_last_filled() {
-    initialize_config(CONFIG_OVERRIDE);
+    initialize_config(Some(CONFIG_OVERRIDE));
 
     let mut span1: Span = "first span".chars().collect();
     let mut span2: Span = "second span       ".chars().collect();
@@ -114,7 +122,7 @@ fn line_last_filled() {
 
 #[test]
 fn line_num_filled() {
-    initialize_config(CONFIG_OVERRIDE);
+    initialize_config(Some(CONFIG_OVERRIDE));
 
     let mut span1: Span = "first span".chars().collect();
     let mut span2: Span = "second span       ".chars().collect();

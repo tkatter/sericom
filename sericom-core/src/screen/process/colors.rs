@@ -15,7 +15,7 @@ pub struct ColorState {
 
 impl Default for ColorState {
     fn default() -> Self {
-        let config = get_config();
+        let config = get_config().unwrap();
         let fg = Color::from(&config.appearance.fg);
         let bg = Color::from(&config.appearance.bg);
         Self {

@@ -48,7 +48,7 @@ pub async fn interactive_session(
     )
     .into_diagnostic()
     .wrap_err("Failed to setup the terminal.".red())?;
-    let config = get_config();
+    let config = get_config().unwrap(); // TODO: HANDLE
 
     trace!("Creating channels");
     // Create channels
@@ -82,7 +82,7 @@ pub async fn interactive_session(
         let file_rx = broadcast_event_tx.subscribe();
         tasks.spawn(async move {
             run_file_output(file_rx, file_path.clone()).await;
-            run_file_exit_script(config, file_path);
+            run_file_exit_script(file_path);
         });
     }
 
@@ -113,14 +113,9 @@ pub fn open_connection(baud: u32, port: &str) -> miette::Result<SerialPort> {
     let con = map_miette!(
         SerialPort::open(port, settings),
         format!("Failed to open port '{}'", port),
-        format!(
-            "{} {} [OPTIONS] [PORT] [COMMAND]",
-            "USAGE:".bold().underlined(),
-            "sericom".bold()
-        ),
         help = format!(
             "To see available ports, try `{}`.",
-            "sericom list-ports".bold().cyan()
+            "list ports".bold().cyan()
         )
     )?;
     Ok(con)
@@ -134,104 +129,44 @@ pub fn get_settings(baud: u32, port: &str) -> miette::Result<()> {
     let con = open_connection(baud, port)?;
     let settings = map_miette!(
         con.get_configuration(),
-        format!("Failed to get settings for port '{}'", port),
-        format!(
-            "{} {} [OPTIONS] {} <PORT>",
-            "USAGE:".bold().underlined(),
-            "sericom list-settings".bold(),
-            "--port".bold()
-        )
+        format!("Failed to get settings for port '{}'", port)
     )?;
     let b = map_miette!(
         settings.get_baud_rate(),
-        format!("Failed to get the baud rate for port '{}'", port),
-        format!(
-            "{} {} [OPTIONS] {} <PORT>",
-            "USAGE:".bold().underlined(),
-            "sericom list-settings".bold(),
-            "--port".bold()
-        )
+        format!("Failed to get the baud rate for port '{}'", port)
     )?;
     let c = map_miette!(
         settings.get_char_size(),
-        format!("Failed to get the char size for port '{}'", port),
-        format!(
-            "{} {} [OPTIONS] {} <PORT>",
-            "USAGE:".bold().underlined(),
-            "sericom list-settings".bold(),
-            "--port".bold()
-        )
+        format!("Failed to get the char size for port '{}'", port)
     )?;
     let s = map_miette!(
         settings.get_stop_bits(),
-        format!("Failed to get stop bits for port '{}'", port),
-        format!(
-            "{} {} [OPTIONS] {} <PORT>",
-            "USAGE:".bold().underlined(),
-            "sericom list-settings".bold(),
-            "--port".bold()
-        )
+        format!("Failed to get stop bits for port '{}'", port)
     )?;
     let p = map_miette!(
         settings.get_parity(),
-        format!("Failed to get parity for port '{}'", port),
-        format!(
-            "{} {} [OPTIONS] {} <PORT>",
-            "USAGE:".bold().underlined(),
-            "sericom list-settings".bold(),
-            "--port".bold()
-        )
+        format!("Failed to get parity for port '{}'", port)
     )?;
     let f = map_miette!(
         settings.get_flow_control(),
-        format!("Failed to get flow control for port '{}'", port),
-        format!(
-            "{} {} [OPTIONS] {} <PORT>",
-            "USAGE:".bold().underlined(),
-            "sericom list-settings".bold(),
-            "--port".bold()
-        )
+        format!("Failed to get flow control for port '{}'", port)
     )?;
 
     let cts = map_miette!(
         con.read_cts(),
-        format!("Failed to read CTS for port '{}'", port),
-        format!(
-            "{} {} [OPTIONS] {} <PORT>",
-            "USAGE:".bold().underlined(),
-            "sericom list-settings".bold(),
-            "--port".bold()
-        )
+        format!("Failed to read CTS for port '{}'", port)
     )?;
     let dsr = map_miette!(
         con.read_dsr(),
-        format!("Failed to read DSR for port '{}'", port),
-        format!(
-            "{} {} [OPTIONS] {} <PORT>",
-            "USAGE:".bold().underlined(),
-            "sericom list-settings".bold(),
-            "--port".bold()
-        )
+        format!("Failed to read DSR for port '{}'", port)
     )?;
     let ri = map_miette!(
         con.read_ri(),
-        format!("Failed to read RI for port '{}'", port),
-        format!(
-            "{} {} [OPTIONS] {} <PORT>",
-            "USAGE:".bold().underlined(),
-            "sericom list-settings".bold(),
-            "--port".bold()
-        )
+        format!("Failed to read RI for port '{}'", port)
     )?;
     let cd = map_miette!(
         con.read_cd(),
-        format!("Failed to read CD for port '{}'", port),
-        format!(
-            "{} {} [OPTIONS] {} <PORT>",
-            "USAGE:".bold().underlined(),
-            "sericom list-settings".bold(),
-            "--port".bold()
-        )
+        format!("Failed to read CD for port '{}'", port)
     )?;
 
     write!(stdout, "Baud rate: {b}\r\n")
@@ -333,7 +268,8 @@ fn ensure_terminal_cleanup(mut stdout: io::Stdout) {
     let _ = stdout.flush();
 }
 
-fn run_file_exit_script(config: &'static crate::configs::Config, file_path: PathBuf) {
+fn run_file_exit_script(file_path: PathBuf) {
+    let config = crate::configs::get_config().unwrap(); //TODO: HANDLE
     let span = tracing::span!(Level::DEBUG, "Exit script");
     let _enter = span.enter();
 

@@ -55,8 +55,8 @@ fn test_cases(cases: &Vec<Case>) {
 
 #[test]
 fn test_basic_fg() {
-    initialize_config(CONF_OR).ok();
-    let config = get_config();
+    initialize_config(Some(CONF_OR)).ok();
+    let config = get_config().unwrap();
     let bg = Color::from(&config.appearance.bg);
 
     let cases = vec![
@@ -80,8 +80,8 @@ fn test_basic_fg() {
 
 #[test]
 fn test_basic_bg() {
-    initialize_config(CONF_OR).ok();
-    let config = get_config();
+    initialize_config(Some(CONF_OR)).ok();
+    let config = get_config().unwrap();
     let fg = Color::from(&config.appearance.fg);
 
     let cases = vec![Case {
@@ -96,8 +96,8 @@ fn test_basic_bg() {
 
 #[test]
 fn test_bright_colors() {
-    initialize_config(CONF_OR).ok();
-    let config = get_config();
+    initialize_config(Some(CONF_OR)).ok();
+    let config = get_config().unwrap();
     let fg = Color::from(&config.appearance.fg);
     let bg = Color::from(&config.appearance.bg);
 
@@ -122,8 +122,8 @@ fn test_bright_colors() {
 
 #[test]
 fn test_resets_and_defaults() {
-    initialize_config(CONF_OR).ok();
-    let config = get_config();
+    initialize_config(Some(CONF_OR)).ok();
+    let config = get_config().unwrap();
     let fg = Color::from(&config.appearance.fg);
     let bg = Color::from(&config.appearance.bg);
 
@@ -155,8 +155,8 @@ fn test_resets_and_defaults() {
 
 #[test]
 fn test_attributes() {
-    initialize_config(CONF_OR).ok();
-    let config = get_config();
+    initialize_config(Some(CONF_OR)).ok();
+    let config = get_config().unwrap();
     let fg = Color::from(&config.appearance.fg);
     let bg = Color::from(&config.appearance.bg);
 
@@ -172,8 +172,8 @@ fn test_attributes() {
 
 #[test]
 fn test_256_color_palette() {
-    initialize_config(CONF_OR).ok();
-    let config = get_config();
+    initialize_config(Some(CONF_OR)).ok();
+    let config = get_config().unwrap();
     let fg = Color::from(&config.appearance.fg);
     let bg = Color::from(&config.appearance.bg);
 
@@ -198,8 +198,8 @@ fn test_256_color_palette() {
 
 #[test]
 fn test_truecolor_palette() {
-    initialize_config(CONF_OR).ok();
-    let config = get_config();
+    initialize_config(Some(CONF_OR)).ok();
+    let config = get_config().unwrap();
     let fg = Color::from(&config.appearance.fg);
     let bg = Color::from(&config.appearance.bg);
 
@@ -232,8 +232,8 @@ fn test_truecolor_palette() {
 
 #[test]
 fn test_mix_attr_colors() {
-    initialize_config(CONF_OR).ok();
-    let config = get_config();
+    initialize_config(Some(CONF_OR)).ok();
+    let config = get_config().unwrap();
     let fg = Color::from(&config.appearance.fg);
     let bg = Color::from(&config.appearance.bg);
 
@@ -262,8 +262,8 @@ fn test_mix_attr_colors() {
 
 #[test]
 fn test_kitchen_sink() {
-    initialize_config(CONF_OR).ok();
-    let config = get_config();
+    initialize_config(Some(CONF_OR)).ok();
+    let config = get_config().unwrap();
     let fg = Color::from(&config.appearance.fg);
     let bg = Color::from(&config.appearance.bg);
 
@@ -292,8 +292,8 @@ fn test_kitchen_sink() {
 
 #[test]
 fn test_invalid() {
-    initialize_config(CONF_OR).ok();
-    let config = get_config();
+    initialize_config(Some(CONF_OR)).ok();
+    let config = get_config().unwrap();
     let fg = Color::from(&config.appearance.fg);
     let bg = Color::from(&config.appearance.bg);
 

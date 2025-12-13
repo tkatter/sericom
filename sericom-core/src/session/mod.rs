@@ -140,13 +140,12 @@ impl SessionManager {
         }
     }
 
-    pub async fn graceful_shutdown(self) -> miette::Result<()> {
+    pub async fn graceful_shutdown(self) {
         let mut idx: u8 = 0;
         for session in self.handles {
             idx += 1;
             session.shutdown().await;
             tracing::info!(target: "session", port = %self.metas[idx as usize].port, "Shut down session {idx}");
         }
-        Ok(())
     }
 }

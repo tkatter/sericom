@@ -66,24 +66,12 @@ macro_rules! create_recursive {
 /// ```
 #[macro_export]
 macro_rules! map_miette {
-    // Clap-style USAGE: && additional "help" message
-    ($expr:expr, $wrap_msg:expr, $usage:expr, help = $add_help:expr) => {
+    // Default "help" message
+    ($expr:expr, $wrap_msg:expr) => {
         $expr.map_err(|e| {
             use crossterm::style::Stylize;
-            miette::miette!(
-                help = format!("{}\nFor more information, try `sericom --help`.", $add_help),
-                "{e}"
-            )
-            .wrap_err(format!("{}\n\n{}\n", $wrap_msg, $usage).red())
-        })
-    };
-
-    // Clap-style USAGE: && default "help" message
-    ($expr:expr, $wrap_msg:expr, $usage:expr) => {
-        $expr.map_err(|e| {
-            use crossterm::style::Stylize;
-            miette::miette!(help = "For more information, try `sericom --help`.", "{e}")
-                .wrap_err(format!("{}\n\n{}\n", $wrap_msg, $usage).red())
+            miette::miette!(help = "For more information, try `help [COMMAND]`.", "{e}")
+                .wrap_err(format!("{}", $wrap_msg).red())
         })
     };
 
@@ -92,19 +80,10 @@ macro_rules! map_miette {
         $expr.map_err(|e| {
             use crossterm::style::Stylize;
             miette::miette!(
-                help = format!("{}\nFor more information, try `sericom --help`.", $add_help),
+                help = format!("{}\nFor more information, try `help [COMMAND]`.", $add_help),
                 "{e}"
             )
             .wrap_err(format!("{}", $wrap_msg).red())
-        })
-    };
-
-    // Default "help" message
-    ($expr:expr, $wrap_msg:expr) => {
-        $expr.map_err(|e| {
-            use crossterm::style::Stylize;
-            miette::miette!(help = "For more information, try `sericom --help`.", "{e}")
-                .wrap_err(format!("{}", $wrap_msg).red())
         })
     };
 }

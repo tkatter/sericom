@@ -122,24 +122,17 @@ const CONFIG_OVERRIDE: sericom_core::configs::ConfigOverride =
 
 #[tokio::main]
 async fn main() -> miette::Result<()> {
-    let mut manager = sericom_core::session::SessionManager::new();
-    initialize_config(CONFIG_OVERRIDE)?;
+    initialize_config(None)?;
     let _trace_guard: Option<tracing_appender::non_blocking::WorkerGuard> = {
-        let config = get_config();
+        let config = get_config().unwrap();
         let out_dir = config.defaults.debug_dir.as_path();
         init_tracing(out_dir, false)? // TODO: GET DEBUG CLI FLAG HERE
     };
 
-    tokio::select! {
-        result = run_repl(&mut manager) => result,
-        () = shutdown_signal() => {
-            tracing::info!("got shutdown signal");
-            manager.graceful_shutdown().await
-        }
-    }
+    run_repl().await
 }
 
-async fn run_repl(mut manager: &mut sericom_core::session::SessionManager) -> miette::Result<()> {
+async fn run_repl() -> miette::Result<()> {
     let conf = rustyline::Config::builder()
         .history_ignore_space(true)
         .build();
@@ -155,6 +148,8 @@ async fn run_repl(mut manager: &mut sericom_core::session::SessionManager) -> mi
     }
 
     println!("Welcome to the sericom, type 'exit' to quit.");
+
+    let mut manager = sericom_core::session::SessionManager::new();
 
     loop {
         let readline = rl.readline(">> ");
@@ -185,11 +180,16 @@ async fn run_repl(mut manager: &mut sericom_core::session::SessionManager) -> mi
                     }
                 }
             }
-            Err(_) => break,
+            Err(rustyline::error::ReadlineError::Interrupted) => continue,
+            Err(err) => {
+                tracing::debug!(target: "repl", %err, "got unknown error from rustyline");
+                break;
+            }
         }
     }
 
     rl.save_history(&history_path).ok();
+    manager.graceful_shutdown().await;
     Ok(())
 }
 
@@ -207,9 +207,7 @@ async fn handle_cmds(
             bg,
             debug,
         } => {
-            manager
-                .spawn(&port, baud)
-                .wrap_err("Failed to set subscriber")?;
+            manager.spawn(&port, baud)?;
             // let connection = open_connection(baud, &port)?;
             // let overrides: sericom_core::configs::ConfigOverride = config_override.into();
             //
@@ -316,34 +314,4 @@ fn init_tracing(
         .into_diagnostic()
         .wrap_err("Failed to set subscriber")?;
     Ok(Some(guard))
-}
-
-async fn shutdown_signal() {
-    use tokio::signal::{self, unix::SignalKind};
-
-    let ctrl_c = async {
-        signal::ctrl_c()
-            .await
-            .expect("Failed to install Ctrl+C handler");
-    };
-
-    let terminate = async {
-        signal::unix::signal(SignalKind::terminate())
-            .expect("Failed to install signal handler")
-            .recv()
-            .await
-    };
-
-    let quit = async {
-        signal::unix::signal(SignalKind::quit())
-            .expect("Failed to install signal handler")
-            .recv()
-            .await
-    };
-
-    tokio::select! {
-        () = ctrl_c => {},
-        _ = terminate => {},
-        _ = quit => {},
-    }
 }

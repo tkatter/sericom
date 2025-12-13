@@ -52,9 +52,10 @@ impl Span {
     }
 
     fn get_config_colors() -> Colors {
-        let config = get_config();
+        let config = get_config().unwrap();
         let fg = Color::from(&config.appearance.fg);
         let bg = Color::from(&config.appearance.bg);
+        drop(config);
         Colors::new(fg, bg)
     }
 
