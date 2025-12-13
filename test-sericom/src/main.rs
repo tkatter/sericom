@@ -13,30 +13,30 @@ use pts::get_pts_pair;
 fn main() -> std::io::Result<()> {
     #[cfg(unix)]
     {
-    let (mut master, slave) = get_pts_pair()?;
-    println!("Got slave: {slave}");
+        let (mut master, slave) = get_pts_pair()?;
+        println!("Got slave: {slave}");
 
-    let mut seri_guard = ChildGuard {
-        child: Some(
-            Command::new("/home/thomas/.cargo/bin/sericom")
-                .arg(slave)
-                .spawn()
-                .expect("Failed to start 'sericom'"),
-        ),
-    };
+        let mut seri_guard = ChildGuard {
+            child: Some(
+                Command::new("/home/thomas/.cargo/bin/sericom")
+                    .arg(slave)
+                    .spawn()
+                    .expect("Failed to start 'sericom'"),
+            ),
+        };
 
-    master.write_all(b"Hello from simulated serial!\r\n")?;
-    master.flush()?;
+        master.write_all(b"Hello from simulated serial!\r\n")?;
+        master.flush()?;
 
-    thread::sleep(Duration::from_secs(2));
+        thread::sleep(Duration::from_secs(2));
 
-    master.write_all(b"\x1B[2J")?;
-    master.write_all(b"\x1B[H")?;
-    master.write_all(b"Ready>\r\n")?;
-    master.flush()?;
+        master.write_all(b"\x1B[2J")?;
+        master.write_all(b"\x1B[H")?;
+        master.write_all(b"Ready>\r\n")?;
+        master.flush()?;
 
-    thread::sleep(Duration::from_secs(5));
-    seri_guard.wait();
+        thread::sleep(Duration::from_secs(5));
+        seri_guard.wait();
     }
     Ok(())
 }

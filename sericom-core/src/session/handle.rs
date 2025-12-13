@@ -57,12 +57,9 @@ impl SessionHandle {
         let buffer = Arc::new(tokio::sync::RwLock::new(sb));
         let actor = SerialActor::new(connection, rx, events_tx);
 
-        // Not storing the span in SessionHandle because I'm not sure if I'll
-        // ever need to emit events outside of the SessionHandle in the same span.
-        // If I do I could just re-create the span from SessionMeta.
         let span = tracing::info_span!("session", port = %meta.port, baud = %meta.baud);
         let _enter = span.enter();
-        tracing::info!(target: "session", "Opened connection");
+        tracing::info!(target: "session::handle::spawn", "Opened connection");
 
         let mut tasks = JoinSet::new();
         tasks.spawn(actor.run().instrument(span.clone()));
@@ -77,8 +74,14 @@ impl SessionHandle {
     }
 
     pub async fn shutdown(self) {
-        let _ = self.tx.send(SerialMessage::Shutdown).await;
+        if let Err(e) = self.tx.send(SerialMessage::Shutdown).await {
+            tracing::debug!(target: "session::handle::shutdown", %e, "error sending shutdown to actor");
+            let mut tasks = self.tasks;
+            tasks.abort_all();
+            return;
+        }
         self.tasks.join_all().await;
+        tracing::trace!(target: "session::handle::shutdown", "all tasks finished, shutting down");
     }
 }
 
@@ -106,36 +109,3 @@ async fn parse_task(
         }
     }
 }
-
-/*
-#[test]
-fn sizes() {
-    eprintln!(
-        "size of handle: {}\n
-        align of handle: {}\n
-        size of buffer: {}\n
-        align of buffer: {}\n
-        size of tx: {}\n
-        align of tx: {}\n
-        size of events: {}\n
-        align of events: {}\n
-        size of tasks: {}\n
-        align of tasks: {}\n
-        size of Span: {}\n
-        align of Span: {}",
-        size_of::<SessionHandle>(),
-        align_of::<SessionHandle>(),
-        size_of::<Arc<tokio::sync::RwLock<ScreenBuffer>>>(),
-        align_of::<Arc<tokio::sync::RwLock<ScreenBuffer>>>(),
-        size_of::<tokio::sync::mpsc::Sender<SerialMessage>>(),
-        align_of::<tokio::sync::mpsc::Sender<SerialMessage>>(),
-        size_of::<tokio::sync::broadcast::Receiver<SerialEvent>>(),
-        align_of::<tokio::sync::broadcast::Receiver<SerialEvent>>(),
-        size_of::<JoinSet<()>>(),
-        align_of::<JoinSet<()>>(),
-        size_of::<tracing::Span>(),
-        align_of::<tracing::Span>(),
-    );
-    assert!(1 > 2);
-}
-*/

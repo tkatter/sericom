@@ -87,6 +87,7 @@ impl SerialActor {
                         Some(SerialMessage::Shutdown) => {
                             tracing::debug!(target: "session::actor", "recieved shutdown command");
                             self.broadcast_channel.send(SerialEvent::ConnectionClosed).ok();
+                            break;
                         }
                         Some(SerialMessage::SendBreak) => {
                             tracing::debug!(target: "session::actor", "sending break signal");
@@ -99,7 +100,7 @@ impl SerialActor {
                 read_result = self.connection.read(&mut buffer) => {
                     match read_result {
                         Ok(0) => {
-                            tracing::debug!(target: "session::actor", "no bytes read - connection closed");
+                            tracing::debug!(target: "session::actor", "connection closed: no bytes read");
                             self.broadcast_channel.send(SerialEvent::ConnectionClosed).ok();
                             break;
                         }

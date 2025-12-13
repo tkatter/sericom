@@ -1,6 +1,5 @@
 mod handle;
 pub use handle::SessionHandle;
-use miette::IntoDiagnostic;
 
 pub type SessionID = u8;
 
@@ -12,11 +11,6 @@ pub struct SessionManager {
 }
 
 /// Includes the baud rate and name of the port/connection.
-///
-/// TODO: Possible include [`Appearance`] here too so that each
-/// session's default colors can be set by CLI flags?
-///
-/// [`Appearance`]: crate::configs::Appearance
 #[derive(Debug, Clone)]
 pub struct SessionMeta {
     pub(crate) baud: u32,
@@ -63,6 +57,7 @@ impl SessionManager {
         let id = self.metas.len();
 
         if !id < u8::MAX as usize {
+            tracing::warn!(target: "session::spawn", %id, "max sessions reached");
             return Err(()).map_err(|_| miette::miette!("Max sessions reached"))?; // TODO: HANDLE STDOUT ERROR PROPAGATING
         }
 
@@ -88,11 +83,13 @@ impl SessionManager {
         }
 
         if self.handles.get(idx).is_none() {
+            tracing::debug!(target: "session::kill", "session {id} does not exist");
             return;
         }
 
         self.metas.swap_remove(idx);
         self.handles.swap_remove(idx).shutdown().await;
+        tracing::trace!(target: "session::kill", "session {idx} killed");
 
         // NOTE:
         // Shouldn't need to adjust active idx because when the user is in the
@@ -145,7 +142,11 @@ impl SessionManager {
         for session in self.handles {
             idx += 1;
             session.shutdown().await;
-            tracing::info!(target: "session", port = %self.metas[idx as usize].port, "Shut down session {idx}");
+            tracing::info!(
+                target: "session",
+                port = %self.metas[(idx as usize).saturating_sub(1)].port,
+                "shutdown session: '{idx}'"
+            );
         }
     }
 }
