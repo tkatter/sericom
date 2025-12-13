@@ -113,10 +113,7 @@ pub fn open_connection(baud: u32, port: &str) -> miette::Result<SerialPort> {
     let con = map_miette!(
         SerialPort::open(port, settings),
         format!("Failed to open port '{}'", port),
-        help = format!(
-            "Is the port already open?\nTo see available ports, try `{}`.",
-            "list ports".bold().cyan()
-        )
+        help = "Is the port already open?\nTo see available ports, try `list ports`."
     )?;
     Ok(con)
 }
@@ -125,7 +122,6 @@ pub fn open_connection(baud: u32, port: &str) -> miette::Result<SerialPort> {
 #[allow(clippy::many_single_char_names)]
 pub fn get_settings(baud: u32, port: &str) -> miette::Result<()> {
     // https://www.contec.com/support/basic-knowledge/daq-control/serial-communicatin/
-    let mut stdout = io::stdout();
     let con = open_connection(baud, port)?;
     let settings = map_miette!(
         con.get_configuration(),
@@ -169,33 +165,15 @@ pub fn get_settings(baud: u32, port: &str) -> miette::Result<()> {
         format!("Failed to read CD for port '{}'", port)
     )?;
 
-    write!(stdout, "Baud rate: {b}\r\n")
-        .into_diagnostic()
-        .wrap_err("Failed to write to stdout.".red())?;
-    write!(stdout, "Char size: {c}\r\n")
-        .into_diagnostic()
-        .wrap_err("Failed to write to stdout.".red())?;
-    write!(stdout, "Stop bits: {s}\r\n")
-        .into_diagnostic()
-        .wrap_err("Failed to write to stdout.".red())?;
-    write!(stdout, "Parity mechanism: {p}\r\n")
-        .into_diagnostic()
-        .wrap_err("Failed to write to stdout.".red())?;
-    write!(stdout, "Flow control: {f}\r\n")
-        .into_diagnostic()
-        .wrap_err("Failed to write to stdout.".red())?;
-    write!(stdout, "Clear To Send line: {cts}\r\n")
-        .into_diagnostic()
-        .wrap_err("Failed to write to stdout.".red())?;
-    write!(stdout, "Data Set Ready line: {dsr}\r\n")
-        .into_diagnostic()
-        .wrap_err("Failed to write to stdout.".red())?;
-    write!(stdout, "Ring Indicator line: {ri}\r\n")
-        .into_diagnostic()
-        .wrap_err("Failed to write to stdout.".red())?;
-    write!(stdout, "Carrier Detect line: {cd}\r\n")
-        .into_diagnostic()
-        .wrap_err("Failed to write to stdout.".red())?;
+    println!("Baud rate: {b}");
+    println!("Char size: {c}");
+    println!("Stop bits: {s}");
+    println!("Parity mechanism: {p}");
+    println!("Flow control: {f}");
+    println!("Clear To Send line: {cts}");
+    println!("Data Set Ready line: {dsr}");
+    println!("Ring Indicator line: {ri}");
+    println!("Carrier Detect line: {cd}");
 
     Ok(())
 }
@@ -205,21 +183,13 @@ pub fn get_settings(baud: u32, port: &str) -> miette::Result<()> {
 /// Ultimately a wrapper around [`SerialPort::available_ports()`] and may error
 /// if it is called on an unsupported platform as per [`SerialPort::available_ports()`]s docs
 pub fn list_serial_ports() -> miette::Result<()> {
-    let mut stdout = io::stdout();
     let ports = map_miette!(
         SerialPort::available_ports(),
         "Could not list available ports."
     )?;
-    for path in ports {
-        let Some(path) = path.to_str() else {
-            continue;
-        };
 
-        let line = [path, "\r\n"].concat();
-        stdout
-            .write(line.as_bytes())
-            .into_diagnostic()
-            .wrap_err("Failed to write to stdout.".red())?;
+    for path in ports {
+        println!("{}", path.display());
     }
     Ok(())
 }
@@ -233,11 +203,7 @@ pub fn valid_baud_rate(s: &str) -> Result<u32, String> {
     if serial2_tokio::COMMON_BAUD_RATES.contains(&baud) {
         Ok(baud)
     } else {
-        Err(format!(
-            "'{}' is not a valid baud rate; valid baud rates include {:?}",
-            baud,
-            serial2_tokio::COMMON_BAUD_RATES
-        ))
+        Err(format!("'{baud}' is not a valid baud rate"))
     }
 }
 
@@ -270,9 +236,6 @@ fn ensure_terminal_cleanup(mut stdout: io::Stdout) {
 
 fn run_file_exit_script(file_path: PathBuf) {
     let config = crate::configs::get_config().unwrap(); //TODO: HANDLE
-    let span = tracing::span!(Level::DEBUG, "Exit script");
-    let _enter = span.enter();
-
     let Some(script_path) = config.defaults.exit_script.as_ref() else {
         return;
     };
@@ -281,12 +244,12 @@ fn run_file_exit_script(file_path: PathBuf) {
         .expect("All error conditions have been checked");
     let cmd = create_platform_cmd(script_path, full_file_path);
     if let Ok(output) = cmd {
-        let msg = format!(
+        tracing::debug!(
+            target: "exit_script",
             "stdout: {}, stderr: {}",
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );
-        tracing::debug!(msg);
     }
 }
 

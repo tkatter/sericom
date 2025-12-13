@@ -8,7 +8,7 @@
 //! configuration, resetting, getting statistics, etc.
 
 use clap::{CommandFactory, Parser, Subcommand};
-use miette::{Context, IntoDiagnostic};
+use miette::{Context as _, IntoDiagnostic};
 use sericom_core::{
     cli::{color_parser, list_serial_ports, valid_baud_rate},
     configs::{get_config, initialize_config},
@@ -17,32 +17,45 @@ use sericom_core::{
 use std::path::{Path, PathBuf};
 
 const RED: &str = "\x1b\x5b31m";
+const CYAN: &str = "\x1b\x5b36m";
 const BOLD: &str = "\x1b\x5b1m";
-const UNBOLD: &str = "\x1b\x5b22m";
+// const UNBOLD: &str = "\x1b\x5b22m";
 const DIM: &str = "\x1b\x5b2m";
 const RESET: &str = "\x1b\x5b0m";
+const PARSER_TEMPLATE: &str = "\
+        {all-args}{after-help}\
+";
+const SUBCOMMAND_TEMPLATE: &str = "\
+        {usage-heading}\n    {usage}\n\
+        \n\
+        {all-args}{after-help}\
+";
 
 #[derive(Parser)]
-#[command(name = "sericom", version, about, long_about = None)]
-#[command(propagate_version = true)]
-struct Cli {
+#[command(
+    version,
+    about,
+    long_about = None,
+    infer_subcommands = true,
+    arg_required_else_help = true,
+    help_template = PARSER_TEMPLATE,
+    disable_colored_help = false,
+    after_help = "For command specific help use `help [COMMAND]`.\n\
+    To get help in the middle of a command you can use `?`.\n\
+    For example: `list ?` will print the help text for the `list` command.
+    ",
+    multicall = true
+)]
+struct Repl {
     #[command(subcommand)]
     command: Commands,
-    #[arg(
-        long = "color",
-        value_parser = ["auto", "always", "never"],
-        default_value = "auto",
-        help = "Specify WHEN to colorize output",
-        require_equals = true
-    )]
-    color: String,
 }
 
 #[allow(clippy::enum_variant_names)]
 #[derive(Subcommand)]
 enum Commands {
     /// Connect to a serial port
-    #[command(alias = "c", alias = "con")]
+    #[command(visible_aliases = ["c", "con"], long_about = None, help_template = SUBCOMMAND_TEMPLATE)]
     Connect {
         /// The path to a serial port
         ///
@@ -61,16 +74,22 @@ enum Commands {
         config_override: ConfigOverrides,
     },
     /// Close a session
-    #[command(alias = "k")]
+    #[command(visible_alias = "k", help_template = SUBCOMMAND_TEMPLATE)]
     Kill {
         session: Vec<sericom_core::session::SessionID>,
     },
-    /// List helpful information like valid baud rates, available serial ports, sessions, etc.
-    #[command(alias = "ls", alias = "l")]
+    /// List helpful information
+    #[command(visible_aliases = ["ls","l"], help_template = SUBCOMMAND_TEMPLATE)]
     List {
         #[command(subcommand)]
         cmd: ListCmds,
     },
+    /// Exit the program
+    #[command(visible_aliases = ["e", "q","quit"])]
+    Exit,
+    /// Print the version of sericom
+    #[command(visible_short_flag_alias = 'V', visible_long_flag_alias = "version")]
+    Version,
     // TODO: Use this to print user settings like `git config --list`
     // Set {
     //     /* Stuff to set settings */
@@ -80,16 +99,16 @@ enum Commands {
 #[derive(Subcommand)]
 enum ListCmds {
     /// List the current sessions/connections
-    #[command(alias = "s", alias = "sess")]
+    #[command(visible_alias = "s")]
     Sessions,
     /// List available serial ports
-    #[command(alias = "p")]
+    #[command(visible_alias = "p")]
     Ports,
     /// List valid baud rates
-    #[command(alias = "b")]
+    #[command(visible_alias = "b")]
     Bauds,
     /// List the current configuration
-    #[command(alias = "conf")]
+    #[command(visible_alias = "conf")]
     Config,
 }
 
@@ -133,6 +152,8 @@ async fn main() -> miette::Result<()> {
 async fn run_repl() -> miette::Result<()> {
     let conf = rustyline::Config::builder()
         .history_ignore_space(true)
+        .completion_show_all_if_ambiguous(true)
+        .completion_type(rustyline::CompletionType::Circular)
         .build();
     let mut rl = rustyline::DefaultEditor::with_config(conf)
         .into_diagnostic()
@@ -158,22 +179,27 @@ async fn run_repl() -> miette::Result<()> {
 
                 rl.add_history_entry(line).ok();
 
-                if line == "exit" || line == "q" || line == "quit" {
-                    break;
-                }
-
                 if line.contains('?') {
                     handle_help(line);
                     continue;
                 }
 
-                let args = format!("sericom {}", line);
-                let cli = Cli::try_parse_from(args.split_whitespace());
-                match cli {
-                    Ok(cli) => handle_cmds(cli.command, &mut manager).await?,
-                    Err(e) => {
-                        print!("{e}");
-                    }
+                match Repl::try_parse_from(line.split_whitespace().collect::<Vec<&str>>()) {
+                    Ok(cli) => match handle_cmds(cli.command, &mut manager).await {
+                        Ok(true) => break,
+                        Ok(false) => {}
+                        Err(e) => {
+                            println!("{RED}\u{1F5F4} {e}{RESET}");
+                            for e in e.chain().skip(1) {
+                                println!("  {RED}\u{2937}{RESET} {e}");
+                            }
+
+                            if let Some(help) = e.help() {
+                                println!("\n{CYAN}{BOLD}help:{RESET} {help}\n");
+                            }
+                        }
+                    },
+                    Err(e) => e.print().expect("error printing clap error"),
                 }
             }
             Err(rustyline::error::ReadlineError::Interrupted) => continue,
@@ -192,7 +218,7 @@ async fn run_repl() -> miette::Result<()> {
 async fn handle_cmds(
     cmd: Commands,
     manager: &mut sericom_core::session::SessionManager,
-) -> miette::Result<()> {
+) -> miette::Result<bool> {
     match cmd {
         Commands::Connect {
             port,
@@ -201,58 +227,57 @@ async fn handle_cmds(
             file,
             bg,
         } => {
-            manager.spawn(&port, baud)?;
-            // if let Some(Some(path)) = &file
-            //     && path.is_dir()
-            // {
-            //     return Err(miette::miette!(
-            //         "Could not create file at: '{}' because it is a directory.",
-            //         path.display()
-            //     ));
-            // }
-            // initialize_config(overrides)?;
-            // // Need to hold the guard in `main`'s scope
-            // let _guard: Option<tracing_appender::non_blocking::WorkerGuard> = if debug {
-            //     let config = get_config();
-            //     let out_dir = config.defaults.debug_dir.as_path();
-            //     init_tracing(out_dir)?
-            // } else {
-            //     None
-            // };
-            // interactive_session(connection, file, &port).await?;
-            Ok(())
+            if bg {
+                return manager.spawn(&port, baud).map(|_| false);
+            }
+
+            let id = manager.spawn(&port, baud)?;
+            if let Some(Some(path)) = &file
+                && path.is_dir()
+            {
+                return Err(miette::miette!(
+                    "Could not create file at: '{}' because it is a directory.",
+                    path.display()
+                ));
+            }
+
+            Ok(false)
         }
         Commands::Kill { session } => {
             for id in session {
                 manager.kill(id).await;
                 tracing::debug!(target: "repl::kill", "session {id} closed");
             }
-            Ok(())
+            Ok(false)
         }
         Commands::List { cmd } => match cmd {
-            ListCmds::Ports => list_serial_ports(),
+            ListCmds::Ports => list_serial_ports().map(|_| false),
             ListCmds::Bauds => {
                 println!("Valid baud rates:");
                 for baud in serial2_tokio::COMMON_BAUD_RATES {
                     println!("{baud}");
                 }
-                Ok(())
+                Ok(false)
             }
             ListCmds::Sessions => {
                 manager.list(&mut std::io::stdout());
-                Ok(())
+                Ok(false)
             }
             ListCmds::Config => todo!(),
         },
+        Commands::Exit => Ok(true),
+        Commands::Version => {
+            println!("{}", Repl::command().render_long_version());
+            Ok(false)
+        }
     }
 }
 
 fn handle_help(line: &str) {
-    let mut cmd = Cli::command();
+    let mut cmd = Repl::command();
     let tokens: Vec<&str> = line.split_whitespace().collect();
-    if tokens.is_empty() || tokens == ["?"] {
-        cmd.print_help().unwrap();
-        println!();
+    if tokens == ["?"] || tokens.is_empty() {
+        cmd.print_help().expect("help won't err");
         return;
     }
 
@@ -263,8 +288,7 @@ fn handle_help(line: &str) {
             .find(|s| s.get_name() == *sub)
             .cloned()
     {
-        sub_cmd.print_help().ok();
-        println!();
+        sub_cmd.print_help().expect("help won't err");
     }
 }
 
@@ -302,6 +326,7 @@ fn init_tracing(
                 .with_target("sericom_core", Level::TRACE)
                 .with_target("session", Level::TRACE)
                 .with_target("repl", Level::TRACE)
+                .with_target("exit_script", Level::TRACE)
                 .with_default(Level::ERROR),
         )
         .with(
