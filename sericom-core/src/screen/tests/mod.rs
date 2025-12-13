@@ -13,7 +13,7 @@ pub use std::collections::VecDeque;
 pub const CONFIG_OVERRIDE: ConfigOverride = ConfigOverride {
     color: None,
     out_dir: None,
-    exit_script: None,
+    script: None,
 };
 pub const TERMINAL_SIZE: (u16, u16) = (80, 24);
 

@@ -5,7 +5,7 @@ use crossterm::style::{Attribute, Attributes, Color};
 const CONF_OR: ConfigOverride = ConfigOverride {
     color: None,
     out_dir: None,
-    exit_script: None,
+    script: None,
 };
 
 struct Case<'a> {

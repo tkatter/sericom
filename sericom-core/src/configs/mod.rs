@@ -33,6 +33,8 @@ pub static CONFIG: OnceLock<RwLock<Config>> = OnceLock::new();
 /// See [`Appearance`] and [`Defaults`]
 #[derive(Default, Debug, Deserialize, PartialEq, Eq)]
 pub struct Config {
+    // Global fields for cli behaviors??
+    // color: ["always", "never", "auto"]
     #[serde(default)]
     pub appearance: Appearance,
     #[serde(default)]
@@ -47,7 +49,7 @@ impl Config {
         if let Some(dir) = overrides.out_dir {
             self.defaults.out_dir = dir;
         }
-        if let Some(script) = overrides.exit_script {
+        if let Some(script) = overrides.script {
             self.defaults.exit_script = Some(script);
         }
     }
@@ -120,7 +122,7 @@ pub struct ConfigOverride {
     /// Overrides [`Defaults::out_dir`]
     pub out_dir: Option<PathBuf>,
     /// Overrides [`Defaults::exit_script`]
-    pub exit_script: Option<PathBuf>,
+    pub script: Option<PathBuf>,
 }
 
 fn get_conf_dir() -> std::path::PathBuf {

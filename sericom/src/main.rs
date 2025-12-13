@@ -28,6 +28,14 @@ const RESET: &str = "\x1b\x5b0m";
 struct Cli {
     #[command(subcommand)]
     command: Commands,
+    #[arg(
+        long = "color",
+        value_parser = ["auto", "always", "never"],
+        default_value = "auto",
+        help = "Specify WHEN to colorize output",
+        require_equals = true
+    )]
+    color: String,
 }
 
 #[allow(clippy::enum_variant_names)]
@@ -36,26 +44,28 @@ enum Commands {
     /// Connect to a serial port
     #[command(alias = "c", alias = "con")]
     Connect {
-        /// The path to a serial port.
+        /// The path to a serial port
         ///
         /// For Linux/MacOS something like `/dev/ttyUSB0`, Windows `COM1`.
         port: String,
-        /// Baud rate for the serial connection.
+        /// Baud rate for the serial connection
         #[arg(short, long, value_parser = valid_baud_rate, default_value_t = 9600)]
         baud: u32,
-        #[clap(flatten)]
-        config_override: ConfigOverrides,
-        /// Path to a file for the output.
+        /// Path to a file to write the session's output
         #[arg(short, long)]
         file: Option<Option<PathBuf>>,
         /// Start the session in the background (headless)
         #[arg(long)]
         bg: bool,
-        /// Write debug output
-        #[arg(short, long)]
-        debug: bool,
+        #[clap(flatten)]
+        config_override: ConfigOverrides,
     },
-    /// List helpful information like valid baud rates, available serial ports, and sessions.
+    /// Close a session
+    #[command(alias = "k")]
+    Kill {
+        session: Vec<sericom_core::session::SessionID>,
+    },
+    /// List helpful information like valid baud rates, available serial ports, sessions, etc.
     #[command(alias = "ls", alias = "l")]
     List {
         #[command(subcommand)]
@@ -63,29 +73,24 @@ enum Commands {
     },
     // TODO: Use this to print user settings like `git config --list`
     // Set {
-    // Stuff to set settings
+    //     /* Stuff to set settings */
     // }
-    // Settings {
-    //     #[arg(short, long, value_parser = valid_baud_rate, default_value_t = 9600)]
-    //     baud: u32,
-    //     /// Path to the port to open
-    //     #[arg(short, long)]
-    //     port: String,
-    // },
 }
 
 #[derive(Subcommand)]
 enum ListCmds {
-    /// List available serial ports.
-    #[command(alias = "p")]
-    Ports,
-    /// List valid baud rates.
-    #[command(alias = "b")]
-    Bauds,
+    /// List the current sessions/connections
     #[command(alias = "s", alias = "sess")]
     Sessions,
-    #[command(alias = "set")]
-    Settings,
+    /// List available serial ports
+    #[command(alias = "p")]
+    Ports,
+    /// List valid baud rates
+    #[command(alias = "b")]
+    Bauds,
+    /// List the current configuration
+    #[command(alias = "conf")]
+    Config,
 }
 
 #[derive(Parser, Debug)]
@@ -98,9 +103,9 @@ struct ConfigOverrides {
     /// Alternatively could simply use the absolute path
     #[arg(short, long, requires_all = &["port", "file"], value_parser = validate_dir)]
     out_dir: Option<PathBuf>,
-    /// Override the `exit-script` that's run after writing to a file
+    /// Override the `script` that's run after writing to a file
     #[arg(long, requires_all = &["port", "file"], value_parser = is_script)]
-    exit_script: Option<PathBuf>,
+    script: Option<PathBuf>,
 }
 
 impl From<ConfigOverrides> for sericom_core::configs::ConfigOverride {
@@ -108,25 +113,18 @@ impl From<ConfigOverrides> for sericom_core::configs::ConfigOverride {
         sericom_core::configs::ConfigOverride {
             color: overrides.color,
             out_dir: overrides.out_dir,
-            exit_script: overrides.exit_script,
+            script: overrides.script,
         }
     }
 }
-
-const CONFIG_OVERRIDE: sericom_core::configs::ConfigOverride =
-    sericom_core::configs::ConfigOverride {
-        color: None,
-        out_dir: None,
-        exit_script: None,
-    };
 
 #[tokio::main]
 async fn main() -> miette::Result<()> {
     initialize_config(None)?;
     let _trace_guard: Option<tracing_appender::non_blocking::WorkerGuard> = {
         let config = get_config().unwrap();
-        let out_dir = config.defaults.debug_dir.as_path();
-        init_tracing(out_dir, false)? // TODO: GET DEBUG CLI FLAG HERE
+        let dbg_dir = config.defaults.debug_dir.as_path();
+        init_tracing(dbg_dir)?
     };
 
     run_repl().await
@@ -146,11 +144,9 @@ async fn run_repl() -> miette::Result<()> {
     if rl.load_history(&history_path).is_err() {
         println!("{DIM}No previous history{RESET}");
     }
-
     println!("Welcome to the sericom, type 'exit' to quit.");
 
     let mut manager = sericom_core::session::SessionManager::new();
-
     loop {
         let readline = rl.readline(">> ");
         match readline {
@@ -197,7 +193,6 @@ async fn handle_cmds(
     cmd: Commands,
     manager: &mut sericom_core::session::SessionManager,
 ) -> miette::Result<()> {
-    let mut stdout = std::io::stdout();
     match cmd {
         Commands::Connect {
             port,
@@ -205,12 +200,8 @@ async fn handle_cmds(
             config_override,
             file,
             bg,
-            debug,
         } => {
             manager.spawn(&port, baud)?;
-            // let connection = open_connection(baud, &port)?;
-            // let overrides: sericom_core::configs::ConfigOverride = config_override.into();
-            //
             // if let Some(Some(path)) = &file
             //     && path.is_dir()
             // {
@@ -231,6 +222,13 @@ async fn handle_cmds(
             // interactive_session(connection, file, &port).await?;
             Ok(())
         }
+        Commands::Kill { session } => {
+            for id in session {
+                manager.kill(id).await;
+                tracing::debug!(target: "repl::kill", "session {id} closed");
+            }
+            Ok(())
+        }
         Commands::List { cmd } => match cmd {
             ListCmds::Ports => list_serial_ports(),
             ListCmds::Bauds => {
@@ -241,12 +239,11 @@ async fn handle_cmds(
                 Ok(())
             }
             ListCmds::Sessions => {
-                manager.list(&mut stdout);
+                manager.list(&mut std::io::stdout());
                 Ok(())
             }
-            ListCmds::Settings => todo!(),
+            ListCmds::Config => todo!(),
         },
-        // Commands::Settings { baud, port } => get_settings(baud, &port),
     }
 }
 
@@ -268,20 +265,20 @@ fn handle_help(line: &str) {
     {
         sub_cmd.print_help().ok();
         println!();
-        return;
     }
-
-    println!("{RED}No help found for '{BOLD}{line}{UNBOLD}'.{RESET}");
 }
 
 fn init_tracing(
-    out_dir: &Path,
-    _debug: bool,
+    dbg_dir: &Path,
 ) -> miette::Result<Option<tracing_appender::non_blocking::WorkerGuard>> {
     use sericom_core::compat_port_path;
+    use tracing::{Level, level_filters::LevelFilter};
+    use tracing_subscriber::EnvFilter;
+    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::util::SubscriberInitExt;
+    use tracing_subscriber::{filter, fmt};
 
-    let path =
-        compat_port_path!(get_config().unwrap().defaults.debug_dir.clone());
+    let path = compat_port_path!(dbg_dir);
     let file = std::fs::File::options()
         .write(true)
         .create(true)
@@ -291,28 +288,33 @@ fn init_tracing(
         .wrap_err_with(|| format!("Failed to create '{}'", path.display()))?;
 
     let (non_blocking, guard) = tracing_appender::non_blocking(file);
-    let subscriber = tracing_subscriber::fmt()
-        .with_max_level({
-            #[cfg(debug_assertions)]
-            {
-                tracing::Level::TRACE
-            }
-            #[cfg(not(debug_assertions))]
-            {
-                if _debug {
-                    tracing::Level::DEBUG
-                } else {
-                    tracing::Level::INFO
-                }
-            }
-        })
-        .with_writer(non_blocking)
-        .with_line_number(false)
-        .with_target(true)
-        .finish();
 
-    tracing::subscriber::set_global_default(subscriber)
-        .into_diagnostic()
-        .wrap_err("Failed to set subscriber")?;
+    tracing_subscriber::registry()
+        .with(
+            fmt::layer()
+                .with_writer(non_blocking)
+                .with_line_number(false)
+                .with_target(true),
+        )
+        .with(
+            filter::Targets::new()
+                .with_target("sericom", Level::TRACE)
+                .with_target("sericom_core", Level::TRACE)
+                .with_target("session", Level::TRACE)
+                .with_target("repl", Level::TRACE)
+                .with_default(Level::ERROR),
+        )
+        .with(
+            EnvFilter::builder()
+                .with_default_directive(
+                    #[cfg(debug_assertions)]
+                    LevelFilter::TRACE.into(),
+                    #[cfg(not(debug_assertions))]
+                    LevelFilter::INFO.into(),
+                )
+                .from_env_lossy(),
+        )
+        .init();
+
     Ok(Some(guard))
 }
