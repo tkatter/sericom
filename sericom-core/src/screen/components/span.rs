@@ -171,7 +171,11 @@ impl Span {
 }
 
 impl Command for Span {
-    fn execute_winapi(&self) -> Result<(), std::io::Error> { todo!() }
+    #[cfg(windows)]
+    fn execute_winapi(&self) -> Result<(), std::io::Error> {
+        todo!()
+    }
+
     fn write_ansi(&self, f: &mut impl std::fmt::Write) -> std::fmt::Result {
         f.write_str(&String::from_iter(&self.cells))
     }
