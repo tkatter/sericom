@@ -43,12 +43,26 @@ impl Span {
     /// The index of the last [`Cell`] in `self` that is not whitespace.
     #[must_use]
     pub fn last_filled_idx(&self) -> usize {
-        self.len()
-            - self
-                .iter()
-                .rev()
-                .position(|c| c.character != b' ')
-                .unwrap_or(0)
+        if self.all_whitespace() {
+            return 0;
+        }
+
+        let len = self.len();
+        let p = self
+            .iter()
+            .rev()
+            .position(|c| c.character != b' ')
+            .unwrap_or(0);
+        if len - p == len { len - 1 } else { len - p }
+    }
+
+    fn all_whitespace(&self) -> bool {
+        for c in &self.cells {
+            if **c != b' ' {
+                return false;
+            }
+        }
+        true
     }
 
     fn get_config_colors() -> Colors {
@@ -60,12 +74,12 @@ impl Span {
     }
 
     /// Set the [`Attributes`] for `self`.
-    pub(crate) const fn set_attrs(&mut self, attrs: Attributes) {
+    pub const fn set_attrs(&mut self, attrs: Attributes) {
         self.attrs = attrs;
     }
 
     /// Add an [`Attribute`] to [`Self`], if already set this does nothing.
-    pub(crate) fn add_attr(&mut self, attr: Attribute) {
+    pub fn add_attr(&mut self, attr: Attribute) {
         self.attrs.set(attr);
     }
 
@@ -246,9 +260,6 @@ impl FromIterator<Cell> for Span {
 impl std::fmt::Debug for Span {
     /// Prints "Span[fg: {:?}, bg: {:?}, attrs: {:?}, len: {}, cap: {}] ( {cells} )"
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        use std::fmt::Write;
-        use std::ops::Deref;
-
         let mut s = format!(
             "Span[fg: {:?}, bg: {:?}, attrs: {:?}, len: {}, cap: {}] ( ",
             self.colors.foreground.unwrap(),

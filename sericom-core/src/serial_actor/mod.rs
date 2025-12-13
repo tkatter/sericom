@@ -31,10 +31,12 @@ pub enum SerialEvent {
     /// shutdown the connection. `ConnectionClosed` is used for the [`SerialActor`]
     /// to broadcast to listeners that the connection has been shutdown by the device.
     ConnectionClosed,
+    LinesWritten(u32),
 }
 
 /// Responsible for passing data and messages between the serial connection and tasks.
-/// It uses the Actor model to maintain a single source for communicating between the
+///
+/// Uses the Actor model to maintain a single source for communicating between the
 /// serial connection and tasks within the program.
 ///
 /// It broadcasts [`SerialEvent`]s to worker tasks via a [`tokio::sync::broadcast`]
@@ -71,45 +73,54 @@ impl SerialActor {
     ///
     /// Since data is sent byte-by-byte over a serial connection, `run` will
     /// batch the data before sending it to other tasks to reduce the number of syscalls.
-    pub async fn run(mut self) {
-        tracing::trace!(target: "session::actor", "running SerialActor");
-        let mut buffer = vec![0u8; 4096];
+    #[tracing::instrument(skip_all, level = "debug")]
+    pub async fn run(mut self) -> miette::Result<()> {
+        use tracing::{debug, error, trace};
+
+        trace!("running SerialActor");
+        let mut buffer = vec![0u8; 2048];
         loop {
             tokio::select! {
                 // Handle commands/input from tasks
                 cmd = self.command_rx.recv() => {
+                    trace!(?cmd, "command_rx.recv()");
                     match cmd {
                         Some(SerialMessage::Write(data)) => {
                             if let Err(e) = self.connection.write_all(&data).await {
+                                error!("error writing to connection: {e}");
                                 self.broadcast_channel.send(SerialEvent::Error(e.to_string())).ok();
                             }
                         }
                         Some(SerialMessage::Shutdown) => {
-                            tracing::debug!(target: "session::actor", "recieved shutdown command");
+                            debug!("recieved shutdown command");
                             self.broadcast_channel.send(SerialEvent::ConnectionClosed).ok();
                             break;
                         }
                         Some(SerialMessage::SendBreak) => {
-                            tracing::debug!(target: "session::actor", "sending break signal");
+                            debug!("sending break signal");
                             self.send_break().await;
                         }
-                        None => break,
+                        None => {
+                            debug!("command_rx.recv() was None");
+                            break;
+                        }
                     }
                 }
                 // Handle reading data from serial connection
                 read_result = self.connection.read(&mut buffer) => {
                     match read_result {
                         Ok(0) => {
-                            tracing::debug!(target: "session::actor", "connection closed: no bytes read");
+                            debug!("closing connection - no bytes read");
                             self.broadcast_channel.send(SerialEvent::ConnectionClosed).ok();
                             break;
                         }
                         Ok(n) => {
                             let data: std::sync::Arc<[u8]> = buffer[..n].into();
+                            debug!("recieved {} bytes", data.len());
                             self.broadcast_channel.send(SerialEvent::Data(data)).ok();
                         }
                         Err(e) => {
-                            tracing::warn!(target: "session::actor", "error reading from connection.");
+                            error!("error reading from connection: {e}");
                             self.broadcast_channel.send(SerialEvent::Error(e.to_string())).ok();
                             break;
                         }
@@ -117,6 +128,8 @@ impl SerialActor {
                 }
             }
         }
+
+        Ok(())
     }
 
     async fn send_break(&self) {

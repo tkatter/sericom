@@ -17,7 +17,7 @@ use std::{
     io::Read,
     ops::Range,
     path::PathBuf,
-    sync::{LockResult, OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard, TryLockResult},
+    sync::{LockResult, OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard},
 };
 
 /// Global value of the user's config.
@@ -55,6 +55,18 @@ impl Config {
     }
 }
 
+#[cfg(test)]
+static INIT: std::sync::Once = std::sync::Once::new();
+
+#[cfg(test)]
+pub fn init_for_tests() {
+    INIT.call_once(|| {
+        CONFIG
+            .set(RwLock::new(Config::default()))
+            .expect("init config");
+    });
+}
+
 /// This function constructs a global `static CONFIG` for the rest of the program's
 /// duration to provide a reference to the config for the remainder of the program.
 ///
@@ -85,7 +97,7 @@ pub fn initialize_config(overrides: Option<ConfigOverride>) -> miette::Result<()
 
     if let Some(overrides) = overrides {
         config.apply_overrides(overrides);
-    };
+    }
 
     CONFIG
         .set(RwLock::new(config))
@@ -101,12 +113,16 @@ pub fn initialize_config(overrides: Option<ConfigOverride>) -> miette::Result<()
 ///
 /// ## Panics
 /// Will panic if [`CONFIG`] as not been initialized before calling with [`initialize_config()`].
-pub fn get_config<'a>() -> LockResult<RwLockReadGuard<'a, Config>> {
+pub fn get_config<'a>() -> miette::Result<RwLockReadGuard<'a, Config>> {
     // thinking is not try_read because when this method is called, it is
     // called because the values _are needed_ for initializing other things
     // so returning an Err from try_read is not helpful - would rather have it
     // block until it gets a read lock than get an err if it wasn't ready
-    CONFIG.get().expect("Config not initialized").read()
+    CONFIG
+        .get()
+        .expect("Config not initialized")
+        .read()
+        .map_err(|e| miette::miette!("{e}").wrap_err("Failed to read config"))
 }
 
 // TODO: UPDATE DOCS
@@ -185,16 +201,16 @@ fn parse_test_config() -> miette::Result<()> {
 #[test]
 fn check_conf_dir_is_dir() {
     let dir = get_conf_dir();
-    assert!(std::fs::metadata(dir).unwrap().is_dir())
+    assert!(std::fs::metadata(dir).unwrap().is_dir());
 }
 
 #[test]
 fn valid_conf_dir() {
     let dir = get_conf_dir();
     if cfg!(target_family = "windows") {
-        assert_eq!(dir.to_str().unwrap(), "C:\\Users\\Thomas\\.config\\sericom")
+        assert_eq!(dir.to_str().unwrap(), "C:\\Users\\Thomas\\.config\\sericom");
     } else {
-        assert_eq!(dir.to_str().unwrap(), "/home/thomas/.config/sericom")
+        assert_eq!(dir.to_str().unwrap(), "/home/thomas/.config/sericom");
     }
 }
 
@@ -219,7 +235,7 @@ fn get_expanded_path() {
         p2,
         PathBuf::from("/home/thomas/.config/sericom/config.toml")
     );
-    assert_eq!(p3, PathBuf::from("/home/thomas/.config/some/path"))
+    assert_eq!(p3, PathBuf::from("/home/thomas/.config/some/path"));
 }
 
 // #[test]

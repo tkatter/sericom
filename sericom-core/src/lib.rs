@@ -10,6 +10,7 @@
 //! for use among other crates.
 #![allow(clippy::missing_errors_doc)]
 #![allow(clippy::missing_panics_doc)]
+// #![feature(vec_into_raw_parts)]
 
 pub mod cli;
 pub mod configs;

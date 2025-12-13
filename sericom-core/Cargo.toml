@@ -17,10 +17,11 @@ crossterm.workspace = true
 miette.workspace = true
 serial2-tokio.workspace = true
 tokio.workspace = true
-tracing.workspace = true
+tracing = { workspace = true, features = ["attributes"] }
 
 [dev-dependencies]
 test-log = {version = "0.2.18", default-features = false, features = ["trace", "color"]}
+test-sericom = { version = "0.1.0", path = "../test-sericom" }
 
 [lints.clippy]
 pedantic = "warn"

@@ -112,6 +112,17 @@ impl Line {
         self.0.push(span);
     }
 
+    pub fn ascii_bytes(&self) -> impl Iterator<Item = u8> + '_ {
+        use std::ops::Deref;
+
+        let end = self.last_filled_idx();
+        self.iter()
+            .flatten()
+            .take(end + 1)
+            .map(Deref::deref)
+            .copied()
+    }
+
     /// Splits the [`Span`] at `col` and applies `colors` && `attrs` to the new [`Span`].
     ///
     /// If there is only a single [`Span`] in `self` and [`Self::num_filled_cells()`] == 0

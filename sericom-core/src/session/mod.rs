@@ -1,5 +1,6 @@
 mod handle;
 pub use handle::SessionHandle;
+use tracing::{info, warn};
 
 pub type SessionID = u8;
 
@@ -14,7 +15,7 @@ pub struct SessionManager {
 #[derive(Debug, Clone)]
 pub struct SessionMeta {
     pub(crate) baud: u32,
-    pub(crate) port: String,
+    pub(crate) port: std::path::PathBuf,
 }
 
 impl SessionManager {
@@ -37,6 +38,11 @@ impl SessionManager {
         self.handles.get(id as usize)
     }
 
+    #[must_use]
+    pub fn get_mut_session(&mut self, id: SessionID) -> Option<&mut SessionHandle> {
+        self.handles.get_mut(id as usize)
+    }
+
     /// Get a reference to the [`SessionMeta`] of [`SessionID`].
     ///
     /// Returns `None` if the [`SessionID`] is invalid.
@@ -53,19 +59,23 @@ impl SessionManager {
     /// TODO: HANDLE ERROR PROPAGATING TO STDOUT
     #[allow(clippy::result_unit_err)]
     #[allow(clippy::cast_possible_truncation)]
-    pub fn spawn(&mut self, port: &str, baud: u32) -> miette::Result<SessionID> {
+    pub fn spawn(
+        &mut self,
+        port: std::path::PathBuf,
+        baud: u32,
+        f_path: Option<Option<std::path::PathBuf>>,
+        headless: bool,
+    ) -> miette::Result<SessionID> {
         let id = self.metas.len();
 
         if !id < u8::MAX as usize {
-            tracing::warn!(target: "session::spawn", %id, "max sessions reached");
-            return Err(()).map_err(|_| miette::miette!("Max sessions reached"))?; // TODO: HANDLE STDOUT ERROR PROPAGATING
+            warn!(%id, "max sessions reached");
+            return Err(miette::miette!("Max sessions reached"))?;
         }
 
-        let meta = SessionMeta {
-            baud,
-            port: port.to_owned(),
-        };
-        let handle = SessionHandle::spawn(&meta)?;
+        let meta = SessionMeta { baud, port };
+        let handle = SessionHandle::spawn(&meta, f_path, headless)?;
+        info!(%id, port=%meta.port.display(), %baud, "created session");
 
         self.handles.push(handle);
         self.metas.push(meta);
@@ -79,17 +89,22 @@ impl SessionManager {
     pub async fn kill(&mut self, id: SessionID) {
         let idx = id as usize;
         if idx >= self.metas.len() {
+            warn!("invalid session id: '{id}'");
             return;
         }
 
         if self.handles.get(idx).is_none() {
-            tracing::debug!(target: "session::kill", "session {id} does not exist");
+            warn!("session '{id}' does not exist");
             return;
         }
 
-        self.metas.swap_remove(idx);
+        let meta = self.metas.swap_remove(idx);
         self.handles.swap_remove(idx).shutdown().await;
-        tracing::trace!(target: "session::kill", "session {idx} killed");
+        info!(
+            %id,
+            port=%meta.port.display(),
+            "terminated session"
+        );
 
         // NOTE:
         // Shouldn't need to adjust active idx because when the user is in the
@@ -124,7 +139,7 @@ impl SessionManager {
         {
             let _ = writeln!(writer, "{:3} {:6} BAUD", "ID", "PORT");
             for (id, meta) in self.metas.iter().enumerate() {
-                let _ = writeln!(writer, "{:<3} {:6} {}", id, meta.port, meta.baud);
+                let _ = writeln!(writer, "{:<3} {:6} {}", id, meta.port.display(), meta.baud);
             }
         }
 
@@ -132,7 +147,7 @@ impl SessionManager {
         {
             let _ = writeln!(writer, "{:3} {:14} BAUD", "ID", "PORT");
             for (id, meta) in self.metas.iter().enumerate() {
-                let _ = writeln!(writer, "{:<3} {:14} {}", id, meta.port, meta.baud);
+                let _ = writeln!(writer, "{:<3} {:14} {}", id, meta.port.display(), meta.baud);
             }
         }
     }
@@ -142,11 +157,22 @@ impl SessionManager {
         for session in self.handles {
             idx += 1;
             session.shutdown().await;
-            tracing::info!(
-                target: "session",
-                port = %self.metas[(idx as usize).saturating_sub(1)].port,
-                "shutdown session: '{idx}'"
+            info!(
+                id=%(idx as usize).saturating_sub(1),
+                port=%self.metas[(idx as usize).saturating_sub(1)].port.display(),
+                "terminated session"
             );
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn assert_buf<F>(&self, id: SessionID, f: F)
+    where
+        F: FnOnce(&crate::screen::ScreenBuffer),
+    {
+        if let Some(session) = self.get_session(id) {
+            let sb = session.buffer.read().await;
+            f(&sb);
         }
     }
 }

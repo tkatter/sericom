@@ -1,106 +1,19 @@
 //! This module holds the functions that are called from `sericom` when receiving
 //! CLI commands/arguments.
 
-use crate::{
-    compat_port_path,
-    configs::get_config,
-    create_recursive, map_miette,
-    screen::UICommand,
-    serial_actor::{
-        SerialActor, SerialEvent, SerialMessage,
-        tasks::{run_file_output, run_stdin_input, run_stdout_output},
-    },
-};
-use crossterm::{
-    cursor, event, execute,
-    style::Stylize,
-    terminal::{self, ClearType},
-};
-use miette::{Context, IntoDiagnostic};
+// use crossterm::event;
 use serial2_tokio::SerialPort;
 use std::{
-    io::{self, Write},
+    // io::{self, Write},
     path::PathBuf,
 };
-use tracing::{Level, trace};
 
-/// Spawns all of the tasks responsible for maintaining an interactive terminal session.
-pub async fn interactive_session(
-    connection: SerialPort,
-    file_path: Option<Option<PathBuf>>,
-    port_name: &str,
-) -> miette::Result<()> {
-    let span = tracing::span!(Level::TRACE, "Interactive Session");
-    let _enter = span.enter();
-    // Setup terminal
-    let mut stdout = io::stdout();
-    terminal::enable_raw_mode()
-        .into_diagnostic()
-        .wrap_err("Failed to enable raw mode.".red())?;
-    execute!(
-        stdout,
-        terminal::EnterAlternateScreen,
-        terminal::SetTitle(port_name),
-        terminal::Clear(ClearType::All),
-        event::EnableBracketedPaste,
-        event::EnableMouseCapture,
-        cursor::MoveTo(0, 0)
-    )
-    .into_diagnostic()
-    .wrap_err("Failed to setup the terminal.".red())?;
-    let config = get_config().unwrap(); // TODO: HANDLE
-
-    trace!("Creating channels");
-    // Create channels
-    let (command_tx, command_rx) = tokio::sync::mpsc::channel::<SerialMessage>(100);
-    let (ui_tx, ui_rx) = tokio::sync::mpsc::channel::<UICommand>(100);
-    let (broadcast_event_tx, _) = tokio::sync::broadcast::channel::<SerialEvent>(128);
-    let stdout_rx = broadcast_event_tx.subscribe();
-
-    // Create tasks
-    let mut tasks = tokio::task::JoinSet::new();
-
-    if let Some(maybe_path) = file_path {
-        let default_out_dir = PathBuf::from(&config.defaults.out_dir);
-        let file_path = if let Some(path) = maybe_path {
-            // If given an absolute path - override the `default_out_dir`
-            if path.is_absolute() {
-                let parent = path.parent().unwrap_or(&default_out_dir);
-                create_recursive!(parent);
-                path
-            } else {
-                let joined_path = default_out_dir.join(&path);
-                let parent_path = joined_path.parent().expect("Does not have root");
-                create_recursive!(parent_path);
-                joined_path
-            }
-        } else {
-            let default_out_dir = PathBuf::from(&config.defaults.out_dir);
-            compat_port_path!(default_out_dir, port_name)
-        };
-
-        let file_rx = broadcast_event_tx.subscribe();
-        tasks.spawn(async move {
-            run_file_output(file_rx, file_path.clone()).await;
-            run_file_exit_script(file_path);
-        });
-    }
-
-    let actor = SerialActor::new(connection, command_rx, broadcast_event_tx);
-    tasks.spawn(actor.run());
-
-    tasks.spawn(run_stdout_output(stdout_rx, ui_rx));
-    tasks.spawn(run_stdin_input(command_tx, ui_tx));
-
-    tasks.join_all().await;
-    ensure_terminal_cleanup(stdout);
-    Ok(())
-}
+use crate::map_miette;
 
 /// Opens a serial `port` for communication with the specified `baud`.
 ///
 /// Returns `Ok(SerialPort)` or errors if unable to set the baud rate or open the `port`.
-pub fn open_connection(baud: u32, port: &str) -> miette::Result<SerialPort> {
+pub fn open_connection(baud: u32, port: &PathBuf) -> miette::Result<SerialPort> {
     let settings = |mut s: serial2_tokio::Settings| -> std::io::Result<serial2_tokio::Settings> {
         s.set_raw();
         s.set_baud_rate(baud)?;
@@ -112,7 +25,7 @@ pub fn open_connection(baud: u32, port: &str) -> miette::Result<SerialPort> {
     };
     let con = map_miette!(
         SerialPort::open(port, settings),
-        format!("Failed to open port '{}'", port),
+        format!("Failed to open port '{}'", port.display()),
         help = "Is the port already open?\nTo see available ports, try `list ports`."
     )?;
     Ok(con)
@@ -120,49 +33,49 @@ pub fn open_connection(baud: u32, port: &str) -> miette::Result<SerialPort> {
 
 /// Gets the settings for the `port` with the specified `baud`.
 #[allow(clippy::many_single_char_names)]
-pub fn get_settings(baud: u32, port: &str) -> miette::Result<()> {
+pub fn get_settings(baud: u32, port: &PathBuf) -> miette::Result<()> {
     // https://www.contec.com/support/basic-knowledge/daq-control/serial-communicatin/
     let con = open_connection(baud, port)?;
     let settings = map_miette!(
         con.get_configuration(),
-        format!("Failed to get settings for port '{}'", port)
+        format!("Failed to get settings for port '{}'", port.display())
     )?;
     let b = map_miette!(
         settings.get_baud_rate(),
-        format!("Failed to get the baud rate for port '{}'", port)
+        format!("Failed to get the baud rate for port '{}'", port.display())
     )?;
     let c = map_miette!(
         settings.get_char_size(),
-        format!("Failed to get the char size for port '{}'", port)
+        format!("Failed to get the char size for port '{}'", port.display())
     )?;
     let s = map_miette!(
         settings.get_stop_bits(),
-        format!("Failed to get stop bits for port '{}'", port)
+        format!("Failed to get stop bits for port '{}'", port.display())
     )?;
     let p = map_miette!(
         settings.get_parity(),
-        format!("Failed to get parity for port '{}'", port)
+        format!("Failed to get parity for port '{}'", port.display())
     )?;
     let f = map_miette!(
         settings.get_flow_control(),
-        format!("Failed to get flow control for port '{}'", port)
+        format!("Failed to get flow control for port '{}'", port.display())
     )?;
 
     let cts = map_miette!(
         con.read_cts(),
-        format!("Failed to read CTS for port '{}'", port)
+        format!("Failed to read CTS for port '{}'", port.display())
     )?;
     let dsr = map_miette!(
         con.read_dsr(),
-        format!("Failed to read DSR for port '{}'", port)
+        format!("Failed to read DSR for port '{}'", port.display())
     )?;
     let ri = map_miette!(
         con.read_ri(),
-        format!("Failed to read RI for port '{}'", port)
+        format!("Failed to read RI for port '{}'", port.display())
     )?;
     let cd = map_miette!(
         con.read_cd(),
-        format!("Failed to read CD for port '{}'", port)
+        format!("Failed to read CD for port '{}'", port.display())
     )?;
 
     println!("Baud rate: {b}");
@@ -194,8 +107,11 @@ pub fn list_serial_ports() -> miette::Result<()> {
     Ok(())
 }
 
-/// Used as a [`value_parser`](https://docs.rs/clap/latest/clap/struct.Arg.html#method.value_parser) for [`sericom`](https://crates.io/crates/sericom)s [`clap`](https://docs.rs/clap) CLI
-/// struct to validate and parse args into a baud rate.
+/// Used as a [`value_parser`] for [`sericom`]s [`clap`] CLI
+///
+/// [`value_parser`]: https://docs.rs/clap/latest/clap/struct.Arg.html#method.value_parser
+/// [`sericom`]: https://crates.io/crates/sericom
+/// [`clap`]: https://crates.io/crates/clap
 pub fn valid_baud_rate(s: &str) -> Result<u32, String> {
     let baud: u32 = s
         .parse()
@@ -207,8 +123,12 @@ pub fn valid_baud_rate(s: &str) -> Result<u32, String> {
     }
 }
 
-/// Used as a [`value_parser`](https://docs.rs/clap/latest/clap/struct.Arg.html#method.value_parser) for [`sericom`](https://crates.io/crates/sericom)s [`clap`](https://docs.rs/clap) CLI
-/// struct to validate and parse args into a [`SeriColor`][`crate::configs::SeriColor`].
+/// Used as a [`value_parser`] for [`sericom`]s [`clap`] CLI to parse args into a [`SeriColor`].
+///
+/// [`value_parser`]: https://docs.rs/clap/latest/clap/struct.Arg.html#method.value_parser
+/// [`sericom`]: https://crates.io/crates/sericom
+/// [`clap`]: https://crates.io/crates/clap
+/// [`SeriColor`]: crate::configs::SeriColor
 pub fn color_parser(input: &str) -> Result<crate::configs::SeriColor, String> {
     use crate::configs::{NORMALIZER, SeriColor};
     match SeriColor::parse_from_str(input, NORMALIZER) {
@@ -217,6 +137,7 @@ pub fn color_parser(input: &str) -> Result<crate::configs::SeriColor, String> {
     }
 }
 
+/*
 fn ensure_terminal_cleanup(mut stdout: io::Stdout) {
     use crossterm::{
         cursor::Show,
@@ -287,3 +208,4 @@ fn create_platform_cmd(
         }
     }
 }
+*/

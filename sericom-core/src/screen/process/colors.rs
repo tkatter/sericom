@@ -18,6 +18,7 @@ impl Default for ColorState {
         let config = get_config().unwrap();
         let fg = Color::from(&config.appearance.fg);
         let bg = Color::from(&config.appearance.bg);
+        drop(config);
         Self {
             colors: Colors::new(fg, bg),
         }

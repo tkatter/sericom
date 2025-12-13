@@ -1,12 +1,6 @@
-use crate::configs::{ConfigOverride, get_config, initialize_config};
+use crate::configs::get_config;
 use crate::screen::process::*;
 use crossterm::style::{Attribute, Attributes, Color};
-
-const CONF_OR: ConfigOverride = ConfigOverride {
-    color: None,
-    out_dir: None,
-    script: None,
-};
 
 struct Case<'a> {
     seq: &'a [u8],
@@ -55,9 +49,10 @@ fn test_cases(cases: &Vec<Case>) {
 
 #[test]
 fn test_basic_fg() {
-    initialize_config(Some(CONF_OR)).ok();
+    crate::configs::init_for_tests();
     let config = get_config().unwrap();
     let bg = Color::from(&config.appearance.bg);
+    drop(config);
 
     let cases = vec![
         Case {
@@ -80,9 +75,10 @@ fn test_basic_fg() {
 
 #[test]
 fn test_basic_bg() {
-    initialize_config(Some(CONF_OR)).ok();
+    crate::configs::init_for_tests();
     let config = get_config().unwrap();
     let fg = Color::from(&config.appearance.fg);
+    drop(config);
 
     let cases = vec![Case {
         seq: b"\x1b[44m",
@@ -96,10 +92,11 @@ fn test_basic_bg() {
 
 #[test]
 fn test_bright_colors() {
-    initialize_config(Some(CONF_OR)).ok();
+    crate::configs::init_for_tests();
     let config = get_config().unwrap();
     let fg = Color::from(&config.appearance.fg);
     let bg = Color::from(&config.appearance.bg);
+    drop(config);
 
     let cases = vec![
         Case {
@@ -122,10 +119,11 @@ fn test_bright_colors() {
 
 #[test]
 fn test_resets_and_defaults() {
-    initialize_config(Some(CONF_OR)).ok();
+    crate::configs::init_for_tests();
     let config = get_config().unwrap();
     let fg = Color::from(&config.appearance.fg);
     let bg = Color::from(&config.appearance.bg);
+    drop(config);
 
     let cases = vec![
         Case {
@@ -155,10 +153,11 @@ fn test_resets_and_defaults() {
 
 #[test]
 fn test_attributes() {
-    initialize_config(Some(CONF_OR)).ok();
+    crate::configs::init_for_tests();
     let config = get_config().unwrap();
     let fg = Color::from(&config.appearance.fg);
     let bg = Color::from(&config.appearance.bg);
+    drop(config);
 
     let cases = vec![Case {
         seq: b"\x1b[1;3;4m",
@@ -172,10 +171,11 @@ fn test_attributes() {
 
 #[test]
 fn test_256_color_palette() {
-    initialize_config(Some(CONF_OR)).ok();
+    crate::configs::init_for_tests();
     let config = get_config().unwrap();
     let fg = Color::from(&config.appearance.fg);
     let bg = Color::from(&config.appearance.bg);
+    drop(config);
 
     let cases = vec![
         Case {
@@ -198,10 +198,11 @@ fn test_256_color_palette() {
 
 #[test]
 fn test_truecolor_palette() {
-    initialize_config(Some(CONF_OR)).ok();
+    crate::configs::init_for_tests();
     let config = get_config().unwrap();
     let fg = Color::from(&config.appearance.fg);
     let bg = Color::from(&config.appearance.bg);
+    drop(config);
 
     let cases = vec![
         Case {
@@ -232,10 +233,11 @@ fn test_truecolor_palette() {
 
 #[test]
 fn test_mix_attr_colors() {
-    initialize_config(Some(CONF_OR)).ok();
+    crate::configs::init_for_tests();
     let config = get_config().unwrap();
     let fg = Color::from(&config.appearance.fg);
     let bg = Color::from(&config.appearance.bg);
+    drop(config);
 
     let cases = vec![
         Case {
@@ -262,10 +264,11 @@ fn test_mix_attr_colors() {
 
 #[test]
 fn test_kitchen_sink() {
-    initialize_config(Some(CONF_OR)).ok();
+    crate::configs::init_for_tests();
     let config = get_config().unwrap();
     let fg = Color::from(&config.appearance.fg);
     let bg = Color::from(&config.appearance.bg);
+    drop(config);
 
     let cases = vec![
         Case {
@@ -292,10 +295,11 @@ fn test_kitchen_sink() {
 
 #[test]
 fn test_invalid() {
-    initialize_config(Some(CONF_OR)).ok();
+    crate::configs::init_for_tests();
     let config = get_config().unwrap();
     let fg = Color::from(&config.appearance.fg);
     let bg = Color::from(&config.appearance.bg);
+    drop(config);
 
     let cases = vec![
         Case {

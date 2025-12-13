@@ -51,5 +51,5 @@ run-trace:
 test tests=default-tests:
   cargo test {{tests}} --no-fail-fast --lib
 
-test-trace target=default-trace tests=default-tests:
-  RUST_LOG='{{target}}=trace' cargo test {{tests}} --no-fail-fast --lib -- --nocapture
+test-trace tests=default-tests:
+  RUST_LOG='sericom_core::screen::buffer=debug,sericom_core=trace' cargo test {{tests}} --no-fail-fast --lib -- --nocapture

@@ -19,40 +19,6 @@ impl ScreenBuffer {
         // self.process_events(writer, event);
     }
 
-    // fn add_char_batch(&mut self, chars: &[char]) {
-    //     tracing::debug!("CharBatch: '{:?}'", chars);
-    //     while self.cursor.y >= self.lines.len() {
-    //         self.lines.push_back(Line::new_default(self.width.into()));
-    //     }
-    //
-    //     if let Some(line) = self.lines.get_mut(self.cursor.y) {
-    //         for &ch in chars {
-    //             line.set_char(self.cursor.x as usize, ch);
-    //             self.cursor.x += 1;
-    //             if self.cursor.x >= self.width {
-    //                 self.new_line();
-    //                 break;
-    //             }
-    //         }
-    //     }
-    // }
-
-    /// A helper function to check whether the terminal's screen should be rendered.
-    pub fn should_render_now(&self) -> bool {
-        // use tokio::time::Instant;
-        //
-        // if !self.needs_render {
-        //     return false;
-        // }
-        //
-        // let now = Instant::now();
-        // match self.last_render {
-        //     Some(last) => now.duration_since(last) >= MIN_RENDER_INTERVAL,
-        //     None => true,
-        // }
-        true
-    }
-
     /// Writes the lines/characters received from `add_data` to the terminal's screen.
     ///
     /// As of now, `render` does not involve any diff-ing of previous renders.

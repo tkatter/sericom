@@ -1,6 +1,7 @@
 use std::fmt::Write;
 
 use crossterm::style::Attributes;
+use tracing::trace;
 
 use crate::screen::process::SEP;
 
@@ -26,15 +27,26 @@ impl<'a> ScreenDriver<'a> {
         }
     }
 
-    pub fn process_events(&mut self, events: Vec<ParserEvent>) {
+    /// Returns the number of newlines written
+    pub fn process_events(&mut self, events: Vec<ParserEvent>) -> u32 {
+        let span = tracing::trace_span!("process");
+        let _enter = span.enter();
+
+        let mut newlines = 0;
         for event in events {
-            tracing::trace!(target: "parser::events", %event);
+            trace!(%event);
             match event {
                 ParserEvent::Text(bytes) => self.write_text(&bytes),
-                ParserEvent::Control(ctrl) => self.handle_control(ctrl),
+                ParserEvent::Control(ctrl) => {
+                    if ctrl == b'\n' {
+                        newlines += 1;
+                    }
+                    self.handle_control(ctrl);
+                }
                 ParserEvent::EscapeSequence(seq) => self.handle_escape(&seq),
             }
         }
+        newlines
     }
 
     fn write_text(&mut self, bytes: &[u8]) {
@@ -65,12 +77,12 @@ impl<'a> ScreenDriver<'a> {
                             .expect("span len is greater than last filled cell")
                             .character = b'\n';
                     }
-                    tracing::trace!(target: "parser::newline", ?line);
                 });
                 self.buffer.set_cursor_col(0);
                 self.buffer.move_cursor_down(1);
                 self.buffer
                     .push_line(Line::new_empty(self.buffer.width() as usize));
+                self.buffer.update_view(None);
             }
             TAB => {
                 self.buffer.with_current_span(|span, _| {

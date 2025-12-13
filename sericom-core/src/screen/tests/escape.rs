@@ -3,12 +3,13 @@ use crate::{assert_line_eq, assert_span_eq, setup};
 
 #[test]
 fn single_plain_line() {
-    setup!(sb, parser, config, stdout);
+    setup!(sb, parser, config);
     let parsed = parser.feed(b"Hello, world!\n");
     let mut driver = ScreenDriver::new(&mut sb);
     driver.process_events(parsed);
     let fg = Color::from(&config.appearance.fg);
     let bg = Color::from(&config.appearance.bg);
+    drop(config);
 
     // Changed pos.x == 0 because handling \n like \r\n for now
     // assert_eq!(sb.cursor, Position::<TermPos>::from((13_u16, 1_u16)));
@@ -20,12 +21,13 @@ fn single_plain_line() {
 
 #[test]
 fn two_lines_plain_text() {
-    setup!(sb, parser, config, stdout);
+    setup!(sb, parser, config);
     let parsed = parser.feed(b"Hello\r\nWorld\r\n");
     let mut driver = ScreenDriver::new(&mut sb);
     driver.process_events(parsed);
     let fg = Color::from(&config.appearance.fg);
     let bg = Color::from(&config.appearance.bg);
+    drop(config);
 
     // Expected: two lines, one with "Hello" padded, one with "World" padded
     assert_eq!(sb.lines.len(), 3);
@@ -38,11 +40,12 @@ fn two_lines_plain_text() {
 
 #[test]
 fn three_color_spans() {
-    setup!(sb, parser, config, stdout);
+    setup!(sb, parser, config);
     let parsed = parser.feed(b"\x1b[31mRed\x1b[32mGreen\x1b[34mBlue\n");
     let mut driver = ScreenDriver::new(&mut sb);
     driver.process_events(parsed);
     let bg = Color::from(&config.appearance.bg);
+    drop(config);
 
     let line = sb.lines.front().unwrap();
     eprintln!(
@@ -62,12 +65,13 @@ fn three_color_spans() {
 
 #[test]
 fn no_newline_incomplete_line() {
-    setup!(sb, parser, config, stdout);
+    setup!(sb, parser, config);
     let parsed = parser.feed(b"Hello");
     let mut driver = ScreenDriver::new(&mut sb);
     driver.process_events(parsed);
     let fg = Color::from(&config.appearance.fg);
     let bg = Color::from(&config.appearance.bg);
+    drop(config);
 
     // Should still only contain the initial empty line
     assert_eq!(sb.lines.len(), 1);
@@ -77,12 +81,13 @@ fn no_newline_incomplete_line() {
 
 #[test]
 fn mixed_plain_and_color() {
-    setup!(sb, parser, config, stdout);
+    setup!(sb, parser, config);
     let parsed = parser.feed(b"Normal \x1b[31mRed\n");
     let mut driver = ScreenDriver::new(&mut sb);
     driver.process_events(parsed);
     let fg = Color::from(&config.appearance.fg);
     let bg = Color::from(&config.appearance.bg);
+    drop(config);
 
     // Expect two spans: "Normal " default, "Red" DarkRed
     let line = sb.lines.front().unwrap();
@@ -91,7 +96,6 @@ fn mixed_plain_and_color() {
     // 2 spans
     assert_eq!(line.len(), 2);
     // Changed pos.x == 0 because handling \n like \r\n for now
-    // assert_eq!(sb.cursor, Position::<TermPos>::from((10_u16, 1_u16)));
     assert_eq!(sb.cursor, Position::<TermPos>::from((0_u16, 1_u16)));
     assert_span_eq!(sb, 0, 0, expected => "Normal ", fg => fg, bg => bg);
     assert_span_eq!(sb, 0, 1, expected => "Red", fg => Color::DarkRed, bg => bg);
@@ -99,7 +103,7 @@ fn mixed_plain_and_color() {
 
 #[test]
 fn bold_italic_span() {
-    setup!(sb, parser, stdout);
+    setup!(sb, parser);
 
     let parsed = parser.feed(b"\x1b[1;3mHello\n"); // bold + italic
     let mut driver = ScreenDriver::new(&mut sb);
@@ -112,9 +116,10 @@ fn bold_italic_span() {
 #[test_log::test]
 #[allow(clippy::cognitive_complexity)]
 fn multiline_multicolor() {
-    setup!(sb, parser, config, stdout);
+    setup!(sb, parser, config);
     let fg = Color::from(&config.appearance.fg);
     let bg = Color::from(&config.appearance.bg);
+    drop(config);
 
     let input = concat!(
         // Line 1: basic color DarkRed -> text

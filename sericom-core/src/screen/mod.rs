@@ -16,8 +16,8 @@
 //! connection in a [`VecDeque`]. It is important to note that
 //! currently, the **capacity of the [`VecDeque`] is hardcoded with a value of 10,000
 //! lines with [`MAX_SCROLLBACK`]**.
-#![allow(dead_code)]
-#![allow(unused)]
+// #![allow(dead_code)]
+// #![allow(unused)]
 
 mod buffer;
 mod components;

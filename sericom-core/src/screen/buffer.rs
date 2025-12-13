@@ -1,7 +1,8 @@
 use crossterm::style::Attributes;
 use std::collections::VecDeque;
+use tracing::trace;
 
-use crate::screen::BuffPos;
+use crate::screen::{BuffPos, UICommand};
 
 use super::position::{Position, TermPos, TranslatePos};
 use super::{Line, Rect};
@@ -18,8 +19,9 @@ pub struct ScreenBuffer {
     /// Scrollback buffer (all lines received from the serial connection).
     /// Limited by [`MAX_SCROLLBACK`].
     pub(crate) lines: VecDeque<Line>,
-    /// Current view into the buffer.
-    /// Denotes which line is at the top of the screen.
+    /// Denotes which line (as idx in [`Self::lines`]) is at the top of the screen.
+    ///
+    /// [`Self::Lines`]: ScreenBuffer::lines
     pub(crate) view_start: u32,
     /// The terminal's dimensions
     pub(crate) rect: Rect<TermPos>,
@@ -123,12 +125,37 @@ impl ScreenBuffer {
 
     pub(crate) fn buff_rect(&self) -> Rect<BuffPos> {
         Rect::from((
-            (
-                0_u16,
-                u32::try_from(self.view_start).expect("ScreenBuffer is less than usize::MAX"),
-            ),
+            (0_u16, self.view_start),
             self.width(),
             u32::from(self.height()),
         ))
+    }
+
+    #[allow(clippy::cast_possible_truncation)]
+    #[tracing::instrument(skip_all, level = "trace", name = "update_view")]
+    pub(crate) fn update_view(&mut self, update: Option<UICommand>) {
+        let buff_rect = self.buff_rect();
+        let num_lines = self.lines.len();
+
+        let Some(cmd) = update else {
+            if (self.view_start <= num_lines as u32) && ((num_lines as u32) < buff_rect.height) {
+                trace!(%num_lines, height=%buff_rect.height, view_start=%self.view_start, "lines is within buff_rect");
+                return;
+            } else if num_lines as u32 > buff_rect.height {
+                // num_lines - 1 because need to be in indexing terms (0 base)
+                let additional = (num_lines as u32 - 1) - (buff_rect.height + self.view_start);
+                self.view_start += additional;
+                trace!(
+                    %num_lines,
+                    height=%buff_rect.height,
+                    view_start=%self.view_start,
+                    %additional,
+                    "lines is greater than buff_rect"
+                );
+            }
+            return;
+        };
+
+        todo!();
     }
 }

@@ -55,12 +55,17 @@ struct Repl {
 #[derive(Subcommand)]
 enum Commands {
     /// Connect to a serial port
-    #[command(visible_aliases = ["c", "con"], long_about = None, help_template = SUBCOMMAND_TEMPLATE)]
+    #[command(
+        visible_aliases = ["c", "con"],
+        long_about = None,
+        help_template = SUBCOMMAND_TEMPLATE,
+        arg_required_else_help = true
+    )]
     Connect {
         /// The path to a serial port
         ///
         /// For Linux/MacOS something like `/dev/ttyUSB0`, Windows `COM1`.
-        port: String,
+        port: PathBuf,
         /// Baud rate for the serial connection
         #[arg(short, long, value_parser = valid_baud_rate, default_value_t = 9600)]
         baud: u32,
@@ -74,12 +79,23 @@ enum Commands {
         config_override: ConfigOverrides,
     },
     /// Close a session
-    #[command(visible_alias = "k", help_template = SUBCOMMAND_TEMPLATE)]
+    #[command(
+        visible_alias = "k",
+        help_template = SUBCOMMAND_TEMPLATE,
+        arg_required_else_help = true
+    )]
     Kill {
+        /// A space-delimited list of sessions to terminate
+        ///
+        /// For example: `kill 0 2 3` or `kill 0`
         session: Vec<sericom_core::session::SessionID>,
     },
     /// List helpful information
-    #[command(visible_aliases = ["ls","l"], help_template = SUBCOMMAND_TEMPLATE)]
+    #[command(
+        visible_aliases = ["ls","l"],
+        help_template = SUBCOMMAND_TEMPLATE,
+        arg_required_else_help = true
+    )]
     List {
         #[command(subcommand)]
         cmd: ListCmds,
@@ -223,26 +239,14 @@ async fn handle_cmds(
         Commands::Connect {
             port,
             baud,
+            #[allow(unused)]
             config_override,
             file,
             bg,
-        } => {
-            if bg {
-                return manager.spawn(&port, baud).map(|_| false);
-            }
-
-            let id = manager.spawn(&port, baud)?;
-            if let Some(Some(path)) = &file
-                && path.is_dir()
-            {
-                return Err(miette::miette!(
-                    "Could not create file at: '{}' because it is a directory.",
-                    path.display()
-                ));
-            }
-
-            Ok(false)
-        }
+        } => match (file.as_ref(), bg) {
+            (Some(_), bg) => manager.spawn(port, baud, file, bg).map(|_| false),
+            (None, bg) => manager.spawn(port, baud, None, bg).map(|_| false),
+        },
         Commands::Kill { session } => {
             for id in session {
                 manager.kill(id).await;
@@ -324,9 +328,6 @@ fn init_tracing(
             filter::Targets::new()
                 .with_target("sericom", Level::TRACE)
                 .with_target("sericom_core", Level::TRACE)
-                .with_target("session", Level::TRACE)
-                .with_target("repl", Level::TRACE)
-                .with_target("exit_script", Level::TRACE)
                 .with_default(Level::ERROR),
         )
         .with(

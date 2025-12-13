@@ -3,36 +3,26 @@ mod components;
 mod cursor;
 mod escape;
 
-pub use crate::{
-    configs::{ConfigOverride, initialize_config},
-    screen::{driver::ScreenDriver, *},
-};
+pub use crate::screen::{driver::ScreenDriver, *};
 pub use crossterm::style::{Attribute, Attributes, Color};
 pub use std::collections::VecDeque;
 
-pub const CONFIG_OVERRIDE: ConfigOverride = ConfigOverride {
-    color: None,
-    out_dir: None,
-    script: None,
-};
 pub const TERMINAL_SIZE: (u16, u16) = (80, 24);
 
 #[macro_export]
 macro_rules! setup {
-    ($sb:ident, $parser:ident, $stdout:ident) => {
-        initialize_config(Some(CONFIG_OVERRIDE)).ok();
+    ($sb:ident, $parser:ident) => {
+        $crate::configs::init_for_tests();
         let rect = Rect::new(Position::ORIGIN, TERMINAL_SIZE.0, TERMINAL_SIZE.1);
         let mut $sb = ScreenBuffer::new(rect);
         let mut $parser = ByteParser::new();
-        let mut $stdout = std::io::stdout();
     };
-    ($sb:ident, $parser:ident, $config:ident, $stdout:ident) => {
-        initialize_config(Some(CONFIG_OVERRIDE)).ok();
+    ($sb:ident, $parser:ident, $config:ident) => {
+        $crate::configs::init_for_tests();
         let rect = Rect::new(Position::ORIGIN, TERMINAL_SIZE.0, TERMINAL_SIZE.1);
         let mut $sb = ScreenBuffer::new(rect);
         let mut $parser = ByteParser::new();
         let $config = $crate::configs::get_config().unwrap();
-        let mut $stdout = std::io::stdout();
     };
 }
 

@@ -1,4 +1,3 @@
-use crate::setup;
 use std::fmt::Write;
 use std::io;
 
@@ -7,7 +6,6 @@ use crossterm::execute;
 use crossterm::style::Colors;
 use crossterm::style::SetAttribute;
 use crossterm::style::SetColors;
-use crossterm::style::SetForegroundColor;
 
 // Stole this from crossterm's test - thanks!
 #[derive(Default, Debug, Clone)]
@@ -32,8 +30,9 @@ impl io::Write for FakeWrite {
 }
 
 #[test]
+#[allow(unused)]
 fn line_as_command() {
-    initialize_config(Some(CONFIG_OVERRIDE));
+    crate::configs::init_for_tests();
     let mut writer = FakeWrite {
         buffer: String::new(),
         flushed: false,
@@ -47,7 +46,7 @@ fn line_as_command() {
     let mut span2: Span = "second span".chars().collect();
     span2.set_colors(&colors);
     span2.set_attrs(attrs);
-    let mut span3: Span = "third span\n".chars().collect();
+    let span3: Span = "third span\n".chars().collect();
     let line = Line(vec![span1, span2, span3]);
 
     execute!(writer, line);
@@ -86,7 +85,7 @@ fn overwriting_span() {
 
 #[test]
 fn span_newline() {
-    initialize_config(Some(CONFIG_OVERRIDE));
+    crate::configs::init_for_tests();
 
     let mut span: Span = "my test span       ".chars().collect();
     let res = span.last_filled_idx();
@@ -110,10 +109,10 @@ fn span_newline() {
 
 #[test]
 fn line_last_filled() {
-    initialize_config(Some(CONFIG_OVERRIDE));
+    crate::configs::init_for_tests();
 
-    let mut span1: Span = "first span".chars().collect();
-    let mut span2: Span = "second span       ".chars().collect();
+    let span1: Span = "first span".chars().collect();
+    let span2: Span = "second span       ".chars().collect();
     let line = Line(vec![span1, span2]);
 
     assert_eq!(line.last_filled_idx(), 20);
@@ -122,15 +121,15 @@ fn line_last_filled() {
 
 #[test]
 fn line_num_filled() {
-    initialize_config(Some(CONFIG_OVERRIDE));
+    crate::configs::init_for_tests();
 
-    let mut span1: Span = "first span".chars().collect();
-    let mut span2: Span = "second span       ".chars().collect();
+    let span1: Span = "first span".chars().collect();
+    let span2: Span = "second span       ".chars().collect();
     let line = Line(vec![span1, span2]);
 
     assert_eq!(line.filled_cells(), 21);
 
-    let mut span: Span = "                  ".chars().collect();
+    let span: Span = "                  ".chars().collect();
     let line = Line(vec![span]);
 
     assert_eq!(line.filled_cells(), 0);
