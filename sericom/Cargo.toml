@@ -32,7 +32,7 @@ clap = { version = "4.5.53", features = ["derive", "help"] }
 rustyline = { version = "17.0.1", features = ["derive"] }
 sericom-core = { version = "0.7.0", path = "../sericom-core" }
 tracing-appender = "0.2"
-tracing-subscriber = { version = "0.3.21", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
 chrono.workspace = true
 tokio.workspace = true
 serial2-tokio.workspace = true
