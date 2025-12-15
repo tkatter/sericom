@@ -19,3 +19,5 @@ pub mod screen;
 pub mod serial_actor;
 pub mod session;
 pub mod ui;
+pub use session::SeriError;
+pub type Result<T> = std::result::Result<T, SeriError>;

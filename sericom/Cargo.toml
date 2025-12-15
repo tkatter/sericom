@@ -36,6 +36,6 @@ tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
 chrono.workspace = true
 tokio.workspace = true
 serial2-tokio.workspace = true
-miette.workspace = true
+miette = { workspace = true, features = ["fancy"] }
 crossterm.workspace = true
 tracing.workspace = true

@@ -1,15 +1,17 @@
-use miette::{Context, IntoDiagnostic};
+use miette::Context;
 use std::{path::PathBuf, sync::Arc};
-use tokio::{io::AsyncWriteExt, task::JoinSet};
-use tracing::{Instrument, debug, error, info, trace};
+use tokio::{io::AsyncWriteExt, sync::oneshot, task::JoinSet};
+use tracing::{Instrument, Span, debug, error, info, trace, warn};
 
 use crate::{
+    SeriError,
     cli::open_connection,
     compat_port_path,
     configs::get_config,
     create_recursive,
     screen::{Rect, ScreenBuffer},
     serial_actor::{SerialActor, SerialEvent, SerialMessage},
+    with_help,
 };
 
 /// A handle to a session - used to manage the session in headless/interactive modes.
@@ -34,14 +36,34 @@ pub struct SessionHandle {
     ///
     /// [`Receiver`]: tokio::sync::broadcast::Receiver
     /// [`SessionManager`]: super::SessionManager
-    pub(crate) events: tokio::sync::broadcast::Sender<SerialEvent>,
+    pub(crate) events_tx: tokio::sync::broadcast::Sender<SerialEvent>,
     /// A sessions async tasks.
     ///
     /// Currently a session only has two tasks, the [`SerialActor::run`] and
     /// the task responsible for parsing the session's incoming data/byte stream.
     /// The [`JoinSet`] is used so that when a session is terminated, all tasks
     /// associated with a session can be gracefully killed together.
-    pub(crate) tasks: JoinSet<miette::Result<()>>,
+    pub(crate) tasks: JoinSet<crate::Result<()>>,
+}
+
+async fn instrument_task<F>(
+    fut: F,
+    span: Option<tracing::Span>,
+    events: tokio::sync::broadcast::Sender<SerialEvent>,
+) -> crate::Result<()>
+where
+    F: Future<Output = crate::Result<()>> + Send + 'static,
+{
+    let res = if let Some(span) = span {
+        fut.instrument(span).await
+    } else {
+        fut.await
+    };
+
+    if let Err(ref e) = res {
+        let _ = events.send(SerialEvent::Error(e.clone()));
+    }
+    res
 }
 
 impl SessionHandle {
@@ -50,17 +72,19 @@ impl SessionHandle {
         meta: &super::SessionMeta,
         with_file: Option<Option<PathBuf>>,
         headless: bool,
+        mgr_tx: oneshot::Sender<super::SeriError>,
     ) -> miette::Result<Self> {
         let (tx, rx) = tokio::sync::mpsc::channel::<SerialMessage>(100);
         let (events_tx, _) = tokio::sync::broadcast::channel::<SerialEvent>(128);
 
-        let connection = open_connection(meta.baud, &meta.port)?;
+        let connection = open_connection(meta.baud, &meta.port)
+            .map_err(|e| with_help!(e, "Is the port already open? Do you have permission? Typo?"))
+            .wrap_err(format!("Failed to open port: '{}'", meta.port.display()))?;
         let (term_w, term_h) = if headless {
             #[cfg(not(test))]
             {
                 (80, 24)
             }
-
             #[cfg(test)]
             {
                 (120, 10)
@@ -78,20 +102,18 @@ impl SessionHandle {
             let dbg = tracing::debug_span!("session", port = %meta.port.display());
             if dbg.is_disabled() { info } else { dbg }
         };
-
-        {
-            let _enter = span.enter();
-            debug!(port=%meta.port.display(), baud=%meta.baud, "opened connection");
-        }
+        let _enter = span.enter();
+        debug!(port=%meta.port.display(), baud=%meta.baud, "opened connection");
 
         let mut handle = Self {
             buffer,
             tx,
-            events: events_tx,
+            events_tx,
             tasks: JoinSet::new(),
         };
-        handle.tasks.spawn(actor.run().instrument(span.clone()));
-        span.in_scope(|| handle.spawn_parse_task());
+        handle.spawn_monitor_task(mgr_tx);
+        handle.spawn_actor_task(actor);
+        handle.spawn_parse_task();
 
         if with_file.is_some() {
             let config = get_config()?;
@@ -113,7 +135,7 @@ impl SessionHandle {
                 drop(config);
                 compat_port_path!(default_out_dir, &meta.port)
             };
-            span.in_scope(|| handle.spawn_file_task(&file_path))?;
+            handle.spawn_file_task(file_path);
         }
 
         Ok(handle)
@@ -124,178 +146,210 @@ impl SessionHandle {
     /// Signals associated tasks to shutdown and waits for them to complete.
     pub async fn shutdown(self) {
         if let Err(e) = self.tx.send(SerialMessage::Shutdown).await {
-            debug!("error sending shutdown to actor: {e}");
+            warn!("error sending shutdown to actor: {e}");
             let mut tasks = self.tasks;
             tasks.abort_all();
-            return;
+        } else {
+            self.tasks.join_all().await;
         }
-        self.tasks.join_all().await;
         trace!("all tasks finished, shutting down");
     }
 
-    /// Spawns a task that writes the session's output to a file.
-    #[tracing::instrument(skip_all, name = "file_task")]
-    pub fn spawn_file_task(&mut self, f_path: &PathBuf) -> miette::Result<()> {
-        use std::fs::File;
-        use tokio::fs;
-
-        // Creating the file outside of the task to propogate errors
-        // since SessionHandle doesn't have a good way to listen for task
-        // errors and act accordingly - TODO
-        let file = File::create(f_path)
-            .into_diagnostic()
-            .inspect_err(|_| {
-                error!("failed to create file: {}", f_path.display());
-            })
-            .wrap_err(format!("Failed to create file: {}", f_path.display()))?;
-
-        info!(file=%f_path.display(), "created file");
-
-        let mut events_rx = self.events.subscribe();
-        let buffer_arc = Arc::clone(&self.buffer);
-
+    /// Monitors the tasks' broadcast channel for ones that send an error.
+    ///
+    /// Upon receiving an error, propogates to the [`SessionManager`] to handle.
+    ///
+    /// [`SessionManager`]: super::SessionManager
+    fn spawn_monitor_task(&mut self, mgr_tx: oneshot::Sender<super::SeriError>) {
+        let (tasks_tx, mut mon_rx) = (self.tx.clone(), self.events_tx.subscribe());
         let span = tracing::Span::current();
         self.tasks.spawn(
             async move {
-                let mut file = fs::File::from_std(file);
-                let mut last_idx = buffer_arc.read().await.view_start;
-
-                while let Ok(event) = events_rx.recv().await {
+                while let Ok(event) = mon_rx.recv().await {
                     match event {
-                        SerialEvent::LinesWritten(0) => {}
-                        SerialEvent::LinesWritten(1) => {
-                            trace!("LinesWritten=1");
-                            let sb = buffer_arc.read().await;
-                            if sb.view_start.saturating_sub(1) == last_idx {
-                                continue;
-                            }
-                            last_idx += 1;
-
-                            trace!(%last_idx, view_start=%sb.view_start);
-
-                            if let Some(line) = sb.lines.get(last_idx as usize) {
-                                file.write_all(&line.ascii_bytes().collect::<Vec<u8>>())
-                                    .await
-                                    .into_diagnostic()
-                                    .wrap_err("Failed to write to file")?;
-                            }
-                            drop(sb);
-                        }
-                        SerialEvent::LinesWritten(num) => {
-                            trace!("LinesWritten={num}");
-                            let sb = buffer_arc.read().await;
-                            let last_line_idx = sb.view_start.saturating_sub(1);
-                            let range = {
-                                let end = if last_idx+num > last_line_idx {
-                                    last_line_idx
-                                } else {
-                                    last_idx+num
-                                };
-
-                                let r = if last_idx == 0 {
-                                    last_idx..=end
-                                } else {
-                                    last_idx + 1..=end
-                                };
-
-                                trace!(
-                                    %last_idx,
-                                    view_start=%sb.view_start,
-                                    %last_line_idx,
-                                    ?r
-                                );
-
-                                last_idx += num;
-                                r
-                            };
-
-                            for idx in range {
-                                if let Some(line) = sb.lines.get(idx as usize) {
-                                    file.write_all(&line.ascii_bytes().collect::<Vec<u8>>())
-                                        .await
-                                        .into_diagnostic()
-                                        .wrap_err("Failed to write to file")?;
-                                        // .inspect(|_| trace!(?line))?;
-                                }
-                            }
-                        }
                         SerialEvent::Error(e) => {
-                            error!("error: {e}");
-                            return Err(miette::miette!("File task recieved error: {e}"));
+                            error!(err=%e, "task failed");
+                            let _ = mgr_tx.send(e);
+                            let _ = tasks_tx.send(SerialMessage::Shutdown).await;
+                            break; // so compiler doesn't complain about mgr_tx being moved
                         }
-                        SerialEvent::ConnectionClosed => {
-                            let sb = buffer_arc.read().await;
-                            let viewport = sb.buff_rect();
-                            trace!(range=?sb.view_start..=(viewport.height + sb.view_start), "flushing");
-                            for idx in sb.view_start..(viewport.height + sb.view_start) {
-                                if let Some(line) = sb.lines.get(idx as usize) {
-                                    file.write_all(&line.ascii_bytes().collect::<Vec<u8>>())
-                                        .await
-                                        .into_diagnostic()
-                                        .wrap_err("Failed to write to file")?;
-                                }
-                            }
-                            file.flush()
-                                .await
-                                .into_diagnostic()
-                                .wrap_err("Failed to flush to file")?;
-                            trace!("connection closed");
-                            break;
-                        }
+                        SerialEvent::ConnectionClosed => break,
                         _ => {}
                     }
                 }
+
                 Ok(())
             }
             .instrument(span),
         );
+    }
 
-        Ok(())
+    /// Spawns a task that runs the [`SerialActor`] for the session.
+    fn spawn_actor_task(&mut self, actor: SerialActor) {
+        self.tasks.spawn(instrument_task(
+            actor.run(),
+            Some(Span::current()),
+            self.events_tx.clone(),
+        ));
+    }
+
+    /// Spawns a task that writes the session's output to a file.
+    fn spawn_file_task(&mut self, f_path: PathBuf) {
+        self.tasks.spawn(instrument_task(
+            file_task(f_path, Arc::clone(&self.buffer), self.events_tx.subscribe()),
+            Some(Span::current()),
+            self.events_tx.clone(),
+        ));
     }
 
     /// Spawn the parsing task.
     ///
     /// This task is responsible for parsing the session's incoming data and
     /// writing it to the sessions [`ScreenBuffer`].
-    #[tracing::instrument(skip_all, level = "debug", name = "parse_task")]
-    pub(super) fn spawn_parse_task(&mut self) {
-        use crate::screen::{ByteParser, ScreenDriver};
+    fn spawn_parse_task(&mut self) {
+        self.tasks.spawn(instrument_task(
+            parse_task(
+                Arc::clone(&self.buffer),
+                self.events_tx.clone(),
+                self.events_tx.subscribe(),
+            ),
+            Some(Span::current()),
+            self.events_tx.clone(),
+        ));
+    }
+}
 
-        let mut parser = ByteParser::new();
-        let buffer = Arc::clone(&self.buffer);
-        let (events_tx, mut events_rx) = (self.events.clone(), self.events.subscribe());
+#[tracing::instrument(skip_all)]
+async fn file_task(
+    f_path: PathBuf,
+    buffer: Arc<tokio::sync::RwLock<ScreenBuffer>>,
+    mut events_rx: tokio::sync::broadcast::Receiver<SerialEvent>,
+) -> crate::Result<()> {
+    let mut file = tokio::fs::File::create(&f_path)
+        .await
+        .inspect_err(|_| {
+            error!("failed to create file: {}", f_path.display());
+        })
+        .map_err(|e| {
+            SeriError::from(e).add_ctx(format!("Failed to create file: {}", f_path.display()))
+        })?;
 
-        let span = tracing::Span::current();
-        self.tasks.spawn(
-            async move {
-                while let Ok(event) = events_rx.recv().await {
-                    match event {
-                        SerialEvent::Data(bytes) => {
-                            trace!("received {} bytes", bytes.len());
-                            let parsed = parser.feed(&bytes);
-                            let mut buf = buffer.write().await;
+    info!(file=%f_path.display(), "created file");
+    let mut last_idx = buffer.read().await.view_start;
 
-                            let num_lines = ScreenDriver::new(&mut buf).process_events(parsed);
-                            drop(buf);
-                            let _ = events_tx.send(SerialEvent::LinesWritten(num_lines));
-                        }
-                        SerialEvent::ConnectionClosed => {
-                            trace!("connection closed");
-                            break;
-                        }
-                        SerialEvent::Error(e) => {
-                            error!("error: {e}");
-                            break;
-                        }
-                        _ => {}
+    while let Ok(event) = events_rx.recv().await {
+        match event {
+            SerialEvent::LinesWritten(0) => {}
+            SerialEvent::LinesWritten(1) => {
+                trace!("LinesWritten=1");
+                let sb = buffer.read().await;
+                if sb.view_start.saturating_sub(1) == last_idx {
+                    continue;
+                }
+                last_idx += 1;
+
+                trace!(%last_idx, view_start=%sb.view_start);
+
+                if let Some(line) = sb.lines.get(last_idx as usize) {
+                    file.write_all(&line.ascii_bytes().collect::<Vec<u8>>())
+                        .await
+                        .map_err(|e| {
+                            SeriError::from(e).add_ctx("Failed to write to file".into())
+                        })?;
+                }
+                drop(sb);
+            }
+            SerialEvent::LinesWritten(num) => {
+                trace!("LinesWritten={num}");
+                let sb = buffer.read().await;
+                let last_line_idx = sb.view_start.saturating_sub(1);
+                let range = {
+                    let end = if last_idx + num > last_line_idx {
+                        last_line_idx
+                    } else {
+                        last_idx + num
+                    };
+
+                    let r = if last_idx == 0 {
+                        last_idx..=end
+                    } else {
+                        last_idx + 1..=end
+                    };
+
+                    trace!(
+                        %last_idx,
+                        view_start=%sb.view_start,
+                        %last_line_idx,
+                        ?r
+                    );
+
+                    last_idx += num;
+                    r
+                };
+
+                for idx in range {
+                    if let Some(line) = sb.lines.get(idx as usize) {
+                        file.write_all(&line.ascii_bytes().collect::<Vec<u8>>())
+                            .await
+                            .map_err(|e| {
+                                SeriError::from(e).add_ctx("Failed to write to file".into())
+                            })?;
                     }
                 }
-
-                Ok(())
             }
-            .instrument(span),
-        );
+            SerialEvent::ConnectionClosed => {
+                let sb = buffer.read().await;
+                let viewport = sb.buff_rect();
+                trace!(range=?sb.view_start..=(viewport.height + sb.view_start), "flushing");
+                for idx in sb.view_start..(viewport.height + sb.view_start) {
+                    if let Some(line) = sb.lines.get(idx as usize) {
+                        file.write_all(&line.ascii_bytes().collect::<Vec<u8>>())
+                            .await
+                            .map_err(|e| {
+                                SeriError::from(e).add_ctx("Failed to write to file".into())
+                            })?;
+                    }
+                }
+                file.flush()
+                    .await
+                    .map_err(|e| SeriError::from(e).add_ctx("Failed to flush to file".into()))?;
+                trace!("connection closed");
+                break;
+            }
+            _ => {}
+        }
     }
+    Ok(())
+}
+
+#[tracing::instrument(skip_all, level = "debug")]
+async fn parse_task(
+    buffer: Arc<tokio::sync::RwLock<ScreenBuffer>>,
+    events_tx: tokio::sync::broadcast::Sender<SerialEvent>,
+    mut events_rx: tokio::sync::broadcast::Receiver<SerialEvent>,
+) -> crate::Result<()> {
+    use crate::screen::{ByteParser, ScreenDriver};
+
+    let mut parser = ByteParser::new();
+    while let Ok(event) = events_rx.recv().await {
+        match event {
+            SerialEvent::Data(bytes) => {
+                trace!("received {} bytes", bytes.len());
+                let parsed = parser.feed(&bytes);
+                let mut buf = buffer.write().await;
+
+                let num_lines = ScreenDriver::new(&mut buf).process_events(parsed);
+                drop(buf);
+                let _ = events_tx.send(SerialEvent::LinesWritten(num_lines));
+            }
+            SerialEvent::ConnectionClosed => {
+                trace!("connection closed");
+                break;
+            }
+            _ => {}
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -313,7 +367,7 @@ mod tests {
     use test_sericom::get_pts_pair;
 
     #[tokio::test]
-    // #[test_log::test]
+    #[test_log::test]
     async fn write_a_file() {
         crate::configs::init_for_tests();
 

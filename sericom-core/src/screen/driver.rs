@@ -124,7 +124,10 @@ impl<'a> ScreenDriver<'a> {
                 self.buffer
                     .handle_span_colors(&self.color_state, self.attrs);
             }
-            EscSequenceType::Screen(_kind) => { /* process_screen(seq, kind, self.buffer) */ }
+            EscSequenceType::Screen(kind) => {
+                tracing::debug!("EscSequenceType::Screen unimplemented, got: {:X?}", kind);
+                /* process_screen(seq, kind, self.buffer) */
+            }
         }
     }
 }

@@ -1,19 +1,15 @@
 //! This module holds the functions that are called from `sericom` when receiving
 //! CLI commands/arguments.
 
-// use crossterm::event;
 use serial2_tokio::SerialPort;
-use std::{
-    // io::{self, Write},
-    path::PathBuf,
-};
+use std::path::PathBuf;
 
-use crate::map_miette;
+use crate::{SeriError, err_into, map_miette};
 
 /// Opens a serial `port` for communication with the specified `baud`.
 ///
 /// Returns `Ok(SerialPort)` or errors if unable to set the baud rate or open the `port`.
-pub fn open_connection(baud: u32, port: &PathBuf) -> miette::Result<SerialPort> {
+pub fn open_connection(baud: u32, port: &PathBuf) -> crate::Result<SerialPort> {
     let settings = |mut s: serial2_tokio::Settings| -> std::io::Result<serial2_tokio::Settings> {
         s.set_raw();
         s.set_baud_rate(baud)?;
@@ -23,11 +19,9 @@ pub fn open_connection(baud: u32, port: &PathBuf) -> miette::Result<SerialPort> 
         s.set_flow_control(serial2_tokio::FlowControl::None);
         Ok(s)
     };
-    let con = map_miette!(
-        SerialPort::open(port, settings),
-        format!("Failed to open port '{}'", port.display()),
-        help = "Is the port already open?\nTo see available ports, try `list ports`."
-    )?;
+
+    let con = SerialPort::open(port, settings).map_err(|e| err_into!(e, SeriError::Connection))?;
+
     Ok(con)
 }
 
@@ -95,11 +89,8 @@ pub fn get_settings(baud: u32, port: &PathBuf) -> miette::Result<()> {
 ///
 /// Ultimately a wrapper around [`SerialPort::available_ports()`] and may error
 /// if it is called on an unsupported platform as per [`SerialPort::available_ports()`]s docs
-pub fn list_serial_ports() -> miette::Result<()> {
-    let ports = map_miette!(
-        SerialPort::available_ports(),
-        "Could not list available ports."
-    )?;
+pub fn list_serial_ports() -> crate::Result<()> {
+    let ports = SerialPort::available_ports()?;
 
     for path in ports {
         println!("{}", path.display());

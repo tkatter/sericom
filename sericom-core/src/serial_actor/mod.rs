@@ -3,6 +3,8 @@
 
 pub mod tasks;
 
+use crate::SeriError;
+
 /// Represents messages/commands that are sent from worker tasks to the [`SerialActor`] to process.
 #[non_exhaustive]
 #[derive(Debug)]
@@ -23,7 +25,7 @@ pub enum SerialEvent {
     /// Sends data received by the [`SerialActor`] to its tasks.
     Data(std::sync::Arc<[u8]>),
     /// Sends the error message received by the [`SerialActor`] to its tasks to handle.
-    Error(String),
+    Error(SeriError),
     /// Tells the [`SerialActor`]s tasks that the serial connection has been closed.
     ///
     /// This serves a different purpose from [`SerialMessage::Shutdown`] where
@@ -45,7 +47,7 @@ pub enum SerialEvent {
 pub struct SerialActor {
     connection: serial2_tokio::SerialPort,
     command_rx: tokio::sync::mpsc::Receiver<SerialMessage>,
-    broadcast_channel: tokio::sync::broadcast::Sender<SerialEvent>,
+    tasks_broadcast: tokio::sync::broadcast::Sender<SerialEvent>,
 }
 
 impl SerialActor {
@@ -55,12 +57,12 @@ impl SerialActor {
     pub const fn new(
         connection: serial2_tokio::SerialPort,
         command_rx: tokio::sync::mpsc::Receiver<SerialMessage>,
-        broadcast_channel: tokio::sync::broadcast::Sender<SerialEvent>,
+        tasks_broadcast: tokio::sync::broadcast::Sender<SerialEvent>,
     ) -> Self {
         Self {
             connection,
             command_rx,
-            broadcast_channel,
+            tasks_broadcast,
         }
     }
 
@@ -74,7 +76,7 @@ impl SerialActor {
     /// Since data is sent byte-by-byte over a serial connection, `run` will
     /// batch the data before sending it to other tasks to reduce the number of syscalls.
     #[tracing::instrument(skip_all, level = "debug")]
-    pub async fn run(mut self) -> miette::Result<()> {
+    pub async fn run(mut self) -> crate::Result<()> {
         use tracing::{debug, error, trace};
 
         trace!("running SerialActor");
@@ -88,21 +90,21 @@ impl SerialActor {
                         Some(SerialMessage::Write(data)) => {
                             if let Err(e) = self.connection.write_all(&data).await {
                                 error!("error writing to connection: {e}");
-                                self.broadcast_channel.send(SerialEvent::Error(e.to_string())).ok();
+                                return Err(crate::SeriError::from(e).add_ctx("Error writing to the connection".into()));
                             }
                         }
                         Some(SerialMessage::Shutdown) => {
                             debug!("recieved shutdown command");
-                            self.broadcast_channel.send(SerialEvent::ConnectionClosed).ok();
-                            break;
+                            self.tasks_broadcast.send(SerialEvent::ConnectionClosed).ok();
+                            return Ok(());
                         }
                         Some(SerialMessage::SendBreak) => {
                             debug!("sending break signal");
                             self.send_break().await;
                         }
                         None => {
-                            debug!("command_rx.recv() was None");
-                            break;
+                            trace!("command_rx.recv() was None");
+                            return Err(SeriError::TaskError("No active tasks, shutting down.".into()));
                         }
                     }
                 }
@@ -111,25 +113,22 @@ impl SerialActor {
                     match read_result {
                         Ok(0) => {
                             debug!("closing connection - no bytes read");
-                            self.broadcast_channel.send(SerialEvent::ConnectionClosed).ok();
-                            break;
+                            self.tasks_broadcast.send(SerialEvent::ConnectionClosed).ok();
+                            return Ok(());
                         }
                         Ok(n) => {
                             let data: std::sync::Arc<[u8]> = buffer[..n].into();
-                            debug!("recieved {} bytes", data.len());
-                            self.broadcast_channel.send(SerialEvent::Data(data)).ok();
+                            trace!("recieved {} bytes", data.len());
+                            self.tasks_broadcast.send(SerialEvent::Data(data)).ok();
                         }
                         Err(e) => {
                             error!("error reading from connection: {e}");
-                            self.broadcast_channel.send(SerialEvent::Error(e.to_string())).ok();
-                            break;
+                            return Err(SeriError::from(e).add_ctx("Error reading from connection".into()));
                         }
                     }
                 }
             }
         }
-
-        Ok(())
     }
 
     async fn send_break(&self) {
