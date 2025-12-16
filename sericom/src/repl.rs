@@ -76,6 +76,19 @@ enum Commands {
         /// For example: `kill 0 2 3` or `kill 0`
         session: Vec<sericom_core::session::SessionID>,
     },
+    /// Write to a session
+    #[command(
+        help_template = SUBCOMMAND_TEMPLATE,
+        arg_required_else_help = true,
+    )]
+    Send {
+        /// A space-delimited list of sessions to send the message to
+        ///
+        /// For example: `kill 0 2 3 hello world` or `send 0 hello world`
+        session: sericom_core::session::SessionID,
+        #[arg(allow_hyphen_values=true, trailing_var_arg=true)]
+        message: Vec<String>,
+    },
     /// List helpful information
     #[command(
         visible_aliases = ["ls","l"],
@@ -181,7 +194,7 @@ pub async fn run_repl() -> miette::Result<()> {
                             manager
                                 .check_errors(|errs| {
                                     for (id, err) in errs {
-                                        println!("[session {id}] {err:?}");
+                                        println!("[session {id}]:\n{err:?}");
                                     }
                                 })
                                 .await;
@@ -236,8 +249,14 @@ async fn handle_cmds(
         Commands::Kill { session } => {
             for id in session {
                 manager.kill(id).await;
-                tracing::debug!(target: "repl::kill", "session {id} closed");
+                tracing::debug!("session {id} closed");
             }
+            Ok(false)
+        }
+        Commands::Send { session, message } => {
+            let msg = message.join(" ");
+            manager.send(session, &msg).await.map_err(miette::Report::from)?;
+            tracing::debug!(%session, %msg, "sent message");
             Ok(false)
         }
         Commands::List { cmd } => match cmd {

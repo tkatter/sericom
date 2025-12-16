@@ -7,6 +7,8 @@ mod handle;
 pub use error::SeriError;
 pub use handle::SessionHandle;
 
+use crate::serial_actor::SerialMessage;
+
 pub type SessionID = u8;
 pub type UpdatedId = (SessionID, SessionID);
 
@@ -42,6 +44,16 @@ impl SessionManager {
             errors: Arc::new(parking_lot::Mutex::new(Vec::with_capacity(8))),
             id_update_tx,
             shutting_down: Arc::new(tokio::sync::Notify::new()),
+        }
+    }
+
+    pub async fn send(&mut self, id: SessionID, msg: &str) -> crate::Result<()> {
+        if let Some(session) = self.get_mut_session(id) {
+            let mut msg = msg.as_bytes().to_vec();
+            msg.push(b'\n');
+            session.tx.send(SerialMessage::Write(msg)).await.map_err(SeriError::from)
+        } else {
+            Err(SeriError::Session(id))
         }
     }
 

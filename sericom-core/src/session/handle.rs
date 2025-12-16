@@ -352,7 +352,7 @@ async fn parse_task(
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use std::{
         env::{current_dir, temp_dir},

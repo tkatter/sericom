@@ -7,7 +7,7 @@ use crate::SeriError;
 
 /// Represents messages/commands that are sent from worker tasks to the [`SerialActor`] to process.
 #[non_exhaustive]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum SerialMessage {
     /// Instructs the [`SerialActor`] to write bytes (`Vec<u8>`) to the serial connection.
     Write(Vec<u8>),

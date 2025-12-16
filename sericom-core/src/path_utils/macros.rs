@@ -158,6 +158,14 @@ macro_rules! compat_port_path {
         ))
     }};
 
+    (trace, $dir:expr) => {{
+        use chrono;
+
+        $dir.join(
+            format!("sericom-log-{}.txt", chrono::Utc::now().format("%m%d%H%M"))
+        )
+    }};
+
     ($out_dir:expr, $port:expr) => {{
         use chrono;
 
@@ -321,5 +329,18 @@ impl ExpandPaths for std::path::PathBuf {
         expand_path!(self, "%VIDEOS%", to = "Videos");
         expand_path!(self, "%PUBLIC%", to = "Public");
         Some(self)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    #[test]
+    fn assert_expanded_home_path() {
+        use crate::path_utils::ExpandPaths;
+
+        let path = PathBuf::from("~");
+        assert_eq!(path.get_expanded_path(), std::env::home_dir());
     }
 }

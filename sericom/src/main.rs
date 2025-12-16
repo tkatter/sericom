@@ -9,7 +9,8 @@
 
 use miette::{Context as _, IntoDiagnostic};
 use sericom_core::configs::{get_config, initialize_config};
-use std::path::{Path, PathBuf};
+use tracing_subscriber::filter::FilterExt;
+use std::path::{Path};
 
 mod repl;
 use repl::*;
@@ -30,13 +31,13 @@ fn init_tracing(
     dbg_dir: &Path,
 ) -> miette::Result<Option<tracing_appender::non_blocking::WorkerGuard>> {
     use sericom_core::compat_port_path;
-    use tracing::{Level, level_filters::LevelFilter};
+    use tracing::{level_filters::LevelFilter};
     use tracing_subscriber::EnvFilter;
-    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::layer::{Layer, SubscriberExt};
     use tracing_subscriber::util::SubscriberInitExt;
     use tracing_subscriber::{filter, fmt};
 
-    let path = compat_port_path!(dbg_dir);
+    let path = compat_port_path!(trace, dbg_dir);
     let file = std::fs::File::options()
         .write(true)
         .create(true)
@@ -47,6 +48,21 @@ fn init_tracing(
 
     let (non_blocking, guard) = tracing_appender::non_blocking(file);
 
+    let targets_filter = filter::Targets::new()
+        .with_target("sericom_core", tracing::Level::TRACE)
+        .with_target("sericom", tracing::Level::TRACE)
+        .with_default(tracing::Level::ERROR);
+    let env_filter = EnvFilter::builder()
+        .with_default_directive(
+    //     #[cfg(debug_assertions)]
+    //     LevelFilter::TRACE.into(),
+    //     #[cfg(not(debug_assertions))]
+            LevelFilter::INFO.into(),
+    )
+    .with_env_var("SERI_LOG")
+    .from_env_lossy();
+
+
     tracing_subscriber::registry()
         .with(
             fmt::layer()
@@ -54,22 +70,7 @@ fn init_tracing(
                 .with_line_number(false)
                 .with_target(true),
         )
-        .with(
-            filter::Targets::new()
-                .with_target("sericom", Level::TRACE)
-                .with_target("sericom_core", Level::TRACE)
-                .with_default(Level::ERROR),
-        )
-        .with(
-            EnvFilter::builder()
-                .with_default_directive(
-                    #[cfg(debug_assertions)]
-                    LevelFilter::TRACE.into(),
-                    #[cfg(not(debug_assertions))]
-                    LevelFilter::INFO.into(),
-                )
-                .from_env_lossy(),
-        )
+        .with(targets_filter.and_then(env_filter))
         .init();
 
     Ok(Some(guard))
