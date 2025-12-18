@@ -9,8 +9,8 @@ pub enum ParserEvent {
 
 impl std::fmt::Display for ParserEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        use crate::screen::driver::EscSequenceType;
-        use crate::screen::driver::classify_escape_seq;
+        use super::driver::EscSequenceType;
+        use super::driver::classify_escape_seq;
         match self {
             Self::Text(items) => {
                 let s = str::from_utf8(items).expect("parsed text is utf-8");
@@ -51,6 +51,9 @@ impl std::fmt::Display for ParserEvent {
                         }
                         format!("Screen( ESC[{s} )")
                     }
+                    EscSequenceType::C1(val) => {
+                        format!("{val:#?}")
+                    }
                 };
 
                 f.write_str(&s)
@@ -72,8 +75,8 @@ pub struct ByteParser {
     buffer: Vec<u8>,
 }
 
-impl ByteParser {
-    pub(crate) const fn new() -> Self {
+impl Default for ByteParser {
+    fn default() -> Self {
         Self {
             state: ParseState::Normal,
             buffer: vec![],
@@ -82,13 +85,21 @@ impl ByteParser {
 }
 
 impl ByteParser {
-    pub(crate) fn feed(&mut self, data: &[u8]) -> Vec<ParserEvent> {
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            state: ParseState::Normal,
+            buffer: vec![],
+        }
+    }
+    pub fn feed(&mut self, data: &[u8]) -> Vec<ParserEvent> {
         let mut events: Vec<ParserEvent> = Vec::new();
 
         for &b in data {
             if !b.is_ascii() {
                 continue;
             }
+
             match self.state {
                 ParseState::Normal => match b {
                     ESC => {

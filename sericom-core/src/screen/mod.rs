@@ -21,7 +21,6 @@
 
 mod buffer;
 mod components;
-mod driver;
 mod position;
 pub mod process;
 mod rect;
@@ -30,9 +29,8 @@ mod ui_command;
 
 pub use buffer::ScreenBuffer;
 pub use components::{Cell, Line, Span};
-pub use driver::ScreenDriver;
 pub use position::{BuffPos, Cursor, PosType, PosY, Position, Scope, TermPos, TranslatePos};
-pub use process::{ByteParser, ColorState, ParseState, ParserEvent};
+pub use process::{ByteParser, ColorState, ParseState, ParserEvent, ScreenDriver};
 pub use rect::Rect;
 pub use ui_command::{UIAction, UICommand};
 

@@ -1,28 +1,15 @@
+mod c1_ctrl;
 mod colors;
 mod cursor;
+mod driver;
 mod parser;
 mod screen;
+mod xterm;
 
+pub use c1_ctrl::process_c1;
 pub use colors::{ColorState, process_colors};
 pub use cursor::process_cursor;
+pub use driver::ScreenDriver;
 pub use parser::{ByteParser, ParseState, ParserEvent};
 pub use screen::process_erase;
-
-/// Bracket '['
-pub(crate) const BK: u8 = b'[';
-/// Backspace
-pub(crate) const BS: u8 = 0x08;
-/// Carrige return '\r'
-pub(crate) const CR: u8 = 0x0D;
-/// Escape 'ESC'
-pub(crate) const ESC: u8 = 0x1B;
-/// Newline '\n'
-pub(crate) const NL: u8 = 0x0A;
-/// Escape sequence separator ';'
-pub(crate) const SEP: u8 = b';';
-/// Tab '\t'
-pub(crate) const TAB: u8 = 0x09;
-/// Form feed
-pub(crate) const FF: u8 = 0x0C;
-/// Reset graphics mode escape sequence
-pub(crate) const RESET: &[u8] = &[ESC, BK, b'0', b'm'];
+pub use xterm::*;

@@ -3,12 +3,13 @@ use std::fmt::Write;
 use crossterm::style::Attributes;
 use tracing::trace;
 
-use crate::screen::process::SEP;
+use crate::screen::process::{BS, C1, CR, ESC, FF, HT, NL, SEMI};
 
-use super::ScreenBuffer;
-use super::components::{Cell, Line};
-use super::position::Cursor;
-use super::process::{BK, BS, CR, ColorState, ESC, FF, NL, ParserEvent, TAB};
+use super::super::ScreenBuffer;
+use super::super::components::{Cell, Line};
+use super::super::position::Cursor;
+use super::super::process::{ColorState, ParserEvent};
+use super::process_c1;
 use super::{process_colors, process_cursor, process_erase};
 
 /// The layer between incoming [`ParserEvent`]s and the [`ScreenBuffer`].
@@ -84,7 +85,7 @@ impl<'a> ScreenDriver<'a> {
                     .push_line(Line::new_empty(self.buffer.width() as usize));
                 self.buffer.update_view(None);
             }
-            TAB => {
+            HT => {
                 self.buffer.with_current_span(|span, _| {
                     span.push(Cell::TAB);
                 });
@@ -103,9 +104,9 @@ impl<'a> ScreenDriver<'a> {
             let s = seq.iter().fold(String::new(), |mut output, b| {
                 if *b == ESC {
                     let _ = write!(output, "ESC");
-                } else if *b == BK {
+                } else if *b == b'[' {
                     let _ = write!(output, "[");
-                } else if *b == SEP {
+                } else if *b == SEMI {
                     let _ = write!(output, ";");
                 }
                 let _ = write!(output, "{}", *b as char);
@@ -128,6 +129,7 @@ impl<'a> ScreenDriver<'a> {
                 tracing::debug!("EscSequenceType::Screen unimplemented, got: {:X?}", kind);
                 /* process_screen(seq, kind, self.buffer) */
             }
+            EscSequenceType::C1(ctl) => process_c1(),
         }
     }
 }
@@ -142,21 +144,45 @@ pub enum EscSequenceType {
     Graphics,
     /// Set screen modes
     Screen(u8),
+    C1(C1),
+}
+
+impl TryFrom<u8> for EscSequenceType {
+    type Error = crate::SeriError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            b'm' => Ok(EscSequenceType::Graphics),
+            b'A'..=b'G' | b'H' | b'f' | b'n' | b's' | b'u' => Ok(EscSequenceType::Cursor(value)),
+            b'J' | b'K' => Ok(EscSequenceType::Erase(value)),
+            b'h' | b'l' => Ok(EscSequenceType::Screen(value)),
+            v => C1::try_from(v).map(EscSequenceType::C1),
+        }
+    }
 }
 
 pub fn classify_escape_seq(seq: &[u8]) -> Option<EscSequenceType> {
     // https://gist.github.com/fnky/458719343aabd01cfb17a3a4f7296797
     // Ensures the sequence resembles: ESC[<sequence>
-    if seq.len() < 3 || seq[0] != ESC || seq[1] != BK {
+    if seq.len() < 2 || seq[0] != ESC {
         return None;
     }
 
-    let last = *seq.last().expect("Verified len != 0");
-    match last {
-        b'm' => Some(EscSequenceType::Graphics),
-        b'A'..=b'G' | b'H' | b'f' | b'n' | b's' | b'u' => Some(EscSequenceType::Cursor(last)),
-        b'J' | b'K' => Some(EscSequenceType::Erase(last)),
-        b'h' | b'l' => Some(EscSequenceType::Screen(last)),
-        _ => None,
-    }
+    EscSequenceType::try_from(seq[1]).ok()
+
+    // match seq[1] {
+    //     b'[' => {
+    //         let last = *seq.last().expect("Verified len != 0");
+    //         match last {
+    //             b'm' => Some(EscSequenceType::Graphics),
+    //             b'A'..=b'G' | b'H' | b'f' | b'n' | b's' | b'u' => {
+    //                 Some(EscSequenceType::Cursor(last))
+    //             }
+    //             b'J' | b'K' => Some(EscSequenceType::Erase(last)),
+    //             b'h' | b'l' => Some(EscSequenceType::Screen(last)),
+    //             _ => None,
+    //         }
+    //     }
+    //     ctrl => Some(EscSequenceType::C1(C1::try_from(ctrl).ok()?)),
+    // }
 }
