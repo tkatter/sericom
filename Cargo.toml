@@ -19,6 +19,15 @@ tracing = "0.1.43"
 [patch.crates-io]
 sericom-core = { path = "sericom-core" }
 
+# Keeps usefull information for perf report
+[profile.perf]
+inherits = "release"
+debug = true          # keep DWARF info for perf/flamegraph
+lto = "fat"           # don't merge crates; keeps crate boundaries visible
+codegen-units = 1     # better optimizer consistency
+opt-level = 3         # full optimization
+strip = "none"        # ensure debug info isn't stripped
+
 # The profile that 'dist' will build with
 [profile.dist]
 inherits = "release"

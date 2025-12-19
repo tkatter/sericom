@@ -5,7 +5,7 @@ use crossterm::{
 use miette::IntoDiagnostic;
 use std::io::Write;
 
-use super::SEP;
+use super::SEMI;
 use crate::configs::get_config;
 
 #[derive(Debug)]
@@ -61,11 +61,9 @@ impl ColorState {
     }
 }
 
-pub fn process_colors(seq: &[u8], color_state: &mut ColorState, attrs: &mut Attributes) {
-    // Get the part between 'ESC[' and 'm'
-    let body = &seq[2..seq.len() - 1];
+pub fn process_colors(params: &[u8], color_state: &mut ColorState, attrs: &mut Attributes) {
     let mut body_idx = 0;
-    let mut parts_iter = body.split(|&p| p == SEP).peekable();
+    let mut parts_iter = params.split(|&p| p == SEMI).peekable();
 
     while let Some(part) = parts_iter.next() {
         match part {
@@ -78,7 +76,7 @@ pub fn process_colors(seq: &[u8], color_state: &mut ColorState, attrs: &mut Attr
 
                     // Get slice from body (+ 1 for the separators ';')
                     let part_str_len = part.len() + 1 + ident.len() + 1 + color.len();
-                    let slice = &body[body_idx..body_idx + part_str_len];
+                    let slice = &params[body_idx..body_idx + part_str_len];
 
                     if let Ok(s) = std::str::from_utf8(slice) {
                         color_state.set_colors(s);
@@ -94,7 +92,7 @@ pub fn process_colors(seq: &[u8], color_state: &mut ColorState, attrs: &mut Attr
                     // get slice from body (+ 1 for the separators ';')
                     let part_str_len =
                         part.len() + 1 + ident.len() + 1 + r.len() + 1 + g.len() + 1 + b.len();
-                    let slice = &body[body_idx..body_idx + part_str_len];
+                    let slice = &params[body_idx..body_idx + part_str_len];
 
                     if let Ok(s) = std::str::from_utf8(slice) {
                         color_state.set_colors(s);

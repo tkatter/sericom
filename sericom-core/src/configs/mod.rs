@@ -55,10 +55,10 @@ impl Config {
     }
 }
 
-#[cfg(test)]
+// #[cfg(test)]
 static INIT: std::sync::Once = std::sync::Once::new();
 
-#[cfg(test)]
+// #[cfg(test)]
 pub fn init_for_tests() {
     INIT.call_once(|| {
         CONFIG

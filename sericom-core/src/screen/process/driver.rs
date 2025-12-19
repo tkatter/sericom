@@ -1,16 +1,8 @@
-use std::fmt::Write;
-
 use crossterm::style::Attributes;
 use tracing::trace;
 
-use crate::screen::process::{BS, C1, CR, ESC, FF, HT, NL, SEMI};
-
-use super::super::ScreenBuffer;
-use super::super::components::{Cell, Line};
-use super::super::position::Cursor;
-use super::super::process::{ColorState, ParserEvent};
-use super::process_c1;
-use super::{process_colors, process_cursor, process_erase};
+use super::{C0, C1, CSI, ColorState, CsiKind, ParserEvent, SEMI, digits_to_int, process_colors};
+use crate::screen::{Cell, Cursor as _, Line, ScreenBuffer};
 
 /// The layer between incoming [`ParserEvent`]s and the [`ScreenBuffer`].
 pub struct ScreenDriver<'a> {
@@ -29,7 +21,7 @@ impl<'a> ScreenDriver<'a> {
     }
 
     /// Returns the number of newlines written
-    pub fn process_events(&mut self, events: Vec<ParserEvent>) -> u32 {
+    pub fn process_events<'b>(&mut self, events: Vec<ParserEvent<'b>>) -> u32 {
         let span = tracing::trace_span!("process");
         let _enter = span.enter();
 
@@ -38,13 +30,14 @@ impl<'a> ScreenDriver<'a> {
             trace!(%event);
             match event {
                 ParserEvent::Text(bytes) => self.write_text(&bytes),
-                ParserEvent::Control(ctrl) => {
-                    if ctrl == b'\n' {
+                ParserEvent::CSI(csi) => self.handle_csi(csi),
+                ParserEvent::C1(c1) => self.handle_c1(c1),
+                ParserEvent::C0(c0) => {
+                    if c0 == C0::NL {
                         newlines += 1;
                     }
-                    self.handle_control(ctrl);
+                    self.handle_c0(c0);
                 }
-                ParserEvent::EscapeSequence(seq) => self.handle_escape(&seq),
             }
         }
         newlines
@@ -63,10 +56,10 @@ impl<'a> ScreenDriver<'a> {
         self.buffer.move_cursor_right(bytes.len() as u16);
     }
 
-    fn handle_control(&mut self, ctrl: u8) {
-        match ctrl {
-            BS => self.buffer.move_cursor_left(1),
-            NL => {
+    fn handle_c0(&mut self, c0: C0) {
+        match c0 {
+            C0::BS => self.buffer.move_cursor_left(1),
+            C0::NL => {
                 self.buffer.with_current_line(|line, _| {
                     // pushing to the end of line unconditionally because
                     // NL is always the end of a line, and if received a CR
@@ -85,104 +78,94 @@ impl<'a> ScreenDriver<'a> {
                     .push_line(Line::new_empty(self.buffer.width() as usize));
                 self.buffer.update_view(None);
             }
-            HT => {
+            C0::HT => {
                 self.buffer.with_current_span(|span, _| {
                     span.push(Cell::TAB);
                 });
                 self.buffer.cursor.tab();
             }
-            CR => self.buffer.set_cursor_col(0),
-            // Not sure that FF needs to be handled
-            #[allow(clippy::match_same_arms)]
-            FF => {}
+            C0::CR => self.buffer.set_cursor_col(0),
             _ => {}
         }
     }
 
-    fn handle_escape(&mut self, seq: &[u8]) {
-        let Some(seq_type) = classify_escape_seq(seq) else {
-            let s = seq.iter().fold(String::new(), |mut output, b| {
-                if *b == ESC {
-                    let _ = write!(output, "ESC");
-                } else if *b == b'[' {
-                    let _ = write!(output, "[");
-                } else if *b == SEMI {
-                    let _ = write!(output, ";");
-                }
-                let _ = write!(output, "{}", *b as char);
-                output
-            });
-            tracing::debug!(target: "parser::escape", sequence=%s, "Failed to classify escape sequence");
-            return;
-        };
-        match seq_type {
-            EscSequenceType::Cursor(kind) => {
-                process_cursor(seq, kind, self.buffer);
+    fn handle_csi(&mut self, csi: CSI) {
+        match csi.kind {
+            CsiKind::CursorUp => {
+                let int = digits_to_int(csi.params).unwrap_or(1);
+                self.buffer.move_cursor_up(int);
             }
-            EscSequenceType::Erase(kind) => process_erase(seq, kind, self.buffer),
-            EscSequenceType::Graphics => {
-                process_colors(seq, &mut self.color_state, &mut self.attrs);
+            CsiKind::CursorDown => {
+                let int = digits_to_int(csi.params).unwrap_or(1);
+                self.buffer.move_cursor_down(int);
+            }
+            CsiKind::CursorForward => {
+                let int = digits_to_int(csi.params).unwrap_or(1);
+                self.buffer.move_cursor_right(int);
+            }
+            CsiKind::CursorBackward => {
+                let int = digits_to_int(csi.params).unwrap_or(1);
+                self.buffer.move_cursor_left(int);
+            }
+            CsiKind::NextLine => {
+                let int = digits_to_int(csi.params).unwrap_or(1);
+                self.buffer.move_cursor_down(int);
+                self.buffer.set_cursor_col(0);
+            }
+            CsiKind::PrecedingLine => {
+                let int = digits_to_int(csi.params).unwrap_or(1);
+                self.buffer.move_cursor_up(int);
+                self.buffer.set_cursor_col(0);
+            }
+            CsiKind::CharAbsCHA => {
+                let int = digits_to_int(csi.params).unwrap_or(1);
+                self.buffer.set_cursor_col(int);
+            }
+            CsiKind::PositionCUP => {
+                if csi.params.is_empty() {
+                    self.buffer.set_cursor_pos((1u16, 1u16));
+                    return;
+                }
+                if let Some(idx) = csi.params.iter().position(|b| *b == SEMI) {
+                    let (row, col) = (
+                        digits_to_int(&csi.params[0..idx]).unwrap_or(1),
+                        digits_to_int(&csi.params[idx + 1..]).unwrap_or(1),
+                    );
+                    self.buffer.set_cursor_pos((col, row));
+                } else {
+                    self.buffer.set_cursor_pos((1u16, 1u16));
+                }
+            }
+            CsiKind::ForwardTab => {
+                let int = digits_to_int(csi.params).unwrap_or(1);
+                self.buffer.tab(int);
+            }
+            CsiKind::EraseScreen => todo!(),
+            CsiKind::EraseLine => todo!(),
+            CsiKind::InsertLine => todo!(),
+            CsiKind::DeleteLine => todo!(),
+            CsiKind::DeleteChars => todo!(),
+            CsiKind::ScrollUp => todo!(),
+            CsiKind::ScrollDown => todo!(),
+            CsiKind::EraseChars => todo!(),
+            CsiKind::BackTab => {
+                let int = digits_to_int(csi.params).unwrap_or(1);
+                self.buffer.rtab(int);
+            }
+            CsiKind::CharRel => todo!(),
+            CsiKind::Rep => todo!(),
+            CsiKind::LineAbs => todo!(),
+            CsiKind::LineRel => todo!(),
+            CsiKind::PositionHVP => todo!(),
+            CsiKind::CharAbsHPA => todo!(),
+            CsiKind::Sgr => {
+                process_colors(csi.params, &mut self.color_state, &mut self.attrs);
                 self.buffer
                     .handle_span_colors(&self.color_state, self.attrs);
             }
-            EscSequenceType::Screen(kind) => {
-                tracing::debug!("EscSequenceType::Screen unimplemented, got: {:X?}", kind);
-                /* process_screen(seq, kind, self.buffer) */
-            }
-            EscSequenceType::C1(ctl) => process_c1(),
+            CsiKind::ScrollDown1991 => todo!(),
         }
     }
-}
 
-/// The category of escape sequence determined by the last char of the sequence.
-pub enum EscSequenceType {
-    /// Control cursor movement
-    Cursor(u8),
-    /// Sequences that clear the screen
-    Erase(u8),
-    /// Color changes/modes
-    Graphics,
-    /// Set screen modes
-    Screen(u8),
-    C1(C1),
-}
-
-impl TryFrom<u8> for EscSequenceType {
-    type Error = crate::SeriError;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            b'm' => Ok(EscSequenceType::Graphics),
-            b'A'..=b'G' | b'H' | b'f' | b'n' | b's' | b'u' => Ok(EscSequenceType::Cursor(value)),
-            b'J' | b'K' => Ok(EscSequenceType::Erase(value)),
-            b'h' | b'l' => Ok(EscSequenceType::Screen(value)),
-            v => C1::try_from(v).map(EscSequenceType::C1),
-        }
-    }
-}
-
-pub fn classify_escape_seq(seq: &[u8]) -> Option<EscSequenceType> {
-    // https://gist.github.com/fnky/458719343aabd01cfb17a3a4f7296797
-    // Ensures the sequence resembles: ESC[<sequence>
-    if seq.len() < 2 || seq[0] != ESC {
-        return None;
-    }
-
-    EscSequenceType::try_from(seq[1]).ok()
-
-    // match seq[1] {
-    //     b'[' => {
-    //         let last = *seq.last().expect("Verified len != 0");
-    //         match last {
-    //             b'm' => Some(EscSequenceType::Graphics),
-    //             b'A'..=b'G' | b'H' | b'f' | b'n' | b's' | b'u' => {
-    //                 Some(EscSequenceType::Cursor(last))
-    //             }
-    //             b'J' | b'K' => Some(EscSequenceType::Erase(last)),
-    //             b'h' | b'l' => Some(EscSequenceType::Screen(last)),
-    //             _ => None,
-    //         }
-    //     }
-    //     ctrl => Some(EscSequenceType::C1(C1::try_from(ctrl).ok()?)),
-    // }
+    fn handle_c1(&mut self, c1: C1) {}
 }

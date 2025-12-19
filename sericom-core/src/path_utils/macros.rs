@@ -161,9 +161,10 @@ macro_rules! compat_port_path {
     (trace, $dir:expr) => {{
         use chrono;
 
-        $dir.join(
-            format!("sericom-log-{}.txt", chrono::Utc::now().format("%m%d%H%M"))
-        )
+        $dir.join(format!(
+            "sericom-log-{}.txt",
+            chrono::Utc::now().format("%m%d%H%M")
+        ))
     }};
 
     ($out_dir:expr, $port:expr) => {{

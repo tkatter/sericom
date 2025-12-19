@@ -3,6 +3,8 @@ use thiserror::Error;
 
 #[derive(Debug, Clone, Diagnostic, Error)]
 pub enum SeriError {
+    #[error("Parsing error: {0:?}")]
+    Parsing(String),
     #[error("Invalid session id: {0}")]
     Session(super::SessionID),
     #[error("Task error: {0:?}")]
@@ -23,9 +25,7 @@ pub enum SeriError {
         help: Option<String>,
     },
     #[error("Serial connection error")]
-    SendErr (
-        #[from] tokio::sync::mpsc::error::SendError<crate::serial_actor::SerialMessage>,
-    ),
+    SendErr(#[from] tokio::sync::mpsc::error::SendError<crate::serial_actor::SerialMessage>),
 }
 
 #[allow(unused)]
@@ -38,11 +38,12 @@ impl SeriError {
             Self::Connection { source, help } => todo!(),
             Self::SendErr(_) => todo!(),
             Self::Session(_) => todo!(),
+            Self::Parsing(_) => todo!(),
         }
-        
+
         self
     }
-    
+
     #[must_use]
     pub fn add_help(mut self, msg: String) -> Self {
         match &mut self {
@@ -51,6 +52,7 @@ impl SeriError {
             Self::Connection { source, help } => *help = Some(msg),
             Self::SendErr(_) => todo!(),
             Self::Session(_) => todo!(),
+            Self::Parsing(_) => todo!(),
         }
 
         self

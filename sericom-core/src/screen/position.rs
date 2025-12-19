@@ -3,6 +3,8 @@ use std::{fmt::Display, marker::PhantomData};
 use super::Rect;
 use super::ScreenBuffer;
 
+const TAB_WIDTH: u16 = 8;
+
 #[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash)]
 pub struct TermPos;
 #[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash)]
@@ -50,10 +52,27 @@ impl Position<TermPos> {
 }
 
 impl<S: Scope + PosType> Position<S> {
+    pub const fn tabn(&mut self, n: u16) {
+        let mut acc = 0;
+        while acc < n {
+            self.tab();
+            acc += 1;
+        }
+    }
+    pub const fn rtabn(&mut self, n: u16) {
+        let mut acc = 0;
+        while acc < n {
+            self.rtab();
+            acc += 1;
+        }
+    }
     pub const fn tab(&mut self) {
-        let tab_width = 8;
-        let tab = tab_width - (self.x % tab_width);
+        let tab = TAB_WIDTH - (self.x % TAB_WIDTH);
         self.x += tab;
+    }
+    pub const fn rtab(&mut self) {
+        let tab = TAB_WIDTH - (self.x % TAB_WIDTH);
+        self.x.saturating_sub(tab);
     }
     pub const fn set_y(&mut self, y: PosY<S>) {
         self.y = y;
@@ -183,9 +202,23 @@ pub trait Cursor: HasBounds {
     /// Useful when the movement is not relative to the cursor's current
     /// position, but a direct/absolute position.
     fn set_cursor_row(&mut self, row: u16);
+    fn tab(&mut self, n: u16);
+    fn rtab(&mut self, n: u16);
 }
 
 impl Cursor for ScreenBuffer {
+    fn tab(&mut self, n: u16) {
+        let bounds = self.bounds();
+        self.cursor.tabn(n);
+        if self.cursor.x > bounds.right() {
+            self.cursor.x = bounds.right();
+        }
+    }
+
+    fn rtab(&mut self, n: u16) {
+        self.cursor.tabn(n);
+    }
+
     fn set_cursor_pos<P>(&mut self, position: P)
     where
         P: Into<Position<TermPos>>,

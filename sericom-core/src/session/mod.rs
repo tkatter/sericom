@@ -14,13 +14,13 @@ pub type UpdatedId = (SessionID, SessionID);
 
 #[derive(Debug, Default)]
 pub struct SessionManager {
-    active: Option<SessionID>,
-    id_update_tx: tokio::sync::watch::Sender<Option<UpdatedId>>,
     handles: Vec<SessionHandle>,
     metas: Vec<SessionMeta>,
     monitors: Vec<JoinHandle<()>>,
     errors: Arc<parking_lot::Mutex<Vec<(SessionID, miette::Report)>>>,
     shutting_down: Arc<tokio::sync::Notify>,
+    id_update_tx: tokio::sync::watch::Sender<Option<UpdatedId>>,
+    active: Option<SessionID>,
 }
 
 /// Includes the baud rate and name of the port/connection.
@@ -51,7 +51,11 @@ impl SessionManager {
         if let Some(session) = self.get_mut_session(id) {
             let mut msg = msg.as_bytes().to_vec();
             msg.push(b'\n');
-            session.tx.send(SerialMessage::Write(msg)).await.map_err(SeriError::from)
+            session
+                .tx
+                .send(SerialMessage::Write(msg))
+                .await
+                .map_err(SeriError::from)
         } else {
             Err(SeriError::Session(id))
         }
@@ -83,7 +87,6 @@ impl SessionManager {
     /// # Errors
     /// Errors if there are already a maximum number of sessions ([`u8::MAX`]) or
     /// if the [`SessionHandle::spawn`] errors.
-    #[allow(clippy::result_unit_err)]
     #[allow(clippy::cast_possible_truncation)]
     pub fn spawn(
         &mut self,
@@ -102,6 +105,43 @@ impl SessionManager {
         let (err_tx, err_rx) = oneshot::channel::<self::SeriError>();
         let meta = SessionMeta { baud, port };
         let handle = SessionHandle::spawn(&meta, f_path, headless, err_tx)?;
+        info!(%id, port=%meta.port.display(), %baud, "created session");
+
+        self.handles.push(handle);
+        self.metas.push(meta);
+        self.start_monitor(id as SessionID, err_rx);
+
+        // Cast is fine, verified that id is < u8::MAX
+        Ok(id as SessionID)
+    }
+
+    #[allow(clippy::cast_possible_truncation)]
+    pub fn spawn_with_stream<S>(
+        &mut self,
+        port: std::path::PathBuf,
+        baud: u32,
+        f_path: Option<Option<std::path::PathBuf>>,
+        headless: bool,
+        stream: S,
+    ) -> miette::Result<SessionID>
+    where
+        S: tokio::io::AsyncRead
+            + tokio::io::AsyncWrite
+            + tokio::io::AsyncWriteExt
+            + Unpin
+            + Send
+            + 'static,
+    {
+        let id = self.metas.len();
+
+        if id >= u8::MAX as usize {
+            warn!(%id, "max sessions reached");
+            return Err(miette::miette!("Max sessions reached"))?;
+        }
+
+        let (err_tx, err_rx) = oneshot::channel::<self::SeriError>();
+        let meta = SessionMeta { baud, port };
+        let handle = SessionHandle::spawn_with_stream(&meta, f_path, headless, err_tx, stream)?;
         info!(%id, port=%meta.port.display(), %baud, "created session");
 
         self.handles.push(handle);

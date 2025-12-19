@@ -1,18 +1,8 @@
 use crate::screen::{
     ScreenBuffer,
     position::{Cursor, Position},
-    process::SEP,
+    process::{SEMI, digits_to_int},
 };
-
-fn ascii_digits_to_integer(body: &[u8]) -> Option<u16> {
-    if body.is_empty() || !body.iter().all(u8::is_ascii_digit) {
-        return None;
-    }
-    Some(
-        body.iter()
-            .fold(0u16, |acc, b| acc * 10 + u16::from(b & 0x0F)),
-    )
-}
 
 pub fn process_cursor(seq: &[u8], kind: u8, sb: &mut ScreenBuffer) {
     let body = &seq[2..seq.len() - 1];
@@ -20,9 +10,9 @@ pub fn process_cursor(seq: &[u8], kind: u8, sb: &mut ScreenBuffer) {
     // ESC[{row};{col}H
     // move cursor to line # col #
     if (kind == b'H' || kind == b'f') && !body.is_empty() {
-        let mut parts = body.split(|&b| b == SEP);
-        let row = parts.next().and_then(ascii_digits_to_integer);
-        let col = parts.next().and_then(ascii_digits_to_integer);
+        let mut parts = body.split(|&b| b == SEMI);
+        let row = parts.next().and_then(digits_to_int);
+        let col = parts.next().and_then(digits_to_int);
         if let (Some(c), Some(r)) = (col, row) {
             sb.set_cursor_pos((c, r));
         }
@@ -31,7 +21,7 @@ pub fn process_cursor(seq: &[u8], kind: u8, sb: &mut ScreenBuffer) {
         // need to send to device via ESC[row;colR
         todo!();
     } else {
-        let nums = ascii_digits_to_integer(body);
+        let nums = digits_to_int(body);
         match kind {
             b'A' => {
                 // move cursor up # lines

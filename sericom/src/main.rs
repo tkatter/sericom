@@ -9,8 +9,8 @@
 
 use miette::{Context as _, IntoDiagnostic};
 use sericom_core::configs::{get_config, initialize_config};
+use std::path::Path;
 use tracing_subscriber::filter::FilterExt;
-use std::path::{Path};
 
 mod repl;
 use repl::*;
@@ -31,7 +31,7 @@ fn init_tracing(
     dbg_dir: &Path,
 ) -> miette::Result<Option<tracing_appender::non_blocking::WorkerGuard>> {
     use sericom_core::compat_port_path;
-    use tracing::{level_filters::LevelFilter};
+    use tracing::level_filters::LevelFilter;
     use tracing_subscriber::EnvFilter;
     use tracing_subscriber::layer::{Layer, SubscriberExt};
     use tracing_subscriber::util::SubscriberInitExt;
@@ -54,14 +54,13 @@ fn init_tracing(
         .with_default(tracing::Level::ERROR);
     let env_filter = EnvFilter::builder()
         .with_default_directive(
-    //     #[cfg(debug_assertions)]
-    //     LevelFilter::TRACE.into(),
-    //     #[cfg(not(debug_assertions))]
+            //     #[cfg(debug_assertions)]
+            //     LevelFilter::TRACE.into(),
+            //     #[cfg(not(debug_assertions))]
             LevelFilter::INFO.into(),
-    )
-    .with_env_var("SERI_LOG")
-    .from_env_lossy();
-
+        )
+        .with_env_var("SERI_LOG")
+        .from_env_lossy();
 
     tracing_subscriber::registry()
         .with(

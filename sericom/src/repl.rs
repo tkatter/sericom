@@ -86,7 +86,7 @@ enum Commands {
         ///
         /// For example: `kill 0 2 3 hello world` or `send 0 hello world`
         session: sericom_core::session::SessionID,
-        #[arg(allow_hyphen_values=true, trailing_var_arg=true)]
+        #[arg(allow_hyphen_values = true, trailing_var_arg = true)]
         message: Vec<String>,
     },
     /// List helpful information
@@ -255,7 +255,10 @@ async fn handle_cmds(
         }
         Commands::Send { session, message } => {
             let msg = message.join(" ");
-            manager.send(session, &msg).await.map_err(miette::Report::from)?;
+            manager
+                .send(session, &msg)
+                .await
+                .map_err(miette::Report::from)?;
             tracing::debug!(%session, %msg, "sent message");
             Ok(false)
         }

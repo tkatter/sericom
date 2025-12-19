@@ -10,43 +10,10 @@
 //! [xterm's docs]: https://invisible-island.net/xterm/ctlseqs/ctlseqs.html
 #![allow(clippy::upper_case_acronyms)]
 
-pub const NUL: u8 = 0x00; // Null character
-pub const SOH: u8 = 0x01; // Start of Heading
-pub const STX: u8 = 0x02; // Start of Text
-pub const ETX: u8 = 0x03; // End of Text
-pub const EOT: u8 = 0x04; // End of Transmission
-pub const ENQ: u8 = 0x05; // Enquiry
-pub const ACK: u8 = 0x06; // Acknowledge
-pub const BEL: u8 = 0x07; // Bell, Alert
-pub const BS: u8 = 0x08; // Backspace
-pub const HT: u8 = 0x09; // Horizontal Tab
-pub const NL: u8 = 0x0A; // Newline \n (Line Feed)
-pub const VT: u8 = 0x0B; // Vertical Tabulation
-pub const FF: u8 = 0x0C; // Form Feed
-pub const CR: u8 = 0x0D; // Carriage Return
-pub const SO: u8 = 0x0E; // Shift Out
-pub const SI: u8 = 0x0F; // Shift In
-pub const DLE: u8 = 0x10; // Data Link Escape
-pub const DC1: u8 = 0x11; // Device Control One (XON)
-pub const DC2: u8 = 0x12; // Device Control Two
-pub const DC3: u8 = 0x13; // Device Control Three (XOFF)
-pub const DC4: u8 = 0x14; // Device Control Four
-pub const NAK: u8 = 0x15; // Negative Acknowledge
-pub const SYN: u8 = 0x16; // Synchronous Idle
-pub const ETB: u8 = 0x17; // End of Transmission Block
-pub const CAN: u8 = 0x18; // Cancel
-pub const EM: u8 = 0x19; // End of medium
-pub const SUB: u8 = 0x1A; // Substitute
-pub const ESC: u8 = 0x1B; // Escape
-pub const FS: u8 = 0x1C; // File Separator
-pub const GS: u8 = 0x1D; // Group Separator
-pub const RS: u8 = 0x1E; // Record Separator
-pub const US: u8 = 0x1F; // Unit Separator
-pub const DEL: u8 = 0x7F; // Delete
-pub const SEMI: u8 = b';'; // Escape sequence separator ';'
-
 /// Reset graphics mode escape sequence
-pub const RESET: &[u8] = &[ESC, b'[', b'0', b'm'];
+pub const RESET: &[u8] = &[0x1B, b'[', b'0', b'm'];
+/// Escape sequence separator ';'
+pub const SEMI: u8 = b';';
 
 /// Impl TryFrom for zig-like enum
 macro_rules! def_xterm_tf {
@@ -55,9 +22,9 @@ macro_rules! def_xterm_tf {
         $(#[$attr:meta])*
         pub enum $i:ident {
             $(
-                $(#[$doc:meta])?
+                $(#[$doc:meta])*
                 $variant:ident = $val:literal
-            ),+
+            ),* $(,)?
         }
         error = $err:literal
     ) => {
@@ -65,9 +32,9 @@ macro_rules! def_xterm_tf {
         $(#[$attr])*
         pub enum $i {
             $(
-                $(#[$doc])?
-                $variant = $val,
-            )*
+                $(#[$doc])*
+                $variant = $val
+            ),*
         }
 
         impl TryFrom<$as> for $i {
@@ -86,101 +53,231 @@ macro_rules! def_xterm_tf {
 def_xterm_tf! {
     #[repr(u8)]
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    pub enum C0 {
+        /// Null character
+        NUL = 0x00,
+        /// Start of Heading
+        SOH = 0x01,
+        /// Start of Text
+        STX = 0x02,
+        /// End of Text
+        ETX = 0x03,
+        /// End of Transmission
+        EOT = 0x04,
+        /// Enquiry
+        ENQ = 0x05,
+        /// Acknowledge
+        ACK = 0x06,
+        /// Bell, Alert
+        BEL = 0x07,
+        /// Backspace
+        BS = 0x08,
+        /// Horizontal Tab
+        HT = 0x09,
+        /// Newline \n (Line Feed)
+        NL = 0x0A,
+        /// Vertical Tabulation
+        VT = 0x0B,
+        /// Form Feed
+        FF = 0x0C,
+        /// Carriage Return
+        CR = 0x0D,
+        /// Shift Out
+        SO = 0x0E,
+        /// Shift In
+        SI = 0x0F,
+        /// Data Link Escape
+        DLE = 0x10,
+        /// Device Control One (XON)
+        DC1 = 0x11,
+        /// Device Control Two
+        DC2 = 0x12,
+        /// Device Control Three (XOFF)
+        DC3 = 0x13,
+        /// Device Control Four
+        DC4 = 0x14,
+        /// Negative Acknowledge
+        NAK = 0x15,
+        /// Synchronous Idle
+        SYN = 0x16,
+        /// End of Transmission Block
+        ETB = 0x17,
+        /// Cancel
+        CAN = 0x18,
+        /// End of medium
+        EM = 0x19,
+        /// Substitute
+        SUB = 0x1A,
+        /// Escape
+        ESC = 0x1B,
+        /// File Separator
+        FS = 0x1C,
+        /// Group Separator
+        GS = 0x1D,
+        /// Record Separator
+        RS = 0x1E,
+        /// Unit Separator
+        US = 0x1F,
+        /// Delete
+        DEL = 0x7F
+    }
+    error = "Could not parse {:#X?} as C0"
+}
+
+impl std::fmt::Display for C0 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:#X?}", *self as u8)
+    }
+}
+
+def_xterm_tf! {
+    #[repr(u8)]
+    #[non_exhaustive]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     #[doc = "C1 Control Codes (ESC _<C1>_)"]
     pub enum C1 {
-        /// Index (0x84)
+        /// Index 'D' (0x84)
         IND = b'D',
-        /// Next Line (0x85)
+        /// Next Line 'E' (0x85)
         NEL = b'E',
-        /// Tab Set (0x88)
+        /// Tab Set 'H' (0x88)
         HTS = b'H',
-        /// Reverse Index (0x8d)
+        /// Reverse Index 'M' (0x8d)
         RI = b'M',
-        /// Device Control String (0x90)
+        /// Device Control String 'P' (0x90)
         DCS = b'P',
-        /// Start of Guarded Area (0x96)
+        /// Start of Guarded Area 'V' (0x96)
         SPA = b'V',
-        /// End of Guarded Area (0x97)
+        /// End of Guarded Area 'W' (0x97)
         EPA = b'W',
-        /// Start of String (0x98)
+        /// Start of String 'X' (0x98)
         SOS = b'X',
-        /// Return Terminal ID (0x9a)
+        /// Return Terminal ID 'Z' (0x9a)
         DECID = b'Z',
-        /// Control Sequence Intoducer (0x9b)
+        /// Control Sequence Intoducer '[' (0x9b)
         CSI = b'[',
-        /// String Terminator (0x9c)
+        /// String Terminator '\' (0x9c)
         ST = b'\\',
-        /// Operating System Command (0x9d)
+        /// Operating System Command ']' (0x9d)
         OSC = b']',
-        /// Privacy Message (0x9e)
+        /// Privacy Message '^' (0x9e)
         PM = b'^',
-        /// Application Program Command (0x9f)
+        /// Application Program Command '_' (0x9f)
         APC = b'_',
-        /// Back Index (VT420+)
+        /// Back Index '6' (VT420+)
         DECBI = b'6',
-        /// Save Cursor (VT100)
+        /// Save Cursor '7' (VT100)
         DECSC = b'7',
-        /// Restore Cursor (VT100)
+        /// Restore Cursor '8' (VT100)
         DECRC = b'8',
-        /// Forward Index (VT420+)
+        /// Forward Index '9' (VT420+)
         DECFI = b'9',
-        /// Full Reset (VT100)
+        /// Full Reset 'c' (VT100)
         RIS = b'c'
     }
-    error = "Could not parse {:00x?} as C1"
+    error = "Could not parse {:#X?} as C1"
+}
+
+impl std::fmt::Display for C1 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", *self as u8 as char)
+    }
 }
 
 def_xterm_tf! {
     #[repr(u8)]
+    #[non_exhaustive]
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-    pub enum Cursor {
-        CharRel = b'a',
-        Up = b'A',
-        Rep = b'b',
-        Down = b'B',
-        Forward = b'C',
-        LineAbs = b'd',
-        Backward = b'D',
-        LineRel = b'e',
+    pub enum CsiKind {
+        /// Cursor Up _Ps_ Times 'A' (default = 1) (CUU)
+        CursorUp = b'A',
+        /// Cursor Down _Ps_ Times 'B' (default = 1) (CUD)
+        CursorDown = b'B',
+        /// Cursor Forward _Ps_ Times 'C' (default = 1) (CUF)
+        CursorForward = b'C',
+        /// Cursor Backward _Ps_ Times 'D' (default = 1) (CUB)
+        CursorBackward = b'D',
+        /// Cursor Next Line _Ps_ Times 'E' (default = 1) (CNL)
         NextLine = b'E',
-        PositionHVP = b'f',
+        /// Cursor Preceding Line _Ps_ Times 'F' (default = 1) (CPL)
         PrecedingLine = b'F',
+        /// Cursor Character Absolute [column] 'G' (default = [row,1]) (CHA)
         CharAbsCHA = b'G',
+        /// Cursor Position [row;column] 'H' (default = [1,1]) (CUP)
         PositionCUP = b'H',
+        /// Cursor Forward Tabulation _Ps_ tab stops 'I' (default = 1) (CHT)
         ForwardTab = b'I',
+        /// Erase in Display 'J'
+        ///
+        /// VT100: CSI _Ps_ J (ED)
+        /// VT220: CSI ? _Ps_ J (DECSED)
+        EraseScreen = b'J',
+        /// Erase in Line 'K'
+        ///
+        /// VT100: CSI _Ps_ K (EL)
+        /// VT220: CSI ? _Ps_ K (DECSEL)
+        EraseLine = b'K',
+        /// Insert _Ps_ Line(s) 'L' (default = 1) (IL)
+        InsertLine = b'L',
+        /// Delete _Ps_ Line(s) 'M' (default = 1) (DL)
+        DeleteLine = b'M',
+        /// Delete _Ps_ Character(s) 'P' (default = 1) (DCH)
+        DeleteChars = b'P',
+        /// Scroll up _Ps_ lines 'S' (default = 1) (SU)
         ScrollUp = b'S',
+        /// Scroll down _Ps_ lines 'T' (default = 1) (SD)
         ScrollDown = b'T',
+        /// Erase _Ps_ Character(s) 'X' (default = 1) (ECH)
+        EraseChars = b'X',
+        /// Cursor Backward Tabulation _Ps_ tab stops 'Z' (default = 1) (CBT)
         BackTab = b'Z',
-        CharAbsHPA = b'`'
+        /// Character Position Relative [columns] 'a' (default = [row,col+1]) (HPR)
+        CharRel = b'a',
+        /// Repeat the preceding graphic character _Ps_ times 'b' (REP)
+        Rep = b'b',
+        /// Line Position Absolute [row] 'd' (default = [1,column]) (VPA)
+        LineAbs = b'd',
+        /// Line Position Relative  [rows] 'e' (default = [row+1,column]) (VPR)
+        LineRel = b'e',
+        /// Horizontal and Vertical Position [row;column] 'f' (default = [1,1]) (HVP)
+        PositionHVP = b'f',
+        /// Character Attributes 'm' (SGR)
+        Sgr = b'm',
+        /// Character Position Absolute [column] '`' (default = [row,1]) (HPA)
+        CharAbsHPA = b'`',
+        /// Scroll down _Ps_ lines '^' (default = 1) (SD)
+        ///
+        /// From [xterm]:
+        /// > This was a publication error in the original ECMA-48 5th edition
+        /// > (1991) corrected in 2003.
+        ///
+        /// [xterm]: https://invisible-island.net/xterm/ctlseqs/ctlseqs.html#h3-Functions-using-CSI-_-ordered-by-the-final-character_s_
+        ScrollDown1991 = b'^'
     }
-    error = "Could not parse {:00x?} as Cursor"
+    error = "Could not parse {:#X?} as CsiKind"
 }
 
-def_xterm_tf! {
-    #[repr(u8)]
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-    pub enum EraseKind {
-        Screen = b'J',
-        Line = b'K',
-        Chars = b'X'
+impl std::fmt::Display for CsiKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", *self as u8 as char)
     }
-    error = "Could not parse {:00x?} as EraseKind"
 }
 
-def_xterm_tf! {
-    #[repr(u8)]
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-    pub enum EraseMode {
-        Below = b'0',
-        Above = b'1',
-        All = b'2',
-        Scrollback = b'3'
-    }
-    error = "Could not parse {:00x?} as EraseMode"
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct CSI<'a> {
+    pub kind: CsiKind,
+    pub params: &'a [u8],
 }
 
-/* Where to stick these
-* CSI Ps L  Insert Ps Line(s) (default = 1) (IL).
-* CSI Ps M  Delete Ps Line(s) (default = 1) (DL).
-* CSI Ps P  Delete Ps Character(s) (default = 1) (DCH).
-*/
+impl<'a> std::fmt::Display for CSI<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "ESC [ {} {}",
+            // SAFETY: It is verified that self.params is ascii when constructed
+            // in ByteParser via core::num::is_ascii()
+            unsafe { std::str::from_utf8_unchecked(self.params) },
+            self.kind
+        )
+    }
+}
