@@ -24,4 +24,5 @@ tag-namespace = "sericom"
 
 [dist.github-action-commits]
 "actions/checkout" = "v5"
-"actions/download-artifact" = "v5"
+"actions/upload-artifact" = "v5"
+"actions/download-artifact" = "v6"
