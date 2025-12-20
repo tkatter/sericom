@@ -1,8 +1,11 @@
 use crossterm::style::Attributes;
-use tracing::trace;
+use tracing::{debug, trace};
 
 use super::{C0, C1, CSI, ColorState, CsiKind, ParserEvent, SEMI, digits_to_int, process_colors};
-use crate::screen::{Cell, Cursor as _, Line, ScreenBuffer};
+use crate::screen::{
+    Cell, Cursor as _, Line, ScreenBuffer,
+    process::{EDKind, ELKind},
+};
 
 /// The layer between incoming [`ParserEvent`]s and the [`ScreenBuffer`].
 pub struct ScreenDriver<'a> {
@@ -21,7 +24,7 @@ impl<'a> ScreenDriver<'a> {
     }
 
     /// Returns the number of newlines written
-    pub fn process_events<'b>(&mut self, events: Vec<ParserEvent<'b>>) -> u32 {
+    pub fn process_events(&mut self, events: Vec<ParserEvent<'_>>) -> u32 {
         let span = tracing::trace_span!("process");
         let _enter = span.enter();
 
@@ -29,7 +32,7 @@ impl<'a> ScreenDriver<'a> {
         for event in events {
             trace!(%event);
             match event {
-                ParserEvent::Text(bytes) => self.write_text(&bytes),
+                ParserEvent::Text(bytes) => self.write_text(bytes),
                 ParserEvent::CSI(csi) => self.handle_csi(csi),
                 ParserEvent::C1(c1) => self.handle_c1(c1),
                 ParserEvent::C0(c0) => {
@@ -85,7 +88,7 @@ impl<'a> ScreenDriver<'a> {
                 self.buffer.cursor.tab();
             }
             C0::CR => self.buffer.set_cursor_col(0),
-            _ => {}
+            other => debug!("recieved unsupported C0: {:?}", other),
         }
     }
 
@@ -95,11 +98,11 @@ impl<'a> ScreenDriver<'a> {
                 let int = digits_to_int(csi.params).unwrap_or(1);
                 self.buffer.move_cursor_up(int);
             }
-            CsiKind::CursorDown => {
+            CsiKind::CursorDown | CsiKind::LineRel => {
                 let int = digits_to_int(csi.params).unwrap_or(1);
                 self.buffer.move_cursor_down(int);
             }
-            CsiKind::CursorForward => {
+            CsiKind::CursorForward | CsiKind::CharRel => {
                 let int = digits_to_int(csi.params).unwrap_or(1);
                 self.buffer.move_cursor_right(int);
             }
@@ -117,11 +120,11 @@ impl<'a> ScreenDriver<'a> {
                 self.buffer.move_cursor_up(int);
                 self.buffer.set_cursor_col(0);
             }
-            CsiKind::CharAbsCHA => {
+            CsiKind::CharAbsCHA | CsiKind::CharAbsHPA => {
                 let int = digits_to_int(csi.params).unwrap_or(1);
                 self.buffer.set_cursor_col(int);
             }
-            CsiKind::PositionCUP => {
+            CsiKind::PositionCUP | CsiKind::PositionHVP => {
                 if csi.params.is_empty() {
                     self.buffer.set_cursor_pos((1u16, 1u16));
                     return;
@@ -140,32 +143,81 @@ impl<'a> ScreenDriver<'a> {
                 let int = digits_to_int(csi.params).unwrap_or(1);
                 self.buffer.tab(int);
             }
-            CsiKind::EraseScreen => todo!(),
-            CsiKind::EraseLine => todo!(),
-            CsiKind::InsertLine => todo!(),
-            CsiKind::DeleteLine => todo!(),
-            CsiKind::DeleteChars => todo!(),
-            CsiKind::ScrollUp => todo!(),
-            CsiKind::ScrollDown => todo!(),
-            CsiKind::EraseChars => todo!(),
+            CsiKind::EraseInDisplay => self
+                .buffer
+                .erase_in_display(EDKind::try_from(csi.params).unwrap_or_default()),
+            CsiKind::EraseInLine => self
+                .buffer
+                .erase_in_line(ELKind::try_from(csi.params).unwrap_or_default()),
+            CsiKind::InsertLine => {
+                let int = digits_to_int(csi.params).unwrap_or(1);
+                self.buffer.insert_lines(int);
+            }
+            CsiKind::DeleteLine => {
+                let int = digits_to_int(csi.params).unwrap_or(1);
+                self.buffer.delete_lines(int);
+            }
+            CsiKind::DeleteChars => {
+                let int = digits_to_int(csi.params).unwrap_or(1);
+                self.buffer.delete_chars(int);
+            }
+            CsiKind::ScrollUp => {
+                let int = digits_to_int(csi.params).unwrap_or(1);
+                self.buffer.scroll_up(int);
+            }
+            CsiKind::ScrollDown | CsiKind::ScrollDown1991 => {
+                let int = digits_to_int(csi.params).unwrap_or(1);
+                self.buffer.scroll_down(int);
+            }
+            CsiKind::EraseChars => {
+                let int = digits_to_int(csi.params).unwrap_or(1);
+                self.buffer.erase_chars(int);
+            }
             CsiKind::BackTab => {
                 let int = digits_to_int(csi.params).unwrap_or(1);
                 self.buffer.rtab(int);
             }
-            CsiKind::CharRel => todo!(),
-            CsiKind::Rep => todo!(),
-            CsiKind::LineAbs => todo!(),
-            CsiKind::LineRel => todo!(),
-            CsiKind::PositionHVP => todo!(),
-            CsiKind::CharAbsHPA => todo!(),
-            CsiKind::Sgr => {
+            CsiKind::Rep => {
+                let int = digits_to_int(csi.params).unwrap_or(1);
+                self.buffer.with_current_line(|line, cursor| {
+                    let last_char = {
+                        // if last_char is intended to be ' ' then this will break
+                        let i = line.last_filled_idx();
+                        line.iter()
+                            .flatten()
+                            .nth(i)
+                            .expect("idx is always a cell")
+                            .character
+                    };
+                    line.iter_mut()
+                        .flatten()
+                        .skip(usize::from(cursor.x - 1))
+                        .take(usize::from(int))
+                        .for_each(|c| c.character = last_char);
+                });
+            }
+            CsiKind::LineAbs => {
+                let int = digits_to_int(csi.params).unwrap_or(1);
+                self.buffer.set_cursor_row(int);
+            }
+            CsiKind::SGR => {
                 process_colors(csi.params, &mut self.color_state, &mut self.attrs);
                 self.buffer
                     .handle_span_colors(&self.color_state, self.attrs);
             }
-            CsiKind::ScrollDown1991 => todo!(),
         }
     }
 
-    fn handle_c1(&mut self, c1: C1) {}
+    fn handle_c1(&mut self, c1: C1) {
+        match c1 {
+            C1::IND | C1::DECFI => self.buffer.move_cursor_down(1),
+            C1::RI | C1::DECBI => self.buffer.move_cursor_up(1),
+            C1::NEL => {
+                self.buffer.move_cursor_down(1);
+                self.buffer.set_cursor_col(1);
+            }
+            C1::RIS => self.buffer.erase_in_display(EDKind::All),
+            other => debug!("recieved unsupported C1: {:?}", other),
+        }
+    }
 }

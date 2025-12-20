@@ -3,7 +3,7 @@ mod components;
 mod cursor;
 mod escape;
 
-pub use crate::screen::{driver::ScreenDriver, *};
+pub use crate::screen::{ScreenDriver, *};
 pub use crossterm::style::{Attribute, Attributes, Color};
 pub use std::collections::VecDeque;
 

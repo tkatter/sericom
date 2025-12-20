@@ -3,7 +3,7 @@ use crossterm::style::{Attributes, Color, Colors};
 use std::io::BufWriter;
 use tracing::instrument;
 
-use super::{ByteParser, Cell, Line, ParserEvent, Span, process::NL};
+use super::{ByteParser, Cell, Line, ParserEvent, Span};
 use super::{Cursor, ScreenBuffer, UIAction};
 use crate::configs::get_config;
 

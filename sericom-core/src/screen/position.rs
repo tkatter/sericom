@@ -242,6 +242,7 @@ impl Cursor for ScreenBuffer {
     fn move_cursor_right(&mut self, cells: u16) {
         let bounds = self.bounds();
         let mut new_x = self.cursor.x.saturating_add(cells);
+
         if new_x > bounds.right() {
             new_x = bounds.right();
         }
@@ -252,14 +253,17 @@ impl Cursor for ScreenBuffer {
         self.cursor.y = self.cursor.y.saturating_sub(lines);
     }
 
+    // TODO: Figure out line pushes as cursor moves down
     fn move_cursor_down(&mut self, lines: u16) {
         let bounds = self.bounds();
-        let new_y = self.cursor.y.saturating_add(lines);
+        let mut new_y = self.cursor.y.saturating_add(lines);
 
-        // TODO: FIGURE OUT LINE PUSHING
-        if new_y <= bounds.bottom() {
-            self.cursor.y = new_y;
+        // If the cursor would pass the bottom scroll margin, it will stop there
+        // [xterm.js](https://xtermjs.org/docs/api/vtfeatures/)
+        if new_y > bounds.bottom() {
+            new_y = bounds.bottom();
         }
+        self.cursor.y = new_y;
     }
 
     fn set_cursor_col(&mut self, col: u16) {
@@ -271,19 +275,23 @@ impl Cursor for ScreenBuffer {
         }
     }
 
-    #[allow(unused)]
     fn set_cursor_row(&mut self, row: u16) {
-        unimplemented!()
+        let bounds = self.bounds();
+        if row > bounds.bottom() {
+            self.cursor.y = bounds.bottom();
+        } else {
+            self.cursor.y = row;
+        }
     }
 }
 
 pub trait TranslatePos {
-    fn to_term(&self, pos: Position<BuffPos>) -> Position<TermPos>;
-    fn to_buff(&self, pos: Position<TermPos>) -> Position<BuffPos>;
+    fn to_term(&self, pos: &Position<BuffPos>) -> Position<TermPos>;
+    fn to_buff(&self, pos: &Position<TermPos>) -> Position<BuffPos>;
 }
 
 impl TranslatePos for ScreenBuffer {
-    fn to_term(&self, pos: Position<BuffPos>) -> Position<TermPos> {
+    fn to_term(&self, pos: &Position<BuffPos>) -> Position<TermPos> {
         let buff_win = self.buff_rect();
 
         let visible_y = pos.y.clamp(buff_win.top(), buff_win.bottom());
@@ -299,7 +307,7 @@ impl TranslatePos for ScreenBuffer {
         Position::<TermPos>::from((term_x, term_y))
     }
 
-    fn to_buff(&self, pos: Position<TermPos>) -> Position<BuffPos> {
+    fn to_buff(&self, pos: &Position<TermPos>) -> Position<BuffPos> {
         let buff_y: u32 = self.view_start + u32::from(pos.y);
         let buff_x = pos.x.clamp(0, self.width());
 

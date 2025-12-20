@@ -36,5 +36,3 @@ pub use ui_command::{UIAction, UICommand};
 
 #[cfg(test)]
 pub(crate) mod tests;
-
-pub(in crate::screen) use process::{process_colors, process_cursor, process_erase};

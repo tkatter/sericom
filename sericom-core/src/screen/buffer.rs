@@ -2,7 +2,8 @@ use crossterm::style::Attributes;
 use std::collections::VecDeque;
 use tracing::trace;
 
-use crate::screen::{BuffPos, UICommand};
+use crate::screen::process::{EDKind, ELKind};
+use crate::screen::{BuffPos, Cell, UICommand};
 
 use super::position::{Position, TermPos, TranslatePos};
 use super::{Line, Rect};
@@ -85,7 +86,7 @@ impl ScreenBuffer {
     }
 
     pub(crate) fn with_current_span<F: FnOnce(&mut super::Span, usize)>(&mut self, f: F) {
-        let buff_pos = self.to_buff(self.cursor);
+        let buff_pos = self.to_buff(&self.cursor);
 
         let (span, offset) = {
             let line = self.curr_line_mut();
@@ -100,19 +101,19 @@ impl ScreenBuffer {
         &mut self,
         f: F,
     ) {
-        let buff_pos = self.to_buff(self.cursor);
+        let buff_pos = self.to_buff(&self.cursor);
         let line = self.curr_line_mut();
 
         f(line, &buff_pos);
     }
 
     pub(crate) fn curr_line(&self) -> Option<&Line> {
-        let pos_in_lines = self.to_buff(self.cursor);
+        let pos_in_lines = self.to_buff(&self.cursor);
         self.lines.get(pos_in_lines.y as usize)
     }
 
     pub(crate) fn curr_line_mut(&mut self) -> &mut Line {
-        let pos_in_lines = self.to_buff(self.cursor);
+        let pos_in_lines = self.to_buff(&self.cursor);
         if self.lines.get(pos_in_lines.y as usize).is_some() {
             self.lines
                 .get_mut(pos_in_lines.y as usize)
@@ -157,5 +158,196 @@ impl ScreenBuffer {
         };
 
         todo!();
+    }
+
+    pub(crate) fn insert_lines(&mut self, num: u16) {
+        let buff_pos = self.to_buff(&self.cursor);
+        for _ in 0..num {
+            self.lines.insert(
+                buff_pos.y as usize,
+                Line::new_empty(usize::from(self.width())),
+            );
+            if self.lines.len() >= self.buff_rect().bottom() as usize {
+                self.lines.pop_back();
+            }
+        }
+        self.cursor.x = 0;
+    }
+
+    pub(crate) fn delete_lines(&mut self, num: u16) {
+        let buff_pos = self.to_buff(&self.cursor);
+        for _ in 0..num {
+            self.lines.remove(buff_pos.y as usize);
+            self.lines
+                .push_back(Line::new_empty(usize::from(self.width())));
+        }
+        self.cursor.x = 0;
+    }
+
+    #[allow(clippy::cast_possible_truncation)]
+    pub(crate) fn erase_in_display(&mut self, kind: EDKind) {
+        match kind {
+            EDKind::Below => {
+                let buff_range = std::ops::Range {
+                    start: (self.to_buff(&self.cursor).y + 1) as usize,
+                    end: (self.buff_rect().bottom() + 1) as usize,
+                };
+
+                self.clear_line_from_cursor();
+                self.clear_lines(buff_range);
+            }
+            EDKind::Above => {
+                let buff_range = std::ops::Range {
+                    start: self.view_start as usize,
+                    end: self.to_buff(&self.cursor).y as usize,
+                };
+
+                self.clear_lines(buff_range);
+                self.clear_line_to_cursor();
+            }
+            _ => {
+                self.lines
+                    .push_back(Line::new_empty(usize::from(self.width())));
+                // Casting to u32 from usize is fine because self.lines should never
+                // exceed MAX_SCROLLBACK which is < usize::MAX
+                self.view_start = (self.lines.len() as u32).saturating_sub(1);
+                self.cursor = Position::<TermPos>::ORIGIN;
+            }
+        }
+    }
+
+    pub(crate) fn erase_in_line(&mut self, kind: ELKind) {
+        match kind {
+            ELKind::Right => {
+                self.clear_line_from_cursor();
+            }
+            ELKind::Left => self.clear_line_to_cursor(),
+            ELKind::All => {
+                self.with_current_line(|line, _| {
+                    line.iter_mut().flatten().for_each(|cell| {
+                        cell.character = b' ';
+                    });
+                });
+            }
+        }
+    }
+
+    /// TODO: TEST ME
+    pub(crate) fn erase_chars(&mut self, num: u16) {
+        self.with_current_line(|line, cursor| {
+            line.iter_mut()
+                .flatten()
+                .skip(usize::from(cursor.x - 1))
+                .take(usize::from(num))
+                .for_each(|c| c.character = b' ');
+        });
+    }
+
+    /// TODO: TEST ME
+    pub(crate) fn delete_chars(&mut self, num: u16) {
+        self.with_current_line(|line, cursor| {
+            let mut ttl_del = 0;
+
+            if line.0.len() == 1 {
+                if let Some(span) = line.get_mut_span(0) {
+                    ttl_del += span
+                        .cells
+                        .drain(usize::from(cursor.x)..=usize::from(num))
+                        .len();
+                    span.cells.resize(span.len() + ttl_del, Cell::EMPTY);
+                }
+            } else {
+                let (start_span, start_off) = line.span_at_col(usize::from(cursor.x));
+                let (end_span, end_off) = line.span_at_col(usize::from(cursor.x + num));
+
+                if start_span == end_span {
+                    if let Some(span) = line.get_mut_span(start_span) {
+                        ttl_del += span
+                            .cells
+                            .drain(usize::from(cursor.x)..=usize::from(num))
+                            .len();
+                        span.cells.shrink_to(span.len());
+                    }
+
+                    if let Some(span) = line.get_mut_span(end_span) {
+                        span.cells.resize(span.len() + ttl_del, Cell::EMPTY);
+                    }
+                } else if end_span - start_span == 1 {
+                    if let Some(span) = line.get_mut_span(start_span) {
+                        ttl_del += span.cells.drain(start_off..).len();
+                        span.cells.shrink_to(start_off);
+                    }
+
+                    if let Some(span) = line.get_mut_span(end_span) {
+                        ttl_del += span.cells.drain(..=end_off).len();
+                        span.cells.resize(span.len() + ttl_del, Cell::EMPTY);
+                    }
+                } else {
+                    // remove any spans between start and end span
+                    if let Some(span) = line.get_mut_span(start_span) {
+                        ttl_del += span.cells.drain(start_off..).len();
+                        span.cells.shrink_to(start_off);
+                    }
+
+                    for span_between in start_span + 1..end_span {
+                        ttl_del += line.0.remove(span_between).cells.len();
+                    }
+
+                    if let Some(span) = line.get_mut_span(end_span) {
+                        ttl_del += span.cells.drain(..=end_off).len();
+                        span.cells.resize(span.len() + ttl_del, Cell::EMPTY);
+                    }
+                }
+            }
+        });
+    }
+
+    fn clear_line_to_cursor(&mut self) {
+        self.with_current_line(|line, cursor| {
+            for (idx, cell) in line.iter_mut().flatten().enumerate() {
+                if idx < usize::from(cursor.x) {
+                    cell.character = b' ';
+                }
+            }
+        });
+    }
+
+    fn clear_line_from_cursor(&mut self) {
+        self.with_current_line(|line, cursor| {
+            line.iter_mut()
+                .flatten()
+                .skip(usize::from(cursor.x))
+                .for_each(|cell| {
+                    cell.character = b' ';
+                });
+        });
+    }
+
+    fn clear_lines(&mut self, range: std::ops::Range<usize>) {
+        for line in self.lines.range_mut(range) {
+            line.iter_mut().flatten().for_each(|cell| {
+                cell.character = b' ';
+            });
+        }
+    }
+
+    pub(crate) fn scroll_down(&mut self, num: u16) {
+        for _ in 0..num {
+            self.lines.insert(
+                self.view_start as usize,
+                Line::new_empty(usize::from(self.width())),
+            );
+            if self.lines.len() >= self.buff_rect().bottom() as usize {
+                self.lines.pop_back();
+            }
+        }
+    }
+
+    pub(crate) fn scroll_up(&mut self, num: u16) {
+        for _ in 0..num {
+            self.view_start += 1;
+            self.lines
+                .push_back(Line::new_empty(usize::from(self.width())));
+        }
     }
 }

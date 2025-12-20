@@ -8,7 +8,7 @@ pub enum ParserEvent<'a> {
     C1(C1),
 }
 
-impl<'a> std::fmt::Display for ParserEvent<'a> {
+impl std::fmt::Display for ParserEvent<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Text(items) => {
@@ -103,7 +103,7 @@ impl ByteParser {
                             None => events.push(ParserEvent::CSI(CSI { kind, params: &[] })),
                         }
                         self.state = ParseState::Normal;
-                    } else {
+                    } else if self.start_idx.is_none() {
                         self.start_idx = Some(idx);
                     }
                 }
@@ -119,5 +119,60 @@ impl ByteParser {
             events.push(ParserEvent::Text(&data[start..]));
         }
         events
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    macro_rules! assert_event {
+        ($lhs:expr, $text:literal) => {
+            assert_eq!($lhs, ParserEvent::Text($text))
+        };
+        ($lhs:expr, c0 = $c0:path) => {
+            assert_eq!($lhs, ParserEvent::C0($c0))
+        };
+        ($lhs:expr, c1 = $c1:path) => {
+            assert_eq!($lhs, ParserEvent::C1($c1))
+        };
+        ($lhs:expr, $kind:path, $params:expr) => {
+            assert_eq!(
+                $lhs,
+                ParserEvent::CSI(CSI {
+                    kind: $kind,
+                    params: $params
+                })
+            )
+        };
+    }
+
+    #[test]
+    fn parser_basic() {
+        let mut parser = ByteParser::new();
+        let bytes = b"\x1b[HI should be home now at 1,1\n\
+            This is now the second linr, oops lets change that\x1b[24Gline\x1b[E\
+            This should now be the third line. Lets do the next in blue and bold.\n\
+            \x1b[1;34mAm I blue now??\x1b[0m\
+        ";
+        let parsed = parser.feed(bytes);
+        assert_event!(parsed[0], CsiKind::PositionCUP, &[]);
+        assert_event!(parsed[1], b"I should be home now at 1,1");
+        assert_event!(parsed[2], c0 = C0::NL);
+        assert_event!(
+            parsed[3],
+            b"This is now the second linr, oops lets change that"
+        );
+        assert_event!(parsed[4], CsiKind::CharAbsCHA, b"24");
+        assert_event!(parsed[5], b"line");
+        assert_event!(parsed[6], CsiKind::NextLine, &[]);
+        assert_event!(
+            parsed[7],
+            b"This should now be the third line. Lets do the next in blue and bold."
+        );
+        assert_event!(parsed[8], c0 = C0::NL);
+        assert_event!(parsed[9], CsiKind::SGR, b"1;34");
+        assert_event!(parsed[10], b"Am I blue now??");
+        assert_event!(parsed[11], CsiKind::SGR, b"0");
     }
 }

@@ -187,6 +187,7 @@ impl std::fmt::Display for C1 {
 def_xterm_tf! {
     #[repr(u8)]
     #[non_exhaustive]
+    #[allow(clippy::doc_markdown)]
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub enum CsiKind {
         /// Cursor Up _Ps_ Times 'A' (default = 1) (CUU)
@@ -211,12 +212,12 @@ def_xterm_tf! {
         ///
         /// VT100: CSI _Ps_ J (ED)
         /// VT220: CSI ? _Ps_ J (DECSED)
-        EraseScreen = b'J',
+        EraseInDisplay = b'J',
         /// Erase in Line 'K'
         ///
         /// VT100: CSI _Ps_ K (EL)
         /// VT220: CSI ? _Ps_ K (DECSEL)
-        EraseLine = b'K',
+        EraseInLine = b'K',
         /// Insert _Ps_ Line(s) 'L' (default = 1) (IL)
         InsertLine = b'L',
         /// Delete _Ps_ Line(s) 'M' (default = 1) (DL)
@@ -242,7 +243,7 @@ def_xterm_tf! {
         /// Horizontal and Vertical Position [row;column] 'f' (default = [1,1]) (HVP)
         PositionHVP = b'f',
         /// Character Attributes 'm' (SGR)
-        Sgr = b'm',
+        SGR = b'm',
         /// Character Position Absolute [column] '`' (default = [row,1]) (HPA)
         CharAbsHPA = b'`',
         /// Scroll down _Ps_ lines '^' (default = 1) (SD)
@@ -269,7 +270,7 @@ pub struct CSI<'a> {
     pub params: &'a [u8],
 }
 
-impl<'a> std::fmt::Display for CSI<'a> {
+impl std::fmt::Display for CSI<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -279,5 +280,60 @@ impl<'a> std::fmt::Display for CSI<'a> {
             unsafe { std::str::from_utf8_unchecked(self.params) },
             self.kind
         )
+    }
+}
+
+def_xterm_tf! {
+    #[repr(u8)]
+    #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    #[doc = "Erase in Display (ED) kinds"]
+    pub enum EDKind {
+        #[default]
+        Below = b'0',
+        Above = b'1',
+        All = b'2',
+        Saved = b'3'
+    }
+    error = "Could not parse {:#X?} as EDKind"
+}
+
+def_xterm_tf! {
+    #[repr(u8)]
+    #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    #[doc = "Erase in Line (EL) kinds"]
+    pub enum ELKind {
+        #[default]
+        Right = b'0',
+        Left = b'1',
+        All = b'2',
+    }
+    error = "Could not parse {:#X?} as ELKind"
+}
+
+impl TryFrom<&[u8]> for EDKind {
+    type Error = crate::SeriError;
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        if value.is_empty() {
+            Err(crate::SeriError::Parsing(
+                "Could not parse as EDKind".to_string(),
+            ))
+        } else {
+            Self::try_from(value[0])
+        }
+    }
+}
+
+impl TryFrom<&[u8]> for ELKind {
+    type Error = crate::SeriError;
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        if value.is_empty() {
+            Err(crate::SeriError::Parsing(
+                "Could not parse as ELKind".to_string(),
+            ))
+        } else {
+            Self::try_from(value[0])
+        }
     }
 }

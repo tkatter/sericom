@@ -51,8 +51,8 @@ impl Rect<TermPos> {
 impl Rect<TermPos> {
     /// The area (W x H) of [`Rect`]
     #[must_use]
-    pub const fn area(&self) -> u32 {
-        self.width as u32 * self.height as u32
+    pub const fn area(&self) -> Option<u32> {
+        (self.width as u32).checked_mul(self.height as u32)
     }
 
     #[must_use]

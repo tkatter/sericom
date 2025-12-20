@@ -84,13 +84,27 @@ impl Line {
     /// The index of the last [`Cell`] in `self` where [`Cell`] != ' ' (whitespace).
     #[must_use]
     pub fn last_filled_idx(&self) -> usize {
-        (self.num_cells() - 1)
-            - self
-                .iter()
-                .flatten()
-                .rev()
-                .position(|c| c.character != b' ')
-                .unwrap_or(0)
+        if self.all_whitespace() {
+            return 0;
+        }
+
+        let len = self.num_cells();
+        let p = self
+            .iter()
+            .flatten()
+            .rev()
+            .position(|c| c.character != b' ')
+            .unwrap_or(0);
+        if len - p == len { len - 1 } else { len - p }
+    }
+
+    fn all_whitespace(&self) -> bool {
+        for c in self.iter().flatten() {
+            if **c != b' ' {
+                return false;
+            }
+        }
+        true
     }
 
     /// Whether [`Line`] contains zero _[`Span`]s_.

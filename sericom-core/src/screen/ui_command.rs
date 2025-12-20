@@ -78,7 +78,7 @@ impl UIAction for ScreenBuffer {
     /// and `screen_y` is the y-position (line) of the start of the selection.
     fn start_selection(&mut self, pos: Position<TermPos>) {
         use super::TranslatePos;
-        self.to_buff(pos);
+        self.to_buff(&pos);
         self.clear_selection();
         // self.selection_start = Some((pos.x, absolute_line));
         // self.needs_render = true;
@@ -88,7 +88,7 @@ impl UIAction for ScreenBuffer {
     /// Where `screen_x` is the x-position and `screen_y` is the y-position (line).
     fn update_selection(&mut self, pos: Position<TermPos>) {
         use super::TranslatePos;
-        self.to_buff(pos);
+        self.to_buff(&pos);
         // self.selection_end = Some((pos.x, absolute_line));
         self.update_selection_highlighting();
         // self.needs_render = true;
