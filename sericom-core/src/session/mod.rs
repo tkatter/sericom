@@ -115,43 +115,6 @@ impl SessionManager {
         Ok(id as SessionID)
     }
 
-    #[allow(clippy::cast_possible_truncation)]
-    pub fn spawn_with_stream<S>(
-        &mut self,
-        port: std::path::PathBuf,
-        baud: u32,
-        f_path: Option<Option<std::path::PathBuf>>,
-        headless: bool,
-        stream: S,
-    ) -> miette::Result<SessionID>
-    where
-        S: tokio::io::AsyncRead
-            + tokio::io::AsyncWrite
-            + tokio::io::AsyncWriteExt
-            + Unpin
-            + Send
-            + 'static,
-    {
-        let id = self.metas.len();
-
-        if id >= u8::MAX as usize {
-            warn!(%id, "max sessions reached");
-            return Err(miette::miette!("Max sessions reached"))?;
-        }
-
-        let (err_tx, err_rx) = oneshot::channel::<self::SeriError>();
-        let meta = SessionMeta { baud, port };
-        let handle = SessionHandle::spawn_with_stream(&meta, f_path, headless, err_tx, stream)?;
-        info!(%id, port=%meta.port.display(), %baud, "created session");
-
-        self.handles.push(handle);
-        self.metas.push(meta);
-        self.start_monitor(id as SessionID, err_rx);
-
-        // Cast is fine, verified that id is < u8::MAX
-        Ok(id as SessionID)
-    }
-
     /// Kill/shutdown the session for [`SessionID`]
     #[allow(clippy::cast_possible_truncation)]
     pub async fn kill(&mut self, id: SessionID) {

@@ -63,20 +63,8 @@ impl<'a> ScreenDriver<'a> {
         match c0 {
             C0::BS => self.buffer.move_cursor_left(1),
             C0::NL => {
-                self.buffer.with_current_line(|line, _| {
-                    // pushing to the end of line unconditionally because
-                    // NL is always the end of a line, and if received a CR
-                    // before NL, then `with_current_span` would behave incorrect
-                    if let Some(span) = line.0.last_mut() {
-                        let last = span.last_filled_idx();
-                        span.cells
-                            .get_mut(last)
-                            .expect("span len is greater than last filled cell")
-                            .character = b'\n';
-                    }
-                });
-                self.buffer.set_cursor_col(0);
                 self.buffer.move_cursor_down(1);
+                self.buffer.set_cursor_col(1);
                 self.buffer
                     .push_line(Line::new_empty(self.buffer.width() as usize));
                 self.buffer.update_view(None);
@@ -87,11 +75,12 @@ impl<'a> ScreenDriver<'a> {
                 });
                 self.buffer.cursor.tab();
             }
-            C0::CR => self.buffer.set_cursor_col(0),
+            C0::CR => self.buffer.set_cursor_col(1),
             other => debug!("recieved unsupported C0: {:?}", other),
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     fn handle_csi(&mut self, csi: CSI) {
         match csi.kind {
             CsiKind::CursorUp => {
@@ -191,7 +180,7 @@ impl<'a> ScreenDriver<'a> {
                     };
                     line.iter_mut()
                         .flatten()
-                        .skip(usize::from(cursor.x - 1))
+                        .skip(usize::from(cursor.x))
                         .take(usize::from(int))
                         .for_each(|c| c.character = last_char);
                 });

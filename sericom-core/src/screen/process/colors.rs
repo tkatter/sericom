@@ -47,15 +47,15 @@ impl ColorState {
         use tracing::debug;
 
         self.colors = if let Some(colored) = Colored::parse_ansi(ascii_str) {
-            eprintln!("{colored:#?}");
+            debug!("{colored:#?}");
             self.colors.then(&colored.into())
         } else {
             if let Some(color) = Color::parse_ansi(ascii_str) {
-                debug!(target: "parser::colors", "Second try got: {color:#?}");
+                debug!("Second try got: {color:#?}");
             } else {
                 debug!("Failed to parse ascii_str second time");
             }
-            debug!(target: "parser::colors", "Failed to parse ascii_str");
+            debug!("Failed to parse ascii_str");
             self.colors
         };
     }

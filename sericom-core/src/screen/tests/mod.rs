@@ -2,25 +2,59 @@ mod colors;
 mod components;
 mod cursor;
 mod escape;
+mod parsing;
 
+use crate::screen::process::*;
 pub use crate::screen::{ScreenDriver, *};
 pub use crossterm::style::{Attribute, Attributes, Color};
 pub use std::collections::VecDeque;
 
-pub const TERMINAL_SIZE: (u16, u16) = (80, 24);
+#[macro_export]
+macro_rules! csi {
+    ($seq:literal) => {
+        concat!("\x1b\x5b", $seq)
+    };
+}
+
+#[macro_export]
+macro_rules! esc {
+    ($seq:literal) => {
+        concat!("\x1b", $seq)
+    };
+}
+
+#[macro_export]
+macro_rules! assert_event {
+    ($lhs:expr, $text:literal) => {
+        assert_eq!($lhs, ParserEvent::Text($text))
+    };
+    ($lhs:expr, c0 = $c0:path) => {
+        assert_eq!($lhs, ParserEvent::C0($c0))
+    };
+    ($lhs:expr, c1 = $c1:path) => {
+        assert_eq!($lhs, ParserEvent::C1($c1))
+    };
+    ($lhs:expr, $kind:path, $params:expr) => {
+        assert_eq!(
+            $lhs,
+            ParserEvent::CSI(CSI {
+                kind: $kind,
+                params: $params
+            })
+        )
+    };
+}
 
 #[macro_export]
 macro_rules! setup {
     ($sb:ident, $parser:ident) => {
         $crate::configs::init_for_tests();
-        let rect = Rect::new(Position::ORIGIN, TERMINAL_SIZE.0, TERMINAL_SIZE.1);
-        let mut $sb = ScreenBuffer::new(rect);
+        let mut $sb = ScreenBuffer::new((80u16, 24u16).into());
         let mut $parser = ByteParser::new();
     };
     ($sb:ident, $parser:ident, $config:ident) => {
         $crate::configs::init_for_tests();
-        let rect = Rect::new(Position::ORIGIN, TERMINAL_SIZE.0, TERMINAL_SIZE.1);
-        let mut $sb = ScreenBuffer::new(rect);
+        let mut $sb = ScreenBuffer::new((80u16, 24u16).into());
         let mut $parser = ByteParser::new();
         let $config = $crate::configs::get_config().unwrap();
     };

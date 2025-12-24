@@ -1,5 +1,5 @@
 use super::*;
-use crate::{assert_line_eq, assert_span_eq, setup};
+use crate::{assert_line_eq, assert_span_eq, csi, setup};
 
 #[test]
 fn single_plain_line() {
@@ -11,9 +11,7 @@ fn single_plain_line() {
     let bg = Color::from(&config.appearance.bg);
     drop(config);
 
-    // Changed pos.x == 0 because handling \n like \r\n for now
-    // assert_eq!(sb.cursor, Position::<TermPos>::from((13_u16, 1_u16)));
-    assert_eq!(sb.cursor, Position::<TermPos>::from((0_u16, 1_u16)));
+    assert_eq!(sb.cursor, Position::<TermPos>::from((1_u16, 2_u16)));
     // Expect one line with one span, fg=default, text padded
     assert_line_eq!(sb, 0, "Hello, world!");
     assert_span_eq!(sb, 0, 0, fg => fg, bg => bg);
@@ -31,7 +29,7 @@ fn two_lines_plain_text() {
 
     // Expected: two lines, one with "Hello" padded, one with "World" padded
     assert_eq!(sb.lines.len(), 3);
-    assert_eq!(sb.cursor, Position::<TermPos>::from((0_u16, 2_u16)));
+    assert_eq!(sb.cursor, Position::<TermPos>::from((1_u16, 3_u16)));
     assert_line_eq!(sb, 0, "Hello");
     assert_line_eq!(sb, 1, "World");
     assert_span_eq!(sb, 0, 0, fg => fg, bg => bg);
@@ -41,22 +39,21 @@ fn two_lines_plain_text() {
 #[test]
 fn three_color_spans() {
     setup!(sb, parser, config);
-    let parsed = parser.feed(b"\x1b[31mRed\x1b[32mGreen\x1b[34mBlue\n");
+    let s = format!(
+        "{}Red{}Green{}Blue\n",
+        csi!("31m"),
+        csi!("32m"),
+        csi!("34m")
+    );
+    let parsed = parser.feed(s.as_bytes());
     let mut driver = ScreenDriver::new(&mut sb);
     driver.process_events(parsed);
     let bg = Color::from(&config.appearance.bg);
     drop(config);
 
     let line = sb.lines.front().unwrap();
-    eprintln!(
-        "line num_cells: {}, num_spans: {}",
-        line.num_cells(),
-        line.len()
-    );
     assert_eq!(sb.lines.len(), 2);
-    // Changed pos.x == 0 because handling \n like \r\n for now
-    // assert_eq!(sb.cursor, Position::<TermPos>::from((12_u16, 1_u16)));
-    assert_eq!(sb.cursor, Position::<TermPos>::from((0_u16, 1_u16)));
+    assert_eq!(sb.cursor, Position::<TermPos>::from((1_u16, 2_u16)));
     assert_eq!(line.len(), 3); // three spans
     assert_span_eq!(sb, 0, 0, expected => "Red", fg => Color::DarkRed, bg => bg);
     assert_span_eq!(sb, 0, 1, expected => "Green", fg => Color::DarkGreen, bg => bg);
@@ -75,14 +72,15 @@ fn no_newline_incomplete_line() {
 
     // Should still only contain the initial empty line
     assert_eq!(sb.lines.len(), 1);
-    assert_eq!(sb.cursor, Position::<TermPos>::from((5_u16, 0_u16)));
+    assert_eq!(sb.cursor, Position::<TermPos>::from((6_u16, 1_u16)));
     assert_span_eq!(sb, 0, 0, expected => "Hello", fg => fg, bg => bg);
 }
 
 #[test]
 fn mixed_plain_and_color() {
     setup!(sb, parser, config);
-    let parsed = parser.feed(b"Normal \x1b[31mRed\n");
+    let s = format!("Normal {}Red\n", csi!("31m"));
+    let parsed = parser.feed(s.as_bytes());
     let mut driver = ScreenDriver::new(&mut sb);
     driver.process_events(parsed);
     let fg = Color::from(&config.appearance.fg);
@@ -91,12 +89,9 @@ fn mixed_plain_and_color() {
 
     // Expect two spans: "Normal " default, "Red" DarkRed
     let line = sb.lines.front().unwrap();
-    // 2 lines because of the '\n'
     assert_eq!(sb.lines.len(), 2);
-    // 2 spans
     assert_eq!(line.len(), 2);
-    // Changed pos.x == 0 because handling \n like \r\n for now
-    assert_eq!(sb.cursor, Position::<TermPos>::from((0_u16, 1_u16)));
+    assert_eq!(sb.cursor, Position::<TermPos>::from((1_u16, 2_u16)));
     assert_span_eq!(sb, 0, 0, expected => "Normal ", fg => fg, bg => bg);
     assert_span_eq!(sb, 0, 1, expected => "Red", fg => Color::DarkRed, bg => bg);
 }

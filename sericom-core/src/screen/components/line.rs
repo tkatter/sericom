@@ -71,8 +71,8 @@ impl Line {
     /// generally the desired behavior.
     #[must_use]
     pub fn filled_cells(&self) -> usize {
-        let last = self.last_filled_idx() + 1;
-        if self.num_cells() == last { 0 } else { last }
+        let last = self.last_filled_idx();
+        if last == 0 { 0 } else { last + 1 }
     }
 
     /// The total number of [`Cell`]s in `self`.
@@ -95,7 +95,7 @@ impl Line {
             .rev()
             .position(|c| c.character != b' ')
             .unwrap_or(0);
-        if len - p == len { len - 1 } else { len - p }
+        if len - p == len { len - 1 } else { len - p - 1 }
     }
 
     fn all_whitespace(&self) -> bool {
@@ -129,12 +129,22 @@ impl Line {
     pub fn ascii_bytes(&self) -> impl Iterator<Item = u8> + '_ {
         use std::ops::Deref;
 
-        let end = self.last_filled_idx();
-        self.iter()
-            .flatten()
-            .take(end + 1)
-            .map(Deref::deref)
-            .copied()
+        let end = {
+            let last = self.last_filled_idx();
+            if last == 0 && *self.0[0].cells[0] == b' ' {
+                return EitherIter::Left(std::iter::once(b'\n'));
+            }
+            last + 1
+        };
+
+        EitherIter::Right(
+            self.iter()
+                .flatten()
+                .take(end)
+                .map(Deref::deref)
+                .copied()
+                .chain(std::iter::once(b'\n')),
+        )
     }
 
     /// Splits the [`Span`] at `col` and applies `colors` && `attrs` to the new [`Span`].
@@ -255,5 +265,35 @@ impl std::fmt::Debug for Line {
         }
         s.push_str(" )");
         f.write_str(&s)
+    }
+}
+
+/// A small helper enum - literally only for short-circuiting `Line::ascii_bytes`
+enum EitherIter<L, R> {
+    Left(L),
+    Right(R),
+}
+
+impl<L, R, T> Iterator for EitherIter<L, R>
+where
+    L: Iterator<Item = T>,
+    R: Iterator<Item = T>,
+{
+    type Item = T;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::Left(l) => l.next(),
+            Self::Right(r) => r.next(),
+        }
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        match self {
+            Self::Left(l) => l.size_hint(),
+            Self::Right(r) => r.size_hint(),
+        }
     }
 }

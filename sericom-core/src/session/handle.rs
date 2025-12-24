@@ -67,82 +67,6 @@ where
 }
 
 impl SessionHandle {
-    pub fn spawn_with_stream<S>(
-        meta: &super::SessionMeta,
-        with_file: Option<Option<PathBuf>>,
-        headless: bool,
-        mgr_tx: oneshot::Sender<super::SeriError>,
-        stream: S,
-    ) -> miette::Result<Self>
-    where
-        S: tokio::io::AsyncRead + tokio::io::AsyncWrite + AsyncWriteExt + Unpin + Send + 'static,
-    {
-        let (tx, rx) = tokio::sync::mpsc::channel::<SerialMessage>(100);
-        let (events_tx, _) = tokio::sync::broadcast::channel::<SerialEvent>(128);
-
-        let (term_w, term_h) = if headless {
-            #[cfg(not(test))]
-            {
-                (120, 24)
-            }
-            #[cfg(test)]
-            {
-                (120, 10)
-            }
-        } else {
-            crossterm::terminal::size().unwrap_or((80, 24))
-        };
-
-        let sb = ScreenBuffer::new(Rect::new((0u16, 0u16).into(), term_w, term_h));
-        let buffer = Arc::new(tokio::sync::RwLock::new(sb));
-        let actor = SerialActor::new(stream, rx, events_tx.clone());
-
-        let span = {
-            let info = tracing::info_span!("session");
-            let dbg = tracing::debug_span!("session", port = %meta.port.display());
-            if dbg.is_disabled() { info } else { dbg }
-        };
-        let _enter = span.enter();
-        debug!(port=%meta.port.display(), baud=%meta.baud, "opened connection");
-
-        let mut handle = Self {
-            buffer,
-            tx,
-            events_tx,
-            tasks: JoinSet::new(),
-        };
-        handle.spawn_monitor_task(mgr_tx);
-        handle.spawn_actor_task(actor);
-        handle.spawn_parse_task();
-
-        if with_file.is_some() {
-            let config = get_config()?;
-            let default_out_dir = PathBuf::from(&config.defaults.out_dir);
-            let file_path = if let Some(Some(path)) = with_file {
-                // If given an absolute path - override the `default_out_dir`
-                if path.is_absolute() {
-                    let parent = path.parent().unwrap_or(&default_out_dir);
-                    create_recursive!(parent);
-                    path
-                } else {
-                    let joined_path = default_out_dir.join(&path);
-                    let parent_path = joined_path.parent().expect("Does not have root");
-                    create_recursive!(parent_path);
-                    joined_path
-                }
-            } else {
-                let default_out_dir = PathBuf::from(&config.defaults.out_dir);
-                drop(config);
-                compat_port_path!(default_out_dir, &meta.port)
-            };
-            handle.spawn_file_task(file_path);
-        }
-
-        Ok(handle)
-    }
-}
-
-impl SessionHandle {
     /// Spawn a new session and optionally stream to a `file` or run in headless mode.
     pub fn spawn(
         meta: &super::SessionMeta,
@@ -261,10 +185,7 @@ impl SessionHandle {
     }
 
     /// Spawns a task that runs the [`SerialActor`] for the session.
-    fn spawn_actor_task<S>(&mut self, actor: SerialActor<S>)
-    where
-        S: tokio::io::AsyncRead + tokio::io::AsyncWrite + AsyncWriteExt + Unpin + Send + 'static,
-    {
+    fn spawn_actor_task(&mut self, actor: SerialActor) {
         self.tasks.spawn(instrument_task(
             actor.run(),
             Some(Span::current()),

@@ -1,6 +1,5 @@
 use crossterm::style::Attributes;
 use std::collections::VecDeque;
-use tracing::trace;
 
 use crate::screen::process::{EDKind, ELKind};
 use crate::screen::{BuffPos, Cell, UICommand};
@@ -79,7 +78,10 @@ impl ScreenBuffer {
     }
 
     pub(crate) fn handle_span_colors(&mut self, colors: &super::ColorState, attrs: Attributes) {
-        let curr_col = self.cursor.x.into();
+        let curr_col = {
+            let c = self.to_buff(&self.cursor);
+            c.x.into()
+        };
 
         let line = self.curr_line_mut();
         line.split_spans(colors, attrs, curr_col);
@@ -119,8 +121,12 @@ impl ScreenBuffer {
                 .get_mut(pos_in_lines.y as usize)
                 .expect("verified that line exists")
         } else {
-            self.push_line(Line::new_empty(self.width() as usize));
-            self.lines.back_mut().expect("is not empty")
+            for _ in self.lines.len()..=pos_in_lines.y as usize {
+                self.push_line(Line::new_empty(self.width() as usize));
+            }
+            self.lines
+                .get_mut(pos_in_lines.y as usize)
+                .expect("is not empty")
         }
     }
 
@@ -138,22 +144,14 @@ impl ScreenBuffer {
         let buff_rect = self.buff_rect();
         let num_lines = self.lines.len();
 
-        let Some(cmd) = update else {
-            if (self.view_start <= num_lines as u32) && ((num_lines as u32) < buff_rect.height) {
-                trace!(%num_lines, height=%buff_rect.height, view_start=%self.view_start, "lines is within buff_rect");
+        let Some(_cmd) = update else {
+            // Return because still filling up the initial/empty screen 0..TERM_HEIGHT
+            if num_lines <= (self.view_start + buff_rect.height) as usize {
                 return;
-            } else if num_lines as u32 > buff_rect.height {
-                // num_lines - 1 because need to be in indexing terms (0 base)
-                let additional = (num_lines as u32 - 1) - (buff_rect.height + self.view_start);
-                self.view_start += additional;
-                trace!(
-                    %num_lines,
-                    height=%buff_rect.height,
-                    view_start=%self.view_start,
-                    %additional,
-                    "lines is greater than buff_rect"
-                );
             }
+
+            let additional = (num_lines as u32 - (self.view_start + buff_rect.height)).max(1);
+            self.view_start += additional;
             return;
         };
 
@@ -171,7 +169,7 @@ impl ScreenBuffer {
                 self.lines.pop_back();
             }
         }
-        self.cursor.x = 0;
+        self.cursor.x = 1;
     }
 
     pub(crate) fn delete_lines(&mut self, num: u16) {
@@ -181,7 +179,7 @@ impl ScreenBuffer {
             self.lines
                 .push_back(Line::new_empty(usize::from(self.width())));
         }
-        self.cursor.x = 0;
+        self.cursor.x = 1;
     }
 
     #[allow(clippy::cast_possible_truncation)]
@@ -232,18 +230,16 @@ impl ScreenBuffer {
         }
     }
 
-    /// TODO: TEST ME
     pub(crate) fn erase_chars(&mut self, num: u16) {
         self.with_current_line(|line, cursor| {
             line.iter_mut()
                 .flatten()
-                .skip(usize::from(cursor.x - 1))
+                .skip(usize::from(cursor.x))
                 .take(usize::from(num))
                 .for_each(|c| c.character = b' ');
         });
     }
 
-    /// TODO: TEST ME
     pub(crate) fn delete_chars(&mut self, num: u16) {
         self.with_current_line(|line, cursor| {
             let mut ttl_del = 0;
@@ -252,7 +248,7 @@ impl ScreenBuffer {
                 if let Some(span) = line.get_mut_span(0) {
                     ttl_del += span
                         .cells
-                        .drain(usize::from(cursor.x)..=usize::from(num))
+                        .drain(usize::from(cursor.x)..usize::from(cursor.x + num))
                         .len();
                     span.cells.resize(span.len() + ttl_del, Cell::EMPTY);
                 }
@@ -264,12 +260,12 @@ impl ScreenBuffer {
                     if let Some(span) = line.get_mut_span(start_span) {
                         ttl_del += span
                             .cells
-                            .drain(usize::from(cursor.x)..=usize::from(num))
+                            .drain(usize::from(cursor.x)..usize::from(cursor.x + num))
                             .len();
                         span.cells.shrink_to(span.len());
                     }
 
-                    if let Some(span) = line.get_mut_span(end_span) {
+                    if let Some(span) = line.get_mut_span(start_span + 1) {
                         span.cells.resize(span.len() + ttl_del, Cell::EMPTY);
                     }
                 } else if end_span - start_span == 1 {
@@ -279,7 +275,7 @@ impl ScreenBuffer {
                     }
 
                     if let Some(span) = line.get_mut_span(end_span) {
-                        ttl_del += span.cells.drain(..=end_off).len();
+                        ttl_del += span.cells.drain(..end_off).len();
                         span.cells.resize(span.len() + ttl_del, Cell::EMPTY);
                     }
                 } else {
@@ -293,8 +289,8 @@ impl ScreenBuffer {
                         ttl_del += line.0.remove(span_between).cells.len();
                     }
 
-                    if let Some(span) = line.get_mut_span(end_span) {
-                        ttl_del += span.cells.drain(..=end_off).len();
+                    if let Some(span) = line.get_mut_span(start_span + 1) {
+                        ttl_del += span.cells.drain(..end_off).len();
                         span.cells.resize(span.len() + ttl_del, Cell::EMPTY);
                     }
                 }

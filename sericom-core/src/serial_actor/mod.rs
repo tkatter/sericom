@@ -3,8 +3,6 @@
 
 pub mod tasks;
 
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-
 use crate::SeriError;
 
 /// Represents messages/commands that are sent from worker tasks to the [`SerialActor`] to process.
@@ -46,24 +44,18 @@ pub enum SerialEvent {
 /// It broadcasts [`SerialEvent`]s to worker tasks via a [`tokio::sync::broadcast`]
 /// channel, and receives [`SerialMessage`]s from worker tasks via a [`tokio::sync::mpsc`]
 /// channel.
-pub struct SerialActor<S> {
-    connection: S,
-    // connection: serial2_tokio::SerialPort,
+pub struct SerialActor {
+    connection: serial2_tokio::SerialPort,
     command_rx: tokio::sync::mpsc::Receiver<SerialMessage>,
     tasks_broadcast: tokio::sync::broadcast::Sender<SerialEvent>,
 }
 
-impl<S> SerialActor<S>
-where
-    S: AsyncRead + AsyncWrite + AsyncWriteExt + Unpin + Send + 'static,
-{
+impl SerialActor {
     /// Constructs a [`SerialActor`] Takes a serial port connection,
     /// receiver to a command channel, and a sender to a broadcast channel.
     #[must_use]
     pub const fn new(
-        // pub const fn new(
-        // connection: serial2_tokio::SerialPort,
-        connection: S,
+        connection: serial2_tokio::SerialPort,
         command_rx: tokio::sync::mpsc::Receiver<SerialMessage>,
         tasks_broadcast: tokio::sync::broadcast::Sender<SerialEvent>,
     ) -> Self {
@@ -138,9 +130,7 @@ where
             }
         }
     }
-}
 
-impl SerialActor<serial2_tokio::SerialPort> {
     async fn send_break(&self) {
         use tokio::time::{Duration, sleep};
         let _ = self.connection.set_break(true);

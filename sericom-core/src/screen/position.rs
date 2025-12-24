@@ -45,13 +45,14 @@ pub struct Position<S: Scope + PosType> {
 
 impl Position<TermPos> {
     pub const ORIGIN: Self = Self {
-        x: 0,
-        y: 0,
+        x: 1,
+        y: 1,
         _phantom: PhantomData,
     };
 }
 
 impl<S: Scope + PosType> Position<S> {
+    /// Forward tab _n_ times.
     pub const fn tabn(&mut self, n: u16) {
         let mut acc = 0;
         while acc < n {
@@ -59,6 +60,8 @@ impl<S: Scope + PosType> Position<S> {
             acc += 1;
         }
     }
+
+    /// Reverse tab _n_ times.
     pub const fn rtabn(&mut self, n: u16) {
         let mut acc = 0;
         while acc < n {
@@ -66,31 +69,41 @@ impl<S: Scope + PosType> Position<S> {
             acc += 1;
         }
     }
+
+    /// Forward tab.
     pub const fn tab(&mut self) {
-        let tab = TAB_WIDTH - (self.x % TAB_WIDTH);
+        let tab = TAB_WIDTH - ((self.x - 1) % TAB_WIDTH);
         self.x += tab;
     }
+
+    /// Reverse tab.
     pub const fn rtab(&mut self) {
         let tab = TAB_WIDTH - (self.x % TAB_WIDTH);
-        self.x.saturating_sub(tab);
+        self.x = self.x.saturating_sub(tab);
     }
+
     pub const fn set_y(&mut self, y: PosY<S>) {
         self.y = y;
     }
+
     pub const fn set_x(&mut self, x: u16) {
         self.x = x;
     }
+
     pub fn set_pos_from<P: Into<Self>>(&mut self, pos: P) {
         let p = pos.into();
         self.x = p.x;
         self.y = p.y;
     }
+
     pub const fn set(&mut self, pos: Self) {
         *self = pos;
     }
+
     pub const fn x(&self) -> u16 {
         self.x
     }
+
     pub const fn y(&self) -> PosY<S> {
         self.y
     }
@@ -210,13 +223,12 @@ impl Cursor for ScreenBuffer {
     fn tab(&mut self, n: u16) {
         let bounds = self.bounds();
         self.cursor.tabn(n);
-        if self.cursor.x > bounds.right() {
-            self.cursor.x = bounds.right();
-        }
+        self.cursor.x = self.cursor.x.min(bounds.right());
     }
 
     fn rtab(&mut self, n: u16) {
-        self.cursor.tabn(n);
+        self.cursor.rtabn(n);
+        self.cursor.x = self.cursor.x.max(1);
     }
 
     fn set_cursor_pos<P>(&mut self, position: P)
@@ -225,63 +237,41 @@ impl Cursor for ScreenBuffer {
     {
         let bounds = self.bounds();
         let mut new_pos: Position<TermPos> = position.into();
-        if new_pos.x > bounds.right() {
-            new_pos.x = bounds.right();
-        }
-        if new_pos.y > bounds.bottom() {
-            new_pos.y = bounds.bottom();
-        }
+
+        new_pos.x = new_pos.x.clamp(1, bounds.right());
+        new_pos.y = new_pos.y.clamp(1, bounds.bottom());
 
         self.cursor.set_pos_from(new_pos);
     }
 
     fn move_cursor_left(&mut self, cells: u16) {
-        self.cursor.x = self.cursor.x.saturating_sub(cells);
+        self.cursor.x = self.cursor.x.saturating_sub(cells).max(1);
     }
 
     fn move_cursor_right(&mut self, cells: u16) {
         let bounds = self.bounds();
-        let mut new_x = self.cursor.x.saturating_add(cells);
-
-        if new_x > bounds.right() {
-            new_x = bounds.right();
-        }
-        self.cursor.x = new_x;
+        self.cursor.x = self.cursor.x.saturating_add(cells).min(bounds.right());
     }
 
     fn move_cursor_up(&mut self, lines: u16) {
-        self.cursor.y = self.cursor.y.saturating_sub(lines);
+        self.cursor.y = self.cursor.y.saturating_sub(lines).max(1);
     }
 
-    // TODO: Figure out line pushes as cursor moves down
     fn move_cursor_down(&mut self, lines: u16) {
         let bounds = self.bounds();
-        let mut new_y = self.cursor.y.saturating_add(lines);
-
         // If the cursor would pass the bottom scroll margin, it will stop there
         // [xterm.js](https://xtermjs.org/docs/api/vtfeatures/)
-        if new_y > bounds.bottom() {
-            new_y = bounds.bottom();
-        }
-        self.cursor.y = new_y;
+        self.cursor.y = self.cursor.y.saturating_add(lines).min(bounds.bottom());
     }
 
     fn set_cursor_col(&mut self, col: u16) {
         let bounds = self.bounds();
-        if col > bounds.right() {
-            self.cursor.x = bounds.right();
-        } else {
-            self.cursor.x = col;
-        }
+        self.cursor.x = col.clamp(1, bounds.right());
     }
 
     fn set_cursor_row(&mut self, row: u16) {
         let bounds = self.bounds();
-        if row > bounds.bottom() {
-            self.cursor.y = bounds.bottom();
-        } else {
-            self.cursor.y = row;
-        }
+        self.cursor.y = row.clamp(1, bounds.bottom());
     }
 }
 
@@ -293,23 +283,34 @@ pub trait TranslatePos {
 impl TranslatePos for ScreenBuffer {
     fn to_term(&self, pos: &Position<BuffPos>) -> Position<TermPos> {
         let buff_win = self.buff_rect();
-
         let visible_y = pos.y.clamp(buff_win.top(), buff_win.bottom());
 
         // Casting is fine because the viewport (buff_win) is the size of
         // a user's terminal and visible_y - buff_win.top() simply returns
         // a number somewhere within the height of the terminal
         #[allow(clippy::cast_possible_truncation)]
-        let term_y = (visible_y - buff_win.top()) as u16;
-
-        let term_x = pos.x.clamp(buff_win.left(), buff_win.right());
+        let term_y = ((visible_y - buff_win.top()) as u16).clamp(1, buff_win.height as u16);
+        let term_x = pos.x.clamp(1, buff_win.right());
 
         Position::<TermPos>::from((term_x, term_y))
     }
 
     fn to_buff(&self, pos: &Position<TermPos>) -> Position<BuffPos> {
-        let buff_y: u32 = self.view_start + u32::from(pos.y);
-        let buff_x = pos.x.clamp(0, self.width());
+        let buff_y: u32 = {
+            if pos.y == 1 {
+                self.view_start
+            } else {
+                self.view_start + u32::from(pos.y - 1)
+            }
+        };
+
+        let buff_x = {
+            if pos.x == 1 {
+                0
+            } else {
+                pos.x.clamp(0, self.width()).saturating_sub(1).max(1)
+            }
+        };
 
         Position::<BuffPos>::from((buff_x, buff_y))
     }

@@ -56,14 +56,14 @@ fn test_basic_fg() {
 
     let cases = vec![
         Case {
-            seq: b"\x1b[31m",
+            seq: b"31",
             expected_fg: Some(Color::DarkRed),
             expected_bg: Some(bg),
             expected_attrs: vec![],
             label: "FG basic red",
         },
         Case {
-            seq: b"\x1b[37m",
+            seq: b"37",
             expected_fg: Some(Color::Grey),
             expected_bg: Some(bg),
             expected_attrs: vec![],
@@ -81,7 +81,7 @@ fn test_basic_bg() {
     drop(config);
 
     let cases = vec![Case {
-        seq: b"\x1b[44m",
+        seq: b"44",
         expected_fg: Some(fg),
         expected_bg: Some(Color::DarkBlue),
         expected_attrs: vec![],
@@ -100,14 +100,14 @@ fn test_bright_colors() {
 
     let cases = vec![
         Case {
-            seq: b"\x1b[95m",
+            seq: b"95",
             expected_fg: Some(Color::Magenta),
             expected_bg: Some(bg),
             expected_attrs: vec![],
             label: "FG bright magenta",
         },
         Case {
-            seq: b"\x1b[106m",
+            seq: b"106",
             expected_fg: Some(fg),
             expected_bg: Some(Color::Cyan),
             expected_attrs: vec![],
@@ -127,21 +127,21 @@ fn test_resets_and_defaults() {
 
     let cases = vec![
         Case {
-            seq: b"\x1b[0m",
+            seq: b"0",
             expected_fg: Some(fg),
             expected_bg: Some(bg),
             expected_attrs: vec![],
             label: "Reset",
         },
         Case {
-            seq: b"\x1b[39m",
+            seq: b"39",
             expected_fg: Some(Color::Reset),
             expected_bg: Some(bg),
             expected_attrs: vec![],
             label: "Reset FG default",
         },
         Case {
-            seq: b"\x1b[49m",
+            seq: b"49",
             expected_fg: Some(fg),
             expected_bg: Some(Color::Reset),
             expected_attrs: vec![],
@@ -160,7 +160,7 @@ fn test_attributes() {
     drop(config);
 
     let cases = vec![Case {
-        seq: b"\x1b[1;3;4m",
+        seq: b"1;3;4",
         expected_fg: Some(fg),
         expected_bg: Some(bg),
         expected_attrs: vec![Attribute::Bold, Attribute::Italic, Attribute::Underlined],
@@ -179,14 +179,14 @@ fn test_256_color_palette() {
 
     let cases = vec![
         Case {
-            seq: b"\x1b[38;5;196m",
+            seq: b"38;5;196",
             expected_fg: Some(Color::AnsiValue(196)),
             expected_bg: Some(bg),
             expected_attrs: vec![],
             label: "FG 256 red",
         },
         Case {
-            seq: b"\x1b[48;5;27m",
+            seq: b"48;5;27",
             expected_fg: Some(fg),
             expected_bg: Some(Color::AnsiValue(27)),
             expected_attrs: vec![],
@@ -206,7 +206,7 @@ fn test_truecolor_palette() {
 
     let cases = vec![
         Case {
-            seq: b"\x1b[38;2;255;128;64m",
+            seq: b"38;2;255;128;64",
             expected_fg: Some(Color::Rgb {
                 r: 255,
                 g: 128,
@@ -217,7 +217,7 @@ fn test_truecolor_palette() {
             label: "FG truecolor orange",
         },
         Case {
-            seq: b"\x1b[48;2;10;20;30m",
+            seq: b"48;2;10;20;30",
             expected_fg: Some(fg),
             expected_bg: Some(Color::Rgb {
                 r: 10,
@@ -241,14 +241,14 @@ fn test_mix_attr_colors() {
 
     let cases = vec![
         Case {
-            seq: b"\x1b[1;3;4;38;5;202m",
+            seq: b"1;3;4;38;5;202",
             expected_fg: Some(Color::AnsiValue(202)),
             expected_bg: Some(bg),
             expected_attrs: vec![Attribute::Bold, Attribute::Italic, Attribute::Underlined],
             label: "Bold + Italic + Underlined + FG 256 orange",
         },
         Case {
-            seq: b"\x1b[5;7;48;2;128;64;200m",
+            seq: b"5;7;48;2;128;64;200",
             expected_fg: Some(fg),
             expected_bg: Some(Color::Rgb {
                 r: 128,
@@ -272,7 +272,7 @@ fn test_kitchen_sink() {
 
     let cases = vec![
         Case {
-            seq: b"\x1b[1;3;38;5;202;4;48;2;10;20;30m",
+            seq: b"1;3;38;5;202;4;48;2;10;20;30",
             expected_fg: Some(Color::AnsiValue(202)),
             expected_bg: Some(Color::Rgb {
                 r: 10,
@@ -283,7 +283,7 @@ fn test_kitchen_sink() {
             label: "Bold + Italic + Underlined + FG 256 + BG truecolor",
         },
         Case {
-            seq: b"\x1b[20;53m",
+            seq: b"20;53",
             expected_fg: Some(fg),
             expected_bg: Some(bg),
             expected_attrs: vec![Attribute::Fraktur, Attribute::OverLined],
@@ -303,35 +303,35 @@ fn test_invalid() {
 
     let cases = vec![
         Case {
-            seq: b"\x1b[38;5m",
+            seq: b"38;5",
             expected_fg: Some(fg),
             expected_bg: Some(bg),
             expected_attrs: vec![],
             label: "Incomplete 256 FG (missing index)",
         },
         Case {
-            seq: b"\x1b[48;5;999m",
+            seq: b"48;5;999",
             expected_fg: Some(fg),
             expected_bg: Some(bg),
             expected_attrs: vec![],
             label: "Out-of-range 256 BG (999)",
         },
         Case {
-            seq: b"\x1b[38;2;255;0m",
+            seq: b"38;2;255;0",
             expected_fg: Some(fg),
             expected_bg: Some(bg),
             expected_attrs: vec![],
             label: "Incomplete truecolor FG (missing B)",
         },
         Case {
-            seq: b"\x1b[48;2;256;256;256m",
+            seq: b"48;2;256;256;256",
             expected_fg: Some(fg),
             expected_bg: Some(bg),
             expected_attrs: vec![],
             label: "Invalid RGB components (>255)",
         },
         Case {
-            seq: b"\x1b[999m",
+            seq: b"999",
             expected_fg: Some(fg),
             expected_bg: Some(bg),
             expected_attrs: vec![],
