@@ -1,5 +1,7 @@
 //! This module holds helper macros for dealing with paths
 
+/// Recursively create a directory.
+///
 /// Takes a [`&Path`][std::path::Path] and first checks whether it exists or if it is a
 /// directory. If it doesn't exist or is not a directory, it will create
 /// the directory recursively; creating the necessary parent directories.
@@ -32,12 +34,10 @@ macro_rules! create_recursive {
 /// Used to add a `.map_err()` to function calls that return a `Result<T, E>`
 /// to provide better context for the error and print it nicely to stdout.
 ///
-/// Takes 2 arguements and optionally a third and fourth:
+/// Takes 2 arguements and optionally a third for an additional help message.
 /// - The first argument is the expression or function call that would return a `Result<T, E>`
 /// - The second argument is context that better describes the returned error
-/// - The optional third argument is the 'USAGE: sericom ...' that would typically be printed by `clap`
-///   for the respective command
-/// - The optional fourth argument is an additional "help:" message
+/// - The optional third argument is an additional "help:" message
 ///
 /// ## Example
 /// ```
@@ -50,14 +50,7 @@ macro_rules! create_recursive {
 ///     let x = map_miette!(
 ///         SerialPort::open(port, baud),
 ///         format!("Failed to open port '{}'", port),
-///         format!("{} {} [OPTIONS] [PORT] [COMMAND]",
-///             "USAGE:".bold().underlined(),
-///             "sericom".bold()
-///         ),
-///         help = format!(
-///             "To see available ports, try `{}`.",
-///             "sericom list-ports".bold().cyan()
-///         )
+///         help = "To see available ports, try `list ports`."
 ///     )?;
 ///     Ok(())
 /// }
@@ -66,45 +59,22 @@ macro_rules! create_recursive {
 /// ```
 #[macro_export]
 macro_rules! map_miette {
-    // Clap-style USAGE: && additional "help" message
-    ($expr:expr, $wrap_msg:expr, $usage:expr, help = $add_help:expr) => {
+    // Default "help" message
+    ($expr:expr, $wrap_msg:expr) => {
         $expr.map_err(|e| {
-            use crossterm::style::Stylize;
-            miette::miette!(
-                help = format!("{}\nFor more information, try `sericom --help`.", $add_help),
-                "{e}"
-            )
-            .wrap_err(format!("{}\n\n{}\n", $wrap_msg, $usage).red())
-        })
-    };
-
-    // Clap-style USAGE: && default "help" message
-    ($expr:expr, $wrap_msg:expr, $usage:expr) => {
-        $expr.map_err(|e| {
-            use crossterm::style::Stylize;
-            miette::miette!(help = "For more information, try `sericom --help`.", "{e}")
-                .wrap_err(format!("{}\n\n{}\n", $wrap_msg, $usage).red())
+            miette::miette!(help = "For more information, try `help [COMMAND]`.", "{e}")
+                .wrap_err($wrap_msg)
         })
     };
 
     // Additional "help" message
     ($expr:expr, $wrap_msg:expr, help = $add_help:expr) => {
         $expr.map_err(|e| {
-            use crossterm::style::Stylize;
             miette::miette!(
-                help = format!("{}\nFor more information, try `sericom --help`.", $add_help),
+                help = format!("{}\nFor more information, try `help [COMMAND]`.", $add_help),
                 "{e}"
             )
-            .wrap_err(format!("{}", $wrap_msg).red())
-        })
-    };
-
-    // Default "help" message
-    ($expr:expr, $wrap_msg:expr) => {
-        $expr.map_err(|e| {
-            use crossterm::style::Stylize;
-            miette::miette!(help = "For more information, try `sericom --help`.", "{e}")
-                .wrap_err(format!("{}", $wrap_msg).red())
+            .wrap_err($wrap_msg)
         })
     };
 }
@@ -188,6 +158,15 @@ macro_rules! compat_port_path {
         ))
     }};
 
+    (trace, $dir:expr) => {{
+        use chrono;
+
+        $dir.join(format!(
+            "sericom-log-{}.txt",
+            chrono::Utc::now().format("%m%d%H%M")
+        ))
+    }};
+
     ($out_dir:expr, $port:expr) => {{
         use chrono;
 
@@ -203,11 +182,19 @@ macro_rules! compat_port_path {
         use chrono;
 
         let path_port = $crate::path_utils::get_compat_port_path($port)?;
-        PathBuf::from(format!(
-            "./{}-{}.txt",
-            path_port.display(),
-            chrono::Utc::now().format("%m%d%H%M"),
-        ))
+        if path_port.is_absolute() {
+            PathBuf::from(format!(
+                "{}-{}.txt",
+                path_port.display(),
+                chrono::Utc::now().format("%m%d%H%M"),
+            ))
+        } else {
+            PathBuf::from(format!(
+                "./{}-{}.txt",
+                path_port.display(),
+                chrono::Utc::now().format("%m%d%H%M"),
+            ))
+        }
     }};
 }
 
@@ -343,5 +330,18 @@ impl ExpandPaths for std::path::PathBuf {
         expand_path!(self, "%VIDEOS%", to = "Videos");
         expand_path!(self, "%PUBLIC%", to = "Public");
         Some(self)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    #[test]
+    fn assert_expanded_home_path() {
+        use crate::path_utils::ExpandPaths;
+
+        let path = PathBuf::from("~");
+        assert_eq!(path.get_expanded_path(), std::env::home_dir());
     }
 }

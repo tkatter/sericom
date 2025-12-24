@@ -8,10 +8,16 @@
 //! create an [issue](https://github.com/tkatter/sericom) so I can become aware and work
 //! towards making `sericom-core` a generalized/compatible library that is better suited
 //! for use among other crates.
+#![allow(clippy::missing_errors_doc)]
+#![allow(clippy::missing_panics_doc)]
+// #![feature(vec_into_raw_parts)]
 
 pub mod cli;
 pub mod configs;
-pub mod debug;
 pub mod path_utils;
-pub mod screen_buffer;
+pub mod screen;
 pub mod serial_actor;
+pub mod session;
+pub mod ui;
+pub use session::SeriError;
+pub type Result<T> = std::result::Result<T, SeriError>;

@@ -13,7 +13,12 @@ use crate::{
     create_recursive,
 };
 use serde::Deserialize;
-use std::{io::Read, ops::Range, path::PathBuf, sync::OnceLock};
+use std::{
+    io::Read,
+    ops::Range,
+    path::PathBuf,
+    sync::{LockResult, OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard},
+};
 
 /// Global value of the user's config.
 ///
@@ -21,13 +26,15 @@ use std::{io::Read, ops::Range, path::PathBuf, sync::OnceLock};
 /// underlying [`Config`] must be made before calling [`initialize_config()`].
 ///
 /// To get a reference to the global config during runtime, call [`get_config()`].
-pub static CONFIG: OnceLock<Config> = OnceLock::new();
+pub static CONFIG: OnceLock<RwLock<Config>> = OnceLock::new();
 
 /// Represents the entire `config.toml` configuration file.
 ///
 /// See [`Appearance`] and [`Defaults`]
-#[derive(Default, Debug, Deserialize, PartialEq)]
+#[derive(Default, Debug, Deserialize, PartialEq, Eq)]
 pub struct Config {
+    // Global fields for cli behaviors??
+    // color: ["always", "never", "auto"]
     #[serde(default)]
     pub appearance: Appearance,
     #[serde(default)]
@@ -42,10 +49,22 @@ impl Config {
         if let Some(dir) = overrides.out_dir {
             self.defaults.out_dir = dir;
         }
-        if let Some(script) = overrides.exit_script {
+        if let Some(script) = overrides.script {
             self.defaults.exit_script = Some(script);
         }
     }
+}
+
+#[cfg(test)]
+static INIT: std::sync::Once = std::sync::Once::new();
+
+#[cfg(test)]
+pub fn init_for_tests() {
+    INIT.call_once(|| {
+        CONFIG
+            .set(RwLock::new(Config::default()))
+            .expect("init config");
+    });
 }
 
 /// This function constructs a global `static CONFIG` for the rest of the program's
@@ -60,7 +79,7 @@ impl Config {
 ///
 /// Returns a [`ConfigError::AlreadyInitialized`] error if called after it has
 /// already been called ([`CONFIG`] has already been set).
-pub fn initialize_config(overrides: ConfigOverride) -> miette::Result<(), ConfigError> {
+pub fn initialize_config(overrides: Option<ConfigOverride>) -> miette::Result<(), ConfigError> {
     let mut config: Config = if let Ok(config_file) = get_config_file() {
         let mut file = std::fs::File::open(config_file).expect("File should exist");
         let mut contents = String::new();
@@ -76,14 +95,17 @@ pub fn initialize_config(overrides: ConfigOverride) -> miette::Result<(), Config
         Config::default()
     };
 
-    config.apply_overrides(overrides);
+    if let Some(overrides) = overrides {
+        config.apply_overrides(overrides);
+    }
 
     CONFIG
-        .set(config)
+        .set(RwLock::new(config))
         .map_err(|_| ConfigError::AlreadyInitialized)?;
     Ok(())
 }
 
+// TODO: UPDATE DOCS
 /// When called, [`get_config()`] returns a reference to the global [`CONFIG`]
 /// that was initialized at the start of the program.
 ///
@@ -91,8 +113,21 @@ pub fn initialize_config(overrides: ConfigOverride) -> miette::Result<(), Config
 ///
 /// ## Panics
 /// Will panic if [`CONFIG`] as not been initialized before calling with [`initialize_config()`].
-pub fn get_config() -> &'static Config {
-    CONFIG.get().expect("Config not initialized")
+pub fn get_config<'a>() -> miette::Result<RwLockReadGuard<'a, Config>> {
+    // thinking is not try_read because when this method is called, it is
+    // called because the values _are needed_ for initializing other things
+    // so returning an Err from try_read is not helpful - would rather have it
+    // block until it gets a read lock than get an err if it wasn't ready
+    CONFIG
+        .get()
+        .expect("Config not initialized")
+        .read()
+        .map_err(|e| miette::miette!("{e}").wrap_err("Failed to read config"))
+}
+
+// TODO: UPDATE DOCS
+pub fn get_mut_config<'a>() -> LockResult<RwLockWriteGuard<'a, Config>> {
+    CONFIG.get().expect("Config not initialized").write()
 }
 
 #[derive(Debug)]
@@ -103,7 +138,7 @@ pub struct ConfigOverride {
     /// Overrides [`Defaults::out_dir`]
     pub out_dir: Option<PathBuf>,
     /// Overrides [`Defaults::exit_script`]
-    pub exit_script: Option<PathBuf>,
+    pub script: Option<PathBuf>,
 }
 
 fn get_conf_dir() -> std::path::PathBuf {
@@ -144,7 +179,6 @@ fn parse_test_config() -> miette::Result<()> {
 
             [defaults]
             out-dir = "$HOME/.config"
-            exit-script = "~/.local/bin/format-cisco"
             "#,
     )
     .into_diagnostic()?;
@@ -156,9 +190,7 @@ fn parse_test_config() -> miette::Result<()> {
         },
         defaults: Defaults {
             out_dir: PathBuf::from("/home/thomas/.config"),
-            exit_script: Some(PathBuf::from("/home/thomas/.local/bin/format-cisco")),
-            debug_dir: PathBuf::from("/home/thomas/Code/Work/sericom/sericom-core"),
-            // file_exit_script: None,
+            ..Default::default()
         },
     };
 
@@ -169,16 +201,16 @@ fn parse_test_config() -> miette::Result<()> {
 #[test]
 fn check_conf_dir_is_dir() {
     let dir = get_conf_dir();
-    assert!(std::fs::metadata(dir).unwrap().is_dir())
+    assert!(std::fs::metadata(dir).unwrap().is_dir());
 }
 
 #[test]
 fn valid_conf_dir() {
     let dir = get_conf_dir();
     if cfg!(target_family = "windows") {
-        assert_eq!(dir.to_str().unwrap(), "C:\\Users\\Thomas\\.config\\sericom")
+        assert_eq!(dir.to_str().unwrap(), "C:\\Users\\Thomas\\.config\\sericom");
     } else {
-        assert_eq!(dir.to_str().unwrap(), "/home/thomas/.config/sericom")
+        assert_eq!(dir.to_str().unwrap(), "/home/thomas/.config/sericom");
     }
 }
 
@@ -203,7 +235,7 @@ fn get_expanded_path() {
         p2,
         PathBuf::from("/home/thomas/.config/sericom/config.toml")
     );
-    assert_eq!(p3, PathBuf::from("/home/thomas/.config/some/path"))
+    assert_eq!(p3, PathBuf::from("/home/thomas/.config/some/path"));
 }
 
 // #[test]

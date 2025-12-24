@@ -1,5 +1,5 @@
 [workspace]
-members = ["sericom", "sericom-core"]
+members = ["sericom", "sericom-core", "test-sericom"]
 resolver = "3"
 
 [workspace.package]
@@ -11,13 +11,22 @@ repository = "https://github.com/tkatter/sericom"
 [workspace.dependencies]
 chrono = "0.4.42"
 crossterm = { version = "0.29.0", features = ["osc52", "event-stream"] }
-miette = { version = "7.6.0", features = ["fancy"] }
-serial2-tokio = { version = "0.1.19", features = ["windows"] }
+miette = "7.6.0"
 tokio = { version = "1.48.0", features = ["full"] }
-tracing = "0.1.41"
+serial2-tokio = "0.1.19"
+tracing = "0.1.43"
 
 [patch.crates-io]
 sericom-core = { path = "sericom-core" }
+
+# Keeps usefull information for perf report
+[profile.perf]
+inherits = "release"
+debug = true          # keep DWARF info for perf/flamegraph
+lto = "fat"           # don't merge crates; keeps crate boundaries visible
+codegen-units = 1     # better optimizer consistency
+opt-level = 3         # full optimization
+strip = "none"        # ensure debug info isn't stripped
 
 # The profile that 'dist' will build with
 [profile.dist]

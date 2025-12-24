@@ -2,6 +2,7 @@ use crate::path_utils::{ExpandPaths, is_executable};
 use serde::{Deserialize, Deserializer};
 use std::path::PathBuf;
 
+#[allow(clippy::doc_markdown)]
 /// Represents the `[defaults]` table of the `config.toml` file.
 ///
 /// The `[defaults]` table holds configuration values for how sericom
@@ -9,7 +10,7 @@ use std::path::PathBuf;
 /// where files will be created when running `sericom -f path/to/file [PORT]`.
 ///
 /// The default values (if no config exists) is the current directory. Uses
-/// [`current_dir`] which corresponds to getcwd on Unix and GetCurrentDirectoryW
+/// [`current_dir`] which corresponds to getcwd on Unix and GetCurrentDirectory
 /// on Windows. If this fails it simply uses "./".
 ///
 /// ```toml
@@ -21,7 +22,7 @@ use std::path::PathBuf;
 /// ```
 ///
 /// [`current_dir`]: std::env::current_dir()
-#[derive(Debug, Deserialize, PartialEq)]
+#[derive(Debug, Deserialize, Eq, PartialEq)]
 pub struct Defaults {
     #[serde(rename = "out-dir")]
     #[serde(default = "default_out_dir")]
@@ -51,7 +52,12 @@ impl Default for Defaults {
 
 fn default_out_dir() -> PathBuf {
     use std::env::current_dir;
-    current_dir().unwrap_or(PathBuf::from("./"))
+    current_dir().unwrap_or_else(|_| {
+        #[cfg(not(windows))]
+        return PathBuf::from("./");
+        #[cfg(windows)]
+        return PathBuf::from(".\\");
+    })
 }
 
 fn validate_dir<'de, D>(deserializer: D) -> Result<PathBuf, D::Error>
@@ -62,7 +68,7 @@ where
 
     let p = PathBuf::deserialize(deserializer)?
         .get_expanded_path()
-        .ok_or(Error::custom("Error expanding path."))?;
+        .ok_or_else(|| Error::custom("Error expanding path."))?;
     if !p.exists() || !p.is_dir() {
         return Err(serde::de::Error::custom(
             "Error setting out-dir, Either does not exist or is not a directory",
@@ -79,7 +85,7 @@ where
 
     let p = PathBuf::deserialize(deserializer)?
         .get_expanded_path()
-        .ok_or(Error::custom("Error expanding path."))?;
+        .ok_or_else(|| Error::custom("Error expanding path."))?;
     if !p.exists() || !p.is_file() {
         return Err(serde::de::Error::custom(
             "Error retrieving file, Either does not exist or is not a file",

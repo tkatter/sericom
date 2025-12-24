@@ -7,169 +7,37 @@
 //! scripts is to be able to automate tasks that take place over a serial connection i.e.
 //! configuration, resetting, getting statistics, etc.
 
-use clap::{CommandFactory, Parser, Subcommand};
-use crossterm::style::Stylize;
-use miette::{Context, IntoDiagnostic};
-use sericom_core::{
-    cli::{
-        color_parser, get_settings, interactive_session, list_serial_ports, open_connection,
-        valid_baud_rate,
-    },
-    configs::{get_config, initialize_config},
-    path_utils::{is_script, validate_dir},
-};
-use std::{
-    fmt::Display,
-    io::{self, Write},
-    path::{Path, PathBuf},
-};
+use miette::{Context as _, IntoDiagnostic};
+use sericom_core::configs::{get_config, initialize_config};
+use std::path::Path;
+use tracing_subscriber::filter::FilterExt;
 
-#[derive(Parser)]
-#[command(name = "sericom", version, about, long_about = None)]
-#[command(propagate_version = true)]
-struct Cli {
-    /// The path to a serial port.
-    ///
-    /// For Linux/MacOS something like `/dev/tty1`, Windows `COM1`.
-    port: Option<String>,
-    /// Baud rate for the serial connection.
-    #[arg(short, long, value_parser = valid_baud_rate, default_value_t = 9600)]
-    baud: u32,
-    #[clap(flatten)]
-    config_override: ConfigOverrides,
-    /// Path to a file for the output.
-    #[arg(short, long)]
-    file: Option<Option<PathBuf>>,
-    /// Display debug output
-    #[arg(short, long)]
-    debug: bool,
-    #[command(subcommand)]
-    command: Option<Commands>,
-}
-
-#[allow(clippy::enum_variant_names)]
-#[derive(Subcommand)]
-enum Commands {
-    /// Lists valid baud rates
-    Bauds,
-    /// Lists all available serial ports
-    Ports,
-    /// Gets the settings for a serial port
-    Settings {
-        #[arg(short, long, value_parser = valid_baud_rate, default_value_t = 9600)]
-        baud: u32,
-        /// Path to the port to open
-        #[arg(short, long)]
-        port: String,
-    },
-}
-
-#[derive(Parser, Debug)]
-struct ConfigOverrides {
-    /// Set the forground color for the text
-    #[arg(short, long, requires_all = &["port"], value_parser = color_parser)]
-    color: Option<sericom_core::configs::SeriColor>,
-    /// Override the `out-dir` for the file
-    ///
-    /// Alternatively could simply use the absolute path
-    #[arg(short, long, requires_all = &["port", "file"], value_parser = validate_dir)]
-    out_dir: Option<PathBuf>,
-    /// Override the `exit-script` that's run after writing to a file
-    #[arg(long, requires_all = &["port", "file"], value_parser = is_script)]
-    exit_script: Option<PathBuf>,
-}
-
-impl From<ConfigOverrides> for sericom_core::configs::ConfigOverride {
-    fn from(overrides: ConfigOverrides) -> Self {
-        sericom_core::configs::ConfigOverride {
-            color: overrides.color,
-            out_dir: overrides.out_dir,
-            exit_script: overrides.exit_script,
-        }
-    }
-}
+mod repl;
+use repl::*;
 
 #[tokio::main]
 async fn main() -> miette::Result<()> {
-    let cli = Cli::parse();
+    initialize_config(None)?;
+    let _trace_guard: Option<tracing_appender::non_blocking::WorkerGuard> = {
+        let config = get_config().unwrap();
+        let dbg_dir = config.defaults.debug_dir.as_path();
+        init_tracing(dbg_dir)?
+    };
 
-    if cli.port.is_none() && cli.command.is_none() {
-        let mut cmd = Cli::command();
-        cmd.error(
-            clap::error::ErrorKind::MissingRequiredArgument,
-            "Missing either PORT or COMMAND.",
-        )
-        .exit();
-    }
-
-    if cli.port.is_some() && cli.command.is_some() {
-        let mut cmd = Cli::command();
-        cmd.error(
-            clap::error::ErrorKind::ArgumentConflict,
-            "Must specify either PORT or SUBCOMMAND, not both.",
-        )
-        .exit();
-    }
-
-    if let Some(ref port) = cli.port {
-        let connection = open_connection(cli.baud, port)?;
-        let overrides: sericom_core::configs::ConfigOverride = cli.config_override.into();
-
-        if let Some(Some(path)) = &cli.file
-            && path.is_dir()
-        {
-            return Err(miette::miette!(
-                "Could not create file at: '{}' because it is a directory.",
-                path.display()
-            ));
-        }
-        initialize_config(overrides)?;
-        // Need to hold the guard in `main`'s scope
-        let _guard: Option<tracing_appender::non_blocking::WorkerGuard> = if let Some(ref port) =
-            cli.port
-            && cli.debug
-        {
-            let config = get_config();
-            let out_dir = config.defaults.debug_dir.as_path();
-            init_tracing(out_dir, port)?
-        } else {
-            None
-        };
-        interactive_session(connection, cli.file, cli.debug, port).await?;
-    } else if let Some(cmd) = cli.command {
-        match cmd {
-            Commands::Bauds => {
-                let mut stdout = io::stdout();
-                write!(stdout, "Valid baud rates:\r\n")
-                    .into_diagnostic()
-                    .wrap_err("Failed to write to stdout.".red())?;
-                for baud in serial2_tokio::COMMON_BAUD_RATES {
-                    write!(stdout, "{baud}\r\n")
-                        .into_diagnostic()
-                        .wrap_err("Failed to write to stdout.".red())?;
-                }
-            }
-            Commands::Ports => {
-                list_serial_ports()?;
-            }
-            Commands::Settings { baud, port } => {
-                get_settings(baud, &port)?;
-            }
-        }
-    }
-    Ok(())
+    run_repl().await
 }
 
-fn init_tracing<S>(
-    out_dir: &Path,
-    port: S,
-) -> miette::Result<Option<tracing_appender::non_blocking::WorkerGuard>>
-where
-    S: AsRef<str> + Display + Into<PathBuf>,
-{
+fn init_tracing(
+    dbg_dir: &Path,
+) -> miette::Result<Option<tracing_appender::non_blocking::WorkerGuard>> {
     use sericom_core::compat_port_path;
+    use tracing::level_filters::LevelFilter;
+    use tracing_subscriber::EnvFilter;
+    use tracing_subscriber::layer::{Layer, SubscriberExt};
+    use tracing_subscriber::util::SubscriberInitExt;
+    use tracing_subscriber::{filter, fmt};
 
-    let path = compat_port_path!(out_dir, port, prefix = "trace");
+    let path = compat_port_path!(trace, dbg_dir);
     let file = std::fs::File::options()
         .write(true)
         .create(true)
@@ -177,16 +45,32 @@ where
         .open(&path)
         .into_diagnostic()
         .wrap_err_with(|| format!("Failed to create '{}'", path.display()))?;
+
     let (non_blocking, guard) = tracing_appender::non_blocking(file);
-    let subscriber = tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::DEBUG)
-        .with_writer(non_blocking)
-        // .without_time()
-        .with_line_number(false)
-        .with_target(false)
-        .finish();
-    tracing::subscriber::set_global_default(subscriber)
-        .into_diagnostic()
-        .wrap_err("Failed to set subscriber")?;
+
+    let targets_filter = filter::Targets::new()
+        .with_target("sericom_core", tracing::Level::TRACE)
+        .with_target("sericom", tracing::Level::TRACE)
+        .with_default(tracing::Level::ERROR);
+    let env_filter = EnvFilter::builder()
+        .with_default_directive(
+            //     #[cfg(debug_assertions)]
+            //     LevelFilter::TRACE.into(),
+            //     #[cfg(not(debug_assertions))]
+            LevelFilter::INFO.into(),
+        )
+        .with_env_var("SERI_LOG")
+        .from_env_lossy();
+
+    tracing_subscriber::registry()
+        .with(
+            fmt::layer()
+                .with_writer(non_blocking)
+                .with_line_number(false)
+                .with_target(true),
+        )
+        .with(targets_filter.and_then(env_filter))
+        .init();
+
     Ok(Some(guard))
 }

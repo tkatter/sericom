@@ -3,10 +3,11 @@
 
 pub mod tasks;
 
-/// Represents messages/commands that are sent from worker tasks
-/// to the [`SerialActor`] to process.
+use crate::SeriError;
+
+/// Represents messages/commands that are sent from worker tasks to the [`SerialActor`] to process.
 #[non_exhaustive]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum SerialMessage {
     /// Instructs the [`SerialActor`] to write bytes (`Vec<u8>`) to the serial connection.
     Write(Vec<u8>),
@@ -24,13 +25,20 @@ pub enum SerialEvent {
     /// Sends data received by the [`SerialActor`] to its tasks.
     Data(std::sync::Arc<[u8]>),
     /// Sends the error message received by the [`SerialActor`] to its tasks to handle.
-    Error(String),
+    Error(SeriError),
     /// Tells the [`SerialActor`]s tasks that the serial connection has been closed.
+    ///
+    /// This serves a different purpose from [`SerialMessage::Shutdown`] where
+    /// [`SerialMessage::Shutdown`] is mean to instruct the [`SerialActor`] to
+    /// shutdown the connection. `ConnectionClosed` is used for the [`SerialActor`]
+    /// to broadcast to listeners that the connection has been shutdown by the device.
     ConnectionClosed,
+    LinesWritten(u32),
 }
 
 /// Responsible for passing data and messages between the serial connection and tasks.
-/// It uses the Actor model to maintain a single source for communicating between the
+///
+/// Uses the Actor model to maintain a single source for communicating between the
 /// serial connection and tasks within the program.
 ///
 /// It broadcasts [`SerialEvent`]s to worker tasks via a [`tokio::sync::broadcast`]
@@ -39,21 +47,22 @@ pub enum SerialEvent {
 pub struct SerialActor {
     connection: serial2_tokio::SerialPort,
     command_rx: tokio::sync::mpsc::Receiver<SerialMessage>,
-    broadcast_channel: tokio::sync::broadcast::Sender<SerialEvent>,
+    tasks_broadcast: tokio::sync::broadcast::Sender<SerialEvent>,
 }
 
 impl SerialActor {
     /// Constructs a [`SerialActor`] Takes a serial port connection,
     /// receiver to a command channel, and a sender to a broadcast channel.
-    pub fn new(
+    #[must_use]
+    pub const fn new(
         connection: serial2_tokio::SerialPort,
         command_rx: tokio::sync::mpsc::Receiver<SerialMessage>,
-        broadcast_channel: tokio::sync::broadcast::Sender<SerialEvent>,
+        tasks_broadcast: tokio::sync::broadcast::Sender<SerialEvent>,
     ) -> Self {
         Self {
             connection,
             command_rx,
-            broadcast_channel,
+            tasks_broadcast,
         }
     }
 
@@ -66,41 +75,55 @@ impl SerialActor {
     ///
     /// Since data is sent byte-by-byte over a serial connection, `run` will
     /// batch the data before sending it to other tasks to reduce the number of syscalls.
-    pub async fn run(mut self) {
-        let mut buffer = vec![0u8; 4096];
+    #[tracing::instrument(skip_all, level = "debug")]
+    pub async fn run(mut self) -> crate::Result<()> {
+        use tracing::{debug, error, trace};
+
+        trace!("running SerialActor");
+        let mut buffer = vec![0u8; 2048];
         loop {
             tokio::select! {
                 // Handle commands/input from tasks
                 cmd = self.command_rx.recv() => {
+                    trace!(?cmd, "command_rx.recv()");
                     match cmd {
                         Some(SerialMessage::Write(data)) => {
                             if let Err(e) = self.connection.write_all(&data).await {
-                                self.broadcast_channel.send(SerialEvent::Error(e.to_string())).ok();
+                                error!("error writing to connection: {e}");
+                                return Err(crate::SeriError::from(e).add_ctx("Error writing to the connection".into()));
                             }
                         }
                         Some(SerialMessage::Shutdown) => {
-                            self.broadcast_channel.send(SerialEvent::ConnectionClosed).ok();
+                            debug!("recieved shutdown command");
+                            self.tasks_broadcast.send(SerialEvent::ConnectionClosed).ok();
+                            return Ok(());
                         }
                         Some(SerialMessage::SendBreak) => {
-                            self.send_break().await;
+                            debug!("sending break signal");
+                            // self.send_break().await;
                         }
-                        None => break,
+                        None => {
+                            trace!("command_rx.recv() was None");
+                            return Err(SeriError::TaskError("No active tasks, shutting down.".into()));
+                        }
                     }
                 }
                 // Handle reading data from serial connection
                 read_result = self.connection.read(&mut buffer) => {
                     match read_result {
                         Ok(0) => {
-                            self.broadcast_channel.send(SerialEvent::ConnectionClosed).ok();
-                            break;
+                            debug!("closing connection - no bytes read");
+                            self.tasks_broadcast.send(SerialEvent::ConnectionClosed).ok();
+                            return Ok(());
                         }
                         Ok(n) => {
                             let data: std::sync::Arc<[u8]> = buffer[..n].into();
-                            self.broadcast_channel.send(SerialEvent::Data(data)).ok();
+                            trace!("recieved {} bytes", data.len());
+                            self.tasks_broadcast.send(SerialEvent::Data(data)).ok();
                         }
                         Err(e) => {
-                            self.broadcast_channel.send(SerialEvent::Error(e.to_string())).ok();
-                            break;
+                            error!("error reading from connection: {e}");
+                            return Err(SeriError::from(e).add_ctx("Error reading from connection".into()));
                         }
                     }
                 }
@@ -108,7 +131,7 @@ impl SerialActor {
         }
     }
 
-    async fn send_break(&mut self) {
+    async fn send_break(&self) {
         use tokio::time::{Duration, sleep};
         let _ = self.connection.set_break(true);
         sleep(Duration::from_millis(500)).await;
