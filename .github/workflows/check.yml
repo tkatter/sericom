@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     name: stable / fmt
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: Install stable
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     name: stable + beta / clippy
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: Stable clippy
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -35,7 +35,7 @@ jobs:
     runs-on: ubuntu-latest
     name: nightly / doc
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: Install nightly
         uses: dtolnay/rust-toolchain@nightly
       - run: cargo doc --no-deps --all-features
@@ -45,7 +45,7 @@ jobs:
     runs-on: windows-latest
     name: stable / check (Windows)
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: Install stable
         uses: dtolnay/rust-toolchain@stable
       - name: Check for Windows
@@ -54,7 +54,7 @@ jobs:
     runs-on: ubuntu-latest
     name: stable / check (Ubuntu)
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: Install stable
         uses: dtolnay/rust-toolchain@stable
       - name: Check for Ubuntu
